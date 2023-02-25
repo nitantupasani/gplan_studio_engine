@@ -15,6 +15,10 @@ import pythongui.dimensiongui as dimgui
 import circulation as cir
 import matplotlib.pyplot as plt
 import copy
+
+
+import source.lettershape.lshape.Lshaped as Lshaped
+
 # import checker
 # from tkinter import messagebox
 # import dimension_gui as dimgui
@@ -270,27 +274,108 @@ def run():
                             ,origin)
                             
             elif gclass.command == "letter_shape":
-                start = time.time()
-                inputgraph.lettershape(graph, gclass.app.nodes_data, gclass.letter)
-                end = time.time()
-                graph_data = {
-                    'room_x': graph.room_x,
-                    'room_y': graph.room_y,
-                    'room_width': graph.room_width,
-                    'room_height': graph.room_height,
-                    'area': graph.area,
-                    'extranodes': graph.extranodes,
-                    'mergednodes': graph.mergednodes,
-                    'irreg_nodes': graph.irreg_nodes1
-                }
-                draw.draw_rdg(graph_data
-                              , 1
-                              , gclass.pen
-                              , 1
-                              , gclass.value[6]
-                              , []
-                              , origin)
-
+                if(gclass.value[4] == 0): #Non-Dimensioned Letter Shape
+                    start = time.time()
+                    if(gclass.letter == "L Shape"):
+                        Lshaped.LShapedFloorplan(graph, gclass.app.nodes_data)
+                    # elif(letter == "T Shape"):
+                    #     source.lettershape.tshape.tshape.TShapedFloorplan(graph)
+                    # elif(letter == "Z Shape"):
+                    #     source.lettershape.zshape.zshape.ZShapedFloorplan(graph)
+                    # elif(letter == "U Shape"):
+                    #     source.lettershape.ushape.ushape.UShapedFloorplan(graph)
+                    end = time.time()
+                    print("REL MATRIX \n", graph.matrix)
+                    graph_data = {
+                        'room_x': graph.room_x,
+                        'room_y': graph.room_y,
+                        'room_width': graph.room_width,
+                        'room_height': graph.room_height,
+                        'area': graph.area,
+                        'extranodes': graph.extranodes,
+                        'mergednodes': graph.mergednodes,
+                        'irreg_nodes': graph.irreg_nodes1
+                    }
+                    draw.draw_rdg(graph_data
+                                , 1
+                                , gclass.pen
+                                , 1
+                                , gclass.value[6]
+                                , []
+                                , origin)
+                else:
+                    old_dims = [[0] * gclass.value[0]
+                        , [0] * gclass.value[0]
+                        , [0] * gclass.value[0]
+                        , [0] * gclass.value[0]
+                        , ""
+                        , [0] * gclass.value[0]
+                        , [0] * gclass.value[0]]
+                    min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(
+                        old_dims, gclass.value[0])
+                    start = time.time()   
+                    if(gclass.letter == "L Shape"):
+                        Lshaped.LShapedFloorplan(graph, gclass.app.nodes_data)
+                    # elif(letter == "T Shape"):
+                    #     source.lettershape.tshape.tshape.TShapedFloorplan(graph)
+                    # elif(letter == "Z Shape"):
+                    #     source.lettershape.zshape.zshape.ZShapedFloorplan(graph)
+                    # elif(letter == "U Shape"):
+                    #     source.lettershape.ushape.ushape.UShapedFloorplan(graph)
+                    
+                    graph.rel_matrix_list.append(graph.matrix) #All rels are in it. Currently we have only 1.
+                    
+                    # Since multiple rfp are generated before calling single_floorplan, all the parameters need to be
+                    # converted list of lists
+                    temp_lst = []
+                    temp_lst.append(graph.extranodes)
+                    graph.extranodes = temp_lst
+                    temp_lst = []
+                    temp_lst.append(graph.mergednodes)
+                    graph.mergednodes = temp_lst
+                    temp_lst = []
+                    temp_lst.append(graph.irreg_nodes1)
+                    graph.irreg_nodes1 = temp_lst
+                    temp_lst = []
+                    temp_lst.append(graph.room_x)
+                    graph.room_x = temp_lst
+                    temp_lst = []
+                    temp_lst.append(graph.room_y)
+                    graph.room_y = temp_lst
+                    temp_lst = []
+                    temp_lst.append(graph.room_width)
+                    graph.room_width = temp_lst
+                    temp_lst = []
+                    temp_lst.append(graph.room_height)
+                    graph.room_height = temp_lst
+                    
+                    graph.nodecnt -= 4 # Because Lshaped was counting NESW as well
+                    
+                    graph.single_floorplan(min_width, min_height, max_width, max_height, symm_string, min_aspect,
+                                           max_aspect, plot_width, plot_height)
+                    
+                    # Add code here in case multiple RELs get generated.
+                    
+                    end = time.time()
+                    printe("Time taken: " + str((end - start) * 1000) + " ms") 
+                    graph_data = {
+                        'room_x': graph.room_x,
+                        'room_y': graph.room_y,
+                        'room_width': graph.room_width,
+                        'room_height': graph.room_height,
+                        'area': graph.area,
+                        'extranodes': graph.extranodes,
+                        'mergednodes': graph.mergednodes,
+                        'irreg_nodes': graph.irreg_nodes1
+                    }
+                    draw.draw_rdg(graph_data
+                                , 1
+                                , gclass.pen
+                                , 1
+                                , gclass.value[6]
+                                , []
+                                , origin)
+                    
             elif (gclass.command == "staircase_shaped"):
                 start = time.time()
                 inputgraph.staircaseshaped(graph)
