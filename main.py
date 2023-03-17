@@ -18,6 +18,9 @@ import copy
 
 
 import source.lettershape.lshape.Lshaped as Lshaped
+import source.lettershape.tshape.tshape as Tshaped
+import source.lettershape.ushape.ushape as Ushaped
+import source.lettershape.zshape.zshape as Zshaped
 
 # import checker
 # from tkinter import messagebox
@@ -278,12 +281,12 @@ def run():
                     start = time.time()
                     if(gclass.letter == "L Shape"):
                         Lshaped.LShapedFloorplan(graph, gclass.app.nodes_data)
-                    # elif(letter == "T Shape"):
-                    #     source.lettershape.tshape.tshape.TShapedFloorplan(graph)
-                    # elif(letter == "Z Shape"):
-                    #     source.lettershape.zshape.zshape.ZShapedFloorplan(graph)
-                    # elif(letter == "U Shape"):
-                    #     source.lettershape.ushape.ushape.UShapedFloorplan(graph)
+                    elif(gclass.letter == "T Shape"):
+                        Tshaped.TShapedFloorplan(graph)
+                    elif(gclass.letter == "Z Shape"):
+                        Zshaped.ZShapedFloorplan(graph)
+                    elif(gclass.letter == "U Shape"):
+                        Ushaped.UShapedFloorplan(graph)
                     end = time.time()
                     print("REL MATRIX \n", graph.matrix)
                     graph_data = {
