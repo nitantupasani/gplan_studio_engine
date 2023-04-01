@@ -5,7 +5,7 @@ from networkx.algorithms.core import core_number
 from networkx.classes import graph
 
 from source.floorplangen import rdg
-from source.lettershape.lshape.canonical import canonical
+from source.lettershape.lshape.modifiedCanonical import canonical
 import source.boundary.cip as cip
 import source.graphoperations.operations as opr
 import numpy as np
@@ -33,6 +33,7 @@ def LShapedFloorplan(graph, nodes_data):
     cip = find_cips(graph)
     if len(cip) > 5:
         return "cips greater than 5"
+    print("len of cip {}".format(len(cip)))
     triplet = find_triplet(graph)
     path1 = find_paths(graph, triplet, cip)
     print("checking path1", path1)
@@ -40,6 +41,7 @@ def LShapedFloorplan(graph, nodes_data):
     print("checking new_adjacency_matrix", new_adjacency_mat)
     graph.user_matrix = new_adjacency_mat
     graph.cip = find_cips(graph)
+    print("len of cip {}".format(len(graph.cip)))
     new_adjacency_mat = add_NESW(graph, new_adjacency_mat, path1)
     graph.matrix = new_adjacency_mat
     graph.matrix[graph.north][graph.south] = 1
@@ -48,7 +50,7 @@ def LShapedFloorplan(graph, nodes_data):
 
     can = canonical()
     can.displayInputGraph(graph.nodecnt, graph.matrix, nodes_data)
-    can.runWithArguments(graph.nodecnt, graph.west, graph.south, graph.north, triplet, graph, graph.matrix)
+    can.runWithArguments(graph.nodecnt, graph.west, graph.south, graph.north, triplet, graph, graph.matrix,cip)
     graph.matrix[graph.north][graph.south] = 0
     graph.matrix[graph.south][graph.north] = 0
     print(can.graph_data['indexToCanOrd'])
