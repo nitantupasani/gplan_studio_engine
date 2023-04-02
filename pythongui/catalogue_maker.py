@@ -109,14 +109,15 @@ def get_scale(rfp_data, grid_w=100, grid_h=100): #Calculates the scaling factor 
     scale = max( grid_h/plot_height, grid_w/plot_width) / 8
     return scale
 
-def draw_one_rfp(pdf: PDF, x, y, rfp_data, grid_w=100, grid_h=100, dimensioned = 0, scale_val = 1):
+def draw_one_rfp(pdf: PDF, x, y, rfp_data, room_name = [], grid_w=100, grid_h=100, dimensioned = 0, scale_val = 1, is_rb = False):
     em = make_encoded_matrix(len(rfp_data['room_x']), rfp_data['room_x'], rfp_data['room_y'], rfp_data['room_width'], rfp_data['room_height'])
 
     # scale = get_scale(rfp_data, grid_w, grid_h)
     scale = scale_val
-    # print("draw scale", scale)
+    print("draw scale", scale)
     
     flag = 0
+    i=0
     for each_room in range(len(rfp_data['room_x'])):
         if each_room in rfp_data['extranodes']:
             continue
@@ -208,107 +209,56 @@ def draw_one_rfp(pdf: PDF, x, y, rfp_data, grid_w=100, grid_h=100, dimensioned =
 
         if dimensioned == 1:
             if each_room not in rfp_data['mergednodes']:
-                x_disp = 0
-                y_disp = scale/2
-
-                #  Previous area display code
-
-                # if rfp_data['room_width'][each_room] > 1 and rfp_data['room_height'][each_room] > 1:
-                #     message = str(rfp_data['room_width'][each_room]) + ' X ' + str(rfp_data['room_height'][each_room])
-                # elif rfp_data['room_width'][each_room] == 1 and rfp_data['room_height'][each_room] > 1:
-                #     x_disp = 1
-                #     message = str(rfp_data['room_width'][each_room]) + " X"
-                #     pdf.text(
-                #         x + scale * int(rfp_data['room_x'][each_room]) + x_disp,
-                #         y + scale * int(rfp_data['room_y'][each_room]) + y_disp,
-                #         txt=message)
-                #     y_disp = 8
-                #     message = str(rfp_data['room_height'][each_room])
-                # else:
-                #     x_disp = 1
-                #     y_disp = 4
-                #     message = str(rfp_data['room_width'][each_room]) + " X"
-                #     pdf.text(
-                #         x + scale * int(rfp_data['room_x'][each_room]) + x_disp,
-                #         y + scale * int(rfp_data['room_y'][each_room]) + y_disp,
-                #         txt=message)
-                #     y_disp = 7
-                #     message = str(rfp_data['room_height'][each_room])
                 
-                # pdf.text(
-                #     x + scale * int(rfp_data['room_x'][each_room]) + x_disp,
-                #     y + scale * int(rfp_data['room_y'][each_room])  + y_disp,
-                #     txt = str(rfp_data['area'][each_room]))
-
-                #  Previous area display code
-
-                # if rfp_data['room_width'][each_room] > 1 and rfp_data['room_height'][each_room] > 1:
-                #     message = str(rfp_data['room_width'][each_room]) + ' X ' + str(rfp_data['room_height'][each_room])
-                # elif rfp_data['room_width'][each_room] == 1 and rfp_data['room_height'][each_room] > 1:
-                #     x_disp = 1
-                #     message = str(rfp_data['room_width'][each_room]) + " X"
-                #     pdf.text(
-                #         x + scale * int(rfp_data['room_x'][each_room]) + x_disp,
-                #         y + scale * int(rfp_data['room_y'][each_room]) + y_disp,
-                #         txt=message)
-                #     y_disp = 8
-                #     message = str(rfp_data['room_height'][each_room])
-                # else:
-                #     x_disp = 1
-                #     y_disp = 4
-                #     message = str(rfp_data['room_width'][each_room]) + " X"
-                #     pdf.text(
-                #         x + scale * int(rfp_data['room_x'][each_room]) + x_disp,
-                #         y + scale * int(rfp_data['room_y'][each_room]) + y_disp,
-                #         txt=message)
-                #     y_disp = 7
-                #     message = str(rfp_data['room_height'][each_room])
-                pdf.set_font_size(0.8*scale)
+                if scale<1.5:
+                    pdf.set_font_size(3*scale)
+                    if (rfp_data['room_y'][each_room]/rfp_data['room_x'][each_room]>0.8 
+                        and rfp_data['room_y'][each_room]/rfp_data['room_x'][each_room]<=1.2):
+                        x_disp = 0.8
+                        y_disp = 5*scale*0.9
+                    elif (rfp_data['room_y'][each_room]/rfp_data['room_x'][each_room]>1.2):    
+                        x_disp = 0.8
+                        y_disp = 7*scale*0.9
+                    else:
+                        x_disp = 0.8
+                        y_disp = 3*scale/2
+                    
+                if is_rb == True:    
+                    x_disp = scale * 2
+                    y_disp = scale * 2
+                    pdf.set_font_size(2*scale)
+                else:
+                    x_disp = 0	
+                    y_disp = scale/2
+                    pdf.set_font_size(0.8*scale)
+                    
                 print(x,y)
                 print(rfp_data['room_x'][each_room], rfp_data['room_y'][each_room])
                 print("X={0}, Y={1}".format(x + scale * int(rfp_data['room_x'][each_room]) + x_disp,
                     y + scale * int(rfp_data['room_y'][each_room]) + y_disp,))
-                pdf.text(
-                    x + scale * int(rfp_data['room_x'][each_room]) + x_disp,
-                    y + scale * int(rfp_data['room_y'][each_room]) + y_disp,
+                
+                if is_rb == True:
+                    pdf.text(
+                        x + scale * int(rfp_data['room_x'][each_room]) + x_disp,
+                        y + scale * int(rfp_data['room_y'][each_room]) + y_disp,
+                        txt = str(room_name[i]))
+                    i += 1
+                    pdf.text(
+                        x + scale * int(rfp_data['room_x'][each_room]) + x_disp,
+                        y + scale * int(rfp_data['room_y'][each_room]) + y_disp + scale,
+                        txt = str(round(rfp_data['area'][each_room], 1)))
+                    
+                else:
+                    pdf.text(	
+                    x + scale * int(rfp_data['room_x'][each_room]) + x_disp,	
+                    y + scale * int(rfp_data['room_y'][each_room]) + y_disp,	
                     txt = str(round(rfp_data['area'][each_room], 1)))
-                pdf.set_font_size(12.0)
+        
+        pdf.set_font_size(12.0)            
         line_width = 0.2
         pdf.set_line_width(line_width)
         pdf.set_draw_color(*rgb_colors[each_room])
         pdf.set_draw_color(0,0,0)
-
-def fill_dimensional_constraints(pdf : PDF, room, dimensional_constraints):
-    [min_width,max_width,min_height,max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height] = dimensional_constraints    
-    cons_y = pdf.y
-
-    pdf.cell(20, 10, "Room " + str(room), 0, 1, 'C')
-    pdf.x = pdf.x + 20
-    pdf.y = cons_y
-
-    pdf.cell(20, 10, str(min_width[room]), 0, 1, 'C')
-    pdf.x = pdf.x + 40
-    pdf.y = cons_y
-
-    pdf.cell(20, 10, str(max_width[room]), 0, 1, 'C')
-    pdf.x = pdf.x + 60
-    pdf.y = cons_y
-
-    pdf.cell(20, 10, str(min_height[room]), 0, 1, 'C')
-
-    pdf.x = pdf.x + 80
-    pdf.y = cons_y
-    pdf.cell(20, 10, str(max_height[room]), 0, 1, 'C')
-
-    pdf.x = pdf.x + 100
-    pdf.y = cons_y
-    pdf.cell(30, 10, str(min_aspect[room]), 0, 1, 'C')
-    
-    pdf.x = pdf.x + 130
-    pdf.y = cons_y
-    pdf.cell(30, 10, str(max_aspect[room]), 0, 1, 'C')
-    
-    return pdf.y
 
 def add_dimensional_constraints(pdf : PDF, dimensional_constraints, fpcnt, num_rfp, room_name = None):
     [min_width,max_width,min_height,max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height] = dimensional_constraints
@@ -379,8 +329,6 @@ def add_dimensional_constraints(pdf : PDF, dimensional_constraints, fpcnt, num_r
             pdf.y = cons_y
             pdf.cell(30, 10, str(max_aspect[room]), 0, 1, 'C')
 
-
-
 def add_home_page(pdf, edges, num_rfp, time_taken):
     pdf.add_page()
     pdf.add_border()
@@ -441,7 +389,7 @@ def generate_catalogue(edges, num_rfp, time_taken, output_data, dimensional_cons
     # pdf.output('latest_catalogue.pdf','F')
     save(pdf)
 
-def generate_catalogue_dimensioned(num_rfp, output_data, dimensional_constraints, edges=None, time_taken=None, fpcnt = None, room_name = None):
+def generate_catalogue_dimensioned(num_rfp, output_data, dimensional_constraints, is_rb = False, edges=None, time_taken=None, fpcnt = None, room_name = None):
     print("[LOG] Downloading Dimensioned Catalogue")
     pdf = PDF() 
     add_home_page(pdf, edges, num_rfp, time_taken)
@@ -451,12 +399,16 @@ def generate_catalogue_dimensioned(num_rfp, output_data, dimensional_constraints
     origin_x = 15
     origin_y = 30
 
-    grid_height = 50
-    grid_width = 30
-
-    grid_cols = int( (pdf_w - 30) / grid_width)
-
-    grid_rows = int( (pdf_h - 30) / grid_height)
+    if is_rb == True:
+        grid_height = int(pdf_h/2)
+        grid_width = int(pdf_w/2)
+        grid_cols = 2
+        grid_rows = 2
+    else:    
+        grid_height = 50
+        grid_width = 30
+        grid_cols = int( (pdf_w - 30) / grid_width)
+        grid_rows = int( (pdf_h - 30) / grid_height)
     
     rfp_no = 0
     break_while = 0
@@ -485,7 +437,18 @@ def generate_catalogue_dimensioned(num_rfp, output_data, dimensional_constraints
                 rfp_x = origin_x + j * (grid_width + 2)
                 rfp_y = origin_y + i * (grid_height + 2)
                 rfp_data = output_data[rfp_no]
-                draw_one_rfp(pdf, rfp_x, rfp_y, rfp_data, grid_width, grid_height, dimensioned=1, scale_val=grid_scale/2)
+                
+                if is_rb == True: 
+                    save_graph(rfp_data['edgeset'])
+                    pdf.image("./latest_adj_graph.png", x = rfp_x, y = rfp_y, w = grid_width/2, h = grid_height/2, type = 'png', link = './latest_adj_graph.png')
+                    pdf.set_y(pdf.get_y() + 110)
+                    j += 1
+                    rfp_x = origin_x + j * (grid_width-18)
+                    draw_one_rfp(pdf, rfp_x, rfp_y, rfp_data, room_name, grid_width*0.9, grid_height*0.9, dimensioned=1, scale_val=grid_scale/2, is_rb=is_rb)
+                
+                else:
+                    draw_one_rfp(pdf, rfp_x, rfp_y, rfp_data, grid_width, grid_height, dimensioned=1, scale_val=grid_scale/2)
+                    
                 rfp_no += 1
                 j += 2
     save(pdf)            

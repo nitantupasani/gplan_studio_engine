@@ -1735,7 +1735,8 @@ class gui_class:
                                    self.dimensional_constraints)
             else:
                 generate_catalogue_dimensioned(self.num_rfp, self.output_data, self.dimensional_constraints, 
-                                               self.app.edges, self.time_taken, self.ptpg.fpcnt)
+                                               edges = self.app.edges, time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt)
+                
 
     def polygonal_inputbox(self):
         """This function takes user input for starting edge/door for the corridor
