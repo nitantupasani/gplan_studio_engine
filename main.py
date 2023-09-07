@@ -685,7 +685,7 @@ def run():
 
 def make_dissection_corridor(gclass):
     dis = nx.Graph()
-    dis = nx.from_numpy_matrix(gclass.dclass.mat)
+    dis = nx.from_numpy_array(gclass.dclass.mat)
     m = len(dis)
     spanned = circulation.BFS(dis, gclass.e1.get(), gclass.e2.get())
     gclass.cir_dim_mat = nx.to_numpy_matrix(spanned)

@@ -27,6 +27,11 @@ from fpdf import FPDF
 from .catalogue_maker import generate_catalogue, generate_catalogue_dimensioned
 from source.polygonal import canonical as cano
 
+
+if os.environ.get('DISPLAY','') == '':
+    print('no display found. Using :0.0')
+    os.environ.__setitem__('DISPLAY', ':0.0')
+
 done = True
 col = ["white", "#9A8C98", "light grey", "white"]
 # colors = ['#4BC0D9','#76E5FC','#6457A6','#5C2751','#7D8491','#BBBE64','#64F58D','#9DFFF9','#AB4E68','#C4A287','#6F9283','#696D7D','#1B1F3B','#454ADE','#FB6376','#6C969D','#519872','#3B5249','#A4B494','#CCFF66','#FFC800','#FF8427','#0F7173','#EF8354','#795663','#AF5B5B','#667761','#CF5C36','#F0BCD4','#ADB2D3','#FF1B1C','#6A994E','#386641','#8B2635','#2E3532','#124E78']*10
@@ -84,6 +89,7 @@ class gui_class:
 
 
     def __init__(self):
+        
         self.open = False
         self.command = "Null"
         self.value = []

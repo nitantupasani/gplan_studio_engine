@@ -652,7 +652,7 @@ def wheel_graph(n: int) -> Tuple[nx.Graph, list]:
     
     for i in range(len(t)):
         coord.append((x[i],y[i]))
-    G = nx.from_numpy_matrix(A)
+    G = nx.from_numpy_array(A)
     return G, coord
 
 def complete_graph(n: int) -> Tuple[nx.Graph, list]:

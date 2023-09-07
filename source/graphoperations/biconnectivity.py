@@ -25,7 +25,7 @@ def is_biconnected(matrix):
     Returns:
         boolean: A boolean indicating TRUE if biconnected, FALSE otherwise.
     """
-    nxgraph = nx.from_numpy_matrix(matrix)
+    nxgraph = nx.from_numpy_array(matrix)
     return nx.is_biconnected(nxgraph)
 
 def get_cutvertices(nxgraph):
@@ -94,7 +94,7 @@ def biconnect(matrix):
     Returns:
         bicon_edges: A list of edges to be added to make the graph biconnected.
     """
-    nxgraph = nx.from_numpy_matrix(matrix)
+    nxgraph = nx.from_numpy_array(matrix)
     articulation_points = get_cutvertices(nxgraph)
     bicon_edges = set()
     added_edges = set()

@@ -122,7 +122,7 @@ class InputGraph:
         x_coord = [x[0] for x in node_coordinates]
         y_coord = [x[1] for x in node_coordinates]
         if (gc.check_intersection(x_coord, y_coord, self.matrix)):
-            graph = nx.from_numpy_matrix(self.matrix)
+            graph = nx.from_numpy_array(self.matrix)
             new_node_coordinates = list(nx.planar_layout(graph).values())
             self.coordinates = [np.array(x) for x in new_node_coordinates]
         else:
@@ -546,7 +546,7 @@ class InputGraph:
         matrix = copy.deepcopy(self.matrix)
         matrix = np.array(matrix)
         nodes = len(matrix)
-        nxgraph = nx.from_numpy_matrix(matrix)
+        nxgraph = nx.from_numpy_array(matrix)
         cutvertices = bcn.get_cutvertices(nxgraph)
         components = onc.get_biconnected_components(nxgraph)
         adj_mats = []
@@ -584,7 +584,7 @@ class InputGraph:
             matrix1 = adj_mats[i]
             nodecnt = len(matrix1[0])
             edgecnt = int(np.sum(matrix1) / 2)
-            nxgraph = nx.from_numpy_matrix(matrix1)
+            nxgraph = nx.from_numpy_array(matrix1)
             planar_embedding = nx.planar_layout(nxgraph)
             positions = [planar_embedding[key] for key in planar_embedding]
             graph = InputGraph(nodecnt

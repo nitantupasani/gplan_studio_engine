@@ -254,7 +254,7 @@ def triangulate(matrix,bcn_edges_added,pos):
         positions: A list containing coordinates of planar embedding.
 
     """
-    nxgraph = nx.from_numpy_matrix(matrix)
+    nxgraph = nx.from_numpy_array(matrix)
     if(not bcn_edges_added):
         positions = {i:pos[i] for i in range(len(pos))}
     else:
@@ -331,7 +331,7 @@ def triangulate(matrix,bcn_edges_added,pos):
 #     Returns:
 #         trng_edges: A list of edges to be added to make the graph triangulated.
 #     """
-#     nxgraph = nx.from_numpy_matrix(matrix)
+#     nxgraph = nx.from_numpy_array(matrix)
 #     trng_edges = []
 #     if not chk_chordality(nxgraph):
 #         trng_edges = make_chordal(nxgraph)

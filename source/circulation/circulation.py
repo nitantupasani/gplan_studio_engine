@@ -565,7 +565,7 @@ class circulation:
 
 #     A[0][n-1] = A[n-1][0] = A[1][n-1] = A[n-1][0] = 1
 
-#     G = nx.from_numpy_matrix(A)
+#     G = nx.from_numpy_array(A)
 #     return G
 
 def plot(graph: nx.Graph,m: int) -> None:

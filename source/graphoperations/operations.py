@@ -64,7 +64,7 @@ def get_directed(matrix):
     Returns:
         digraph: A NetworkX directed graph of the input adjacency matrix.
     """
-    digraph = nx.from_numpy_matrix(matrix,create_using = nx.DiGraph)
+    digraph = nx.from_numpy_array(matrix,create_using = nx.DiGraph)
     return digraph
 
 def get_trngls(matrix):
@@ -76,7 +76,7 @@ def get_trngls(matrix):
     Returns:
         trngles: A list containing all triangular cycles in the graph.
     """
-    nxgraph = nx.from_numpy_matrix(matrix)
+    nxgraph = nx.from_numpy_array(matrix)
     all_cliques = nx.enumerate_all_cliques(nxgraph)
     trngles = [x for x in all_cliques if len(x) == 3]
     return trngles
