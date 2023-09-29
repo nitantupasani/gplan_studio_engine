@@ -743,17 +743,20 @@ def call_circulation(graph_data, gclass, coord, is_dimensioned, dim_constraints,
     for i in range(n):
         rooms.append(cir.Room(i, graph_data.get("room_x")[i], graph_data.get("room_y")[i] + graph_data.get("room_height")[i], graph_data.get("room_x")[i] + graph_data.get("room_width")[i], graph_data.get("room_y")[i]))
 
-    # cir.plot(g,n)
+    
     rfp = cir.RFP(g, rooms)
 
-    circulation_obj = cir.circulation(g, gclass.corridor_thickness, rfp)
-    # circulation_obj = cir.circulation(g, rfp)
+    cir.plot(g,n)
+    circulation_obj = cir.circulation(g, gclass.corridor_thickness, rfp, gclass.rem)
+    
+    # Add dimensional constraints if chosen option is "dimensioned circulation"
     if is_dimensioned == True:
         circulation_obj.is_dimensioned = True
         circulation_obj.dimension_constraints = dim_constraints
-    # circulation_result = circulation_obj.circulation_algorithm(entry[0], entry[1])
-    # circulation_result = circulation_obj.multiple_circulation(coord)
+    
+    # Apply circulation algorithm
     circulation_result = circulation_obj.circulation_algorithm(entry[0],entry[1])
+    cir.plot(circulation_obj.circulation_graph, len(circulation_obj.circulation_graph))
     if circulation_result == 0:
         return None
     
