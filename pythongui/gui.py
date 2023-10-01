@@ -105,6 +105,9 @@ class gui_class:
         self.entry_door.append(self.l)
         self.entry_door.append(self.r)
 
+        # Remove redundant rooms
+        self.opti = tk.IntVar(None)
+        self.rem = 0
 
         # To get user input for corridor thickness
         self.ct = tk.DoubleVar(None)
@@ -1968,12 +1971,21 @@ class gui_class:
 
         # poly.dissected(self.graph_data,self.pen,self.color_list,self.outer_boundary)
 
+    def radio_sel(self):
+        self.rem = self.opti.get()
+        print("The redundant corridors will be removed")
+
+    def radio_desel(self):
+        self.opti.set(0)
+        self.rem = self.opti.get()
+        print("The whole spanning circulation will be displayed")
+
     def change_entry_gui(self):
         """This function takes user input for starting edge/door for the corridor
         """
         self.top1 = tk.Toplevel(self.root, width=1000, height=1000)
         root = self.top1
-        root.geometry("500x125")
+        root.geometry("500x200")
         root.title('Circulation Entry Changer')
         main_text = tk.Label(root, text="Enter the two rooms adjacent to the new entry door")
         main_text.grid(row= 1, column= 0, padx = 20, ipady = 10)
@@ -1981,8 +1993,13 @@ class gui_class:
         l_val.grid(row  = 3, column = 0)
         r_val = tk.Entry(root, textvariable = self.r)
         r_val.grid(row = 3, column = 2)
+        opti_btn = tk.Radiobutton(root, text="Remove redundant corridors", padx=20, variable=self.opti, value=1, command=lambda: self.radio_sel())
+        opti_btn.grid(row = 7, column = 0)
+        clear_button = tk.Button(root, text="Clear Selection", command=lambda: self.radio_desel())
+        clear_button.grid(row = 7, column = 2, pady=10)
         ex = tk.Button(root,text = "Submit",command = self.corridor_thickness_gui, justify=tk.CENTER)
         ex.grid(padx=100, pady=20)
+    
 
     def corridor_thickness_gui(self):
 
@@ -2028,13 +2045,34 @@ class gui_class:
         rem_or_not = [] # List to hold values 0 or 1 (1 if corridor needs to be removed)
         rem_edges = [] # List of edges where corridors are to be removed
 
-        # GUI initialization for the window
+         # GUI initialization for the window
         root = tk.Toplevel()
         root.title('Remove corridor')
         root.geometry(str(400) + 'x' + str(400))
-        # Desc = tk.Label(root, text="Enter 1 if you want to remove corridor", font=("Times New Roman", 12))
-        # Desc.place(relx=0.60, rely=0.1, anchor='ne')
-        corr_text = tk.Label(root,text="Enter 1 if you want to remove corridor",justify=tk.CENTER)
+        
+        # Create a Main Frame
+        main_frame = tk.Frame(root)
+        main_frame.pack(fill=tk.BOTH, expand=1)
+
+        # Create Canvas
+        my_canvas = tk.Canvas(main_frame)
+        my_canvas.pack(side=tk.LEFT,fill=tk.BOTH,expand=1)
+
+        # Add Scrollbar to the canvas
+        my_scrollbar = ttk.Scrollbar(main_frame, orient=tk.VERTICAL, command=my_canvas.yview)
+        my_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Configure the canvas
+        my_canvas.configure(yscrollcommand=my_scrollbar.set)
+        my_canvas.bind('<Configure>',lambda e: my_canvas.configure(scrollregion=my_canvas.bbox("all")))
+
+        # Create another frame inside the canvas
+        second_frame = tk.Frame(my_canvas)
+
+        # Add that new frame to a window in the canvas
+        my_canvas.create_window((0,0), window=second_frame, anchor="nw")
+
+        corr_text = tk.Label(second_frame,text="Enter 1 if you want to remove corridor",justify=tk.CENTER)
         corr_text.grid(row= 3, column= 10, ipadx = 5, ipady = 20)
 
         # Initializing the rem_or_not array
@@ -2047,6 +2085,9 @@ class gui_class:
             text.grid(row=i+30,column=8)
             rem_val = tk.Entry(root, textvariable=rem_or_not[i])
             rem_val.grid(row=i+30,column=10)
+
+            # rem_corr_btn = tk.Radiobutton(root, text=str(adj_list[i][0]) + "           " + str(adj_list[i][1]), padx=20, variable=self.opti, value=1, command=lambda: self.radio_sel())
+            # rem_corr_btn.grid(row = i+30, column = 8)
 
         # When submit is clicked
         def rem_corr_submit():
