@@ -7,6 +7,7 @@ from copy import deepcopy
 import itertools
 import bdy
 from typing import List, Tuple
+import random
 
 i = 0
 
@@ -346,8 +347,17 @@ class circulation:
         while(len(X) > 0):
             # Get the number of elements each subset in L covers the set X
             intersections_count = [self.list_intersect(X,l) for l in L]
+
             # Get the index of the subset that covered X to max extent
+            # Use this if ties are broken by choosing the smallest of possibilities
             j = intersections_count.index(max(intersections_count))
+            
+            # Use this if ties are broken arbitrarily
+            # max_ele = max(intersections_count)
+            # possible_indices = [intersections_count.index(p) for p in intersections_count if p==max_ele]
+            # rand = random.randint(0,len(possible_indices)-1)
+            # j = possible_indices[rand]
+
             # Add that corresponding subset
             msc.append(L[j])
             # Remove the elements that have been covered from X
