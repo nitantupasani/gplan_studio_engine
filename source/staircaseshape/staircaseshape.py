@@ -5,14 +5,14 @@ from networkx.algorithms.core import core_number
 from networkx.classes import graph
 
 
-from ..floorplangen import rdg as rdg
-from ..boundary.cip import * 
-from ..graphoperations.operations import * 
+from ..floorplangen import rdg 
+from ..boundary import cip  
+from ..graphoperations import operations as opr
 import numpy as np
-from ..boundary.news import *
-from ..irregular.shortcutresolver import * 
-from ..floorplangen.contraction import *
-from ..floorplangen.expansion import *
+from ..boundary import news as news
+from ..irregular import shortcutresolver as sr 
+from ..floorplangen import contraction as cntr
+from ..floorplangen import expansion as exp
 import copy
 
 

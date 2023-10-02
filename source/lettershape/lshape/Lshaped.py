@@ -5,16 +5,18 @@ from networkx.algorithms.core import core_number
 from networkx.classes import graph
 
 from .modifiedCanonical import canonical
-from .canonicalTransition import *
+from ..lshape import canonicalTransition as Canonical_LShaped
 
-from ...floorplangen import *
-from ...boundary.cip import * 
-from ...graphoperations.operations import * 
+from ...floorplangen import rdg 
+from ...boundary import cip  
+from ...graphoperations import operations as opr
 import numpy as np
-from ...boundary.news import *
-from ...irregular.shortcutresolver import * 
-from ...floorplangen.contraction import *
-from ...floorplangen.expansion import *
+from ...boundary import news as news
+from ...irregular import shortcutresolver as sr 
+from ...floorplangen import contraction as cntr
+from ...floorplangen import expansion as exp
+
+
 
 # import ptpg
 # import flip
@@ -53,7 +55,7 @@ def LShapedFloorplan(graph, nodes_data):
     graph.matrix[graph.north][graph.south] = 0
     graph.matrix[graph.south][graph.north] = 0
     print(can.graph_data['indexToCanOrd'])
-    my_rel = Canonical_L_Shaped(can.graph_data['indexToCanOrd'], graph)
+    my_rel = Canonical_LShaped.Canonical_L_Shaped(can.graph_data['indexToCanOrd'], graph)
     graph.matrix = my_rel
     get_floorplan(graph, triplet)
 
