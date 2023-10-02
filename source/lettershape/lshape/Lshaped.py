@@ -54,7 +54,7 @@ def LShapedFloorplan(graph, nodes_data):
     graph.matrix[graph.north][graph.south] = 0
     graph.matrix[graph.south][graph.north] = 0
     print(can.graph_data['indexToCanOrd'])
-    my_rel = Canonical_LShaped.Canonical_L_Shaped(can.graph_data['indexToCanOrd'], graph, nodes_data, triplet)
+    my_rel = Canonical_LShaped.Canonical_L_Shaped(can.graph_data['indexToCanOrd'], graph)
     graph.matrix = my_rel
     get_floorplan(graph, triplet)
 
