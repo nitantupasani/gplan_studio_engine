@@ -3,6 +3,7 @@ import tkinter as tk
 # import turtle
 # from source.polygonal.draw import DrawOuterBoundary
 from source.polygonal.polygui import PolyGUI 
+from source.polygonal.limits import find_limits 
 # import time
 
 
@@ -426,7 +427,7 @@ class dissected:
 
             # self.pen.penup()
             # time.sleep(1)
-
+        find_limits(self.graph_data,self.rooms)
 
 
 
