@@ -4,18 +4,17 @@ from random import randint, triangular
 from networkx.algorithms.core import core_number
 from networkx.classes import graph
 
-from source.floorplangen import rdg
-from source.lettershape.lshape.modifiedCanonical import canonical
-import source.boundary.cip as cip
-import source.graphoperations.operations as opr
-import numpy as np
-import source.boundary.news as news
-import source.irregular.shortcutresolver as sr
-import source.floorplangen.contraction as cntr
-import source.floorplangen.expansion as exp
-import source.lettershape.lshape.canonicalTransition as Canonical_LShaped
-import pythongui.drawing as draw
+from .modifiedCanonical import canonical
+from .canonicalTransition import *
 
+from ...floorplangen import *
+from ...boundary.cip import * 
+from ...graphoperations.operations import * 
+import numpy as np
+from ...boundary.news import *
+from ...irregular.shortcutresolver import * 
+from ...floorplangen.contraction import *
+from ...floorplangen.expansion import *
 
 # import ptpg
 # import flip
@@ -54,7 +53,7 @@ def LShapedFloorplan(graph, nodes_data):
     graph.matrix[graph.north][graph.south] = 0
     graph.matrix[graph.south][graph.north] = 0
     print(can.graph_data['indexToCanOrd'])
-    my_rel = Canonical_LShaped.Canonical_L_Shaped(can.graph_data['indexToCanOrd'], graph)
+    my_rel = Canonical_L_Shaped(can.graph_data['indexToCanOrd'], graph)
     graph.matrix = my_rel
     get_floorplan(graph, triplet)
 

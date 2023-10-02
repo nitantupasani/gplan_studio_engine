@@ -1,4 +1,4 @@
-import source.graphoperations.operations as opr
+from ...graphoperations.operations import *
 import numpy as np
 import copy
 
@@ -56,10 +56,10 @@ def create_canonical_matrix(canonical_order, matrix):
 def Update_Graph(graph, matrix, canonical_order):
     graph.matrix = matrix
 
-    triangular_cycles = opr.get_trngls(graph.matrix)
-    digraph = opr.get_directed(graph.matrix)
-    graph.bdy_nodes, graph.bdy_edges = opr.get_bdy(triangular_cycles, digraph)
-    new_outer_boundary = opr.ordered_bdy(graph.bdy_nodes, graph.bdy_edges)
+    triangular_cycles = get_trngls(graph.matrix)
+    digraph = get_directed(graph.matrix)
+    graph.bdy_nodes, graph.bdy_edges = get_bdy(triangular_cycles, digraph)
+    new_outer_boundary = ordered_bdy(graph.bdy_nodes, graph.bdy_edges)
     wst = canonical_order[graph.west]
     sth = canonical_order[graph.south]
     while not ((new_outer_boundary[0] == wst and new_outer_boundary[-1] == sth) or (
@@ -81,10 +81,10 @@ def Canonical_L_Shaped(canonical_order, graph):
     adj_matrix = create_canonical_matrix(canonical_order, graph.matrix)
     dummy_graph = copy.deepcopy(graph)
     dummy_graph.matrix = adj_matrix
-    triangular_cycles = opr.get_trngls(dummy_graph.matrix)
-    digraph = opr.get_directed(dummy_graph.matrix)
-    dummy_graph.bdy_nodes, dummy_graph.bdy_edges = opr.get_bdy(triangular_cycles, digraph)
-    outer_boundary = opr.ordered_bdy(dummy_graph.bdy_nodes, dummy_graph.bdy_edges)
+    triangular_cycles = get_trngls(dummy_graph.matrix)
+    digraph = get_directed(dummy_graph.matrix)
+    dummy_graph.bdy_nodes, dummy_graph.bdy_edges = get_bdy(triangular_cycles, digraph)
+    outer_boundary = ordered_bdy(dummy_graph.bdy_nodes, dummy_graph.bdy_edges)
     dummy_graph_constant = copy.deepcopy(dummy_graph)
     print("old outer boundary", outer_boundary)
     basis_edge = []
