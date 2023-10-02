@@ -47,7 +47,7 @@ def IsInRegion(x,ci1,ci2): #choosing coords which come inside the required regio
 
 
 # remember to make the adj_matrix in the same order of rooms, very very important
-def main(rooms,adj_matrix) 
+def run(rooms,adj_matrix):
     room_input = int(input("Room number : "))
 
 
@@ -230,14 +230,6 @@ def main(rooms,adj_matrix)
                 else:
                     pts[(temp[0],temp[1])] = abs(temp[0] - coord_input1[0])
 
-#this for loop is to be removed 
-'''
-    for i in range(n):
-        if rooms[room_input].coord()[i] != coord_input1 and rooms[room_input].coord()[i] != coord_input2:
-            m_ = slope(coord_input1,coord_input2) 
-            pts[([room_input].coord()[i][0],[room_input].coord()[i][1])] = abs( m_*[room_input].coord()[i][0] - [room_input].coord()[i][1] + (coord_input1[1] - m_*coord_input1[0]) )/((m_**2 + 1)**.5)
-'''
-    
     m_ = slope(coord_input1,coord_input2)
     for i in range(len(nbd_rooms)):
         for j in range(len(rooms[i].coord())):      
@@ -271,6 +263,6 @@ def main(rooms,adj_matrix)
     print("can move towards the left by : ", temp1)
     print("can move towards the right by : ", temp) 
 
-
-# give inputs in the following main function
-main()
+def find_limits(adj_mat,rooms):
+    print(f"Adj MAT = {adj_mat}")
+    run(rooms,adj_mat)

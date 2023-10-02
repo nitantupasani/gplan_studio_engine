@@ -167,7 +167,7 @@ def draw_rdg(graph_data,count,pen,mode,color_list,room_names,origin):
             pen.penup()
             value+=1
 
-def draw_poly(graph_data,count,pen,mode,color_list,room_names,origin,outer_boundary,shape):
+def draw_poly(graph_data,count,pen,mode,color_list,room_names,origin,outer_boundary,shape,adj_mat):
     innerBoundary = []
     if(outer_boundary!=[]): #To take active front as input first in the drawing
         temp = outer_boundary[0]
@@ -185,6 +185,6 @@ def draw_poly(graph_data,count,pen,mode,color_list,room_names,origin,outer_bound
         corner1.append(outer_boundary[0][1])    
         innerBoundary.append(corner1)
     
-    db = poly.dissected(graph_data,pen,color_list,shape,innerBoundary)
+    db = poly.dissected(graph_data,pen,color_list,shape,adj_mat,innerBoundary)
     # obj = DrawOuterBoundary(graph_data,pen,color_list)
     

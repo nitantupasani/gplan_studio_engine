@@ -667,7 +667,7 @@ def run():
                         ,1
                         ,gclass.value[6]
                         ,[]
-                        ,origin,gclass.outer_boundary, gclass.shape)
+                        ,origin,gclass.outer_boundary, gclass.shape,graph.matrix)
 
             gclass.time_taken = (end-start)*1000
             gclass.num_rfp = len(graph.room_x)
