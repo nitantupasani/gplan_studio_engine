@@ -18,14 +18,14 @@ from tkinter import ALL, EventType, Label, Menu, filedialog, messagebox
 import matplotlib.pyplot as plt
 import networkx as nx
 from PIL import Image, ImageTk
-import pythongui.tablenoscroll as tablenoscroll
-import pythongui.final as final
+from ..pythongui import tablenoscroll as tablenoscroll
+from ..pythongui import final as final
 import numpy as np
 import datetime
 from fpdf import FPDF
 
 from .catalogue_maker import generate_catalogue, generate_catalogue_dimensioned
-from source.polygonal import canonical as cano
+from ..source.polygonal import canonical as cano
 
 
 if os.environ.get('DISPLAY','') == '':

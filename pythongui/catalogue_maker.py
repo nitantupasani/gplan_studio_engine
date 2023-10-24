@@ -7,7 +7,7 @@ from tkinter.filedialog import asksaveasfilename
 from tkinter import messagebox
 
 import numpy as np
-from source.graphoperations.operations import get_encoded_matrix
+from ..source.graphoperations.operations import get_encoded_matrix
 
 pdf_w=210
 pdf_h=297
