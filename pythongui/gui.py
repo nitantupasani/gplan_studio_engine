@@ -20,8 +20,8 @@ import networkx as nx
 from PIL import Image, ImageTk
 import sys
 sys.path.append("..")
-from pythongui import tablenoscroll as tablenoscroll
-from pythongui import final as final
+from GPLAN.pythongui import tablenoscroll as tablenoscroll
+from GPLAN.pythongui import final as final
 import numpy as np
 import datetime
 from fpdf import FPDF
