@@ -1441,6 +1441,10 @@ class gui_class:
             c2 = tk.Checkbutton(master.frame1, text = "Remove Circulation",relief='flat',**button_details,selectcolor='#4A4E69',width=7 ,variable = master.checkvar3,onvalue = 1, offvalue = 0)
             c2.grid(row=5,column=1,padx=5,pady=5)
 
+            b12 = tk.Button(master.frame1, width=10, text='Door Connectivity', relief='flat',
+                            **button_details, command=master.door_connectivity)
+            b12.grid(row=7, column=0, padx=5, pady=5)
+
             b5 = tk.Button(master.frame1,width=10, text='EXIT',relief='flat', **button_details,command=master.exit)
             b5.grid(row=6,column=1,padx=5,pady=5)
 
@@ -1593,6 +1597,13 @@ class gui_class:
     def single_floorplan(self):
         self.app.command = "single"
         self.command = "single"
+        self.end.set(self.end.get() + 1)
+        # self.root.state('zoomed')
+        # root.destroy()
+
+    def door_connectivity(self):
+        self.app.command = "door_connectivity"
+        self.command = "door_connectivity"
         self.end.set(self.end.get() + 1)
         # self.root.state('zoomed')
         # root.destroy()
