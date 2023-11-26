@@ -107,6 +107,9 @@ class gui_class:
         self.entry_door.append(self.l)
         self.entry_door.append(self.r)
 
+        # Circ_gui
+        self.circ_choice = 0
+
         # Remove redundant rooms
         self.opti = tk.IntVar(None)
         self.rem = 0
@@ -1391,7 +1394,7 @@ class gui_class:
             b4.grid(row=4, column=0, padx=5, pady=5)
 
             b6 = tk.Button(master.frame1, width=10, text='Circulation', relief='flat', **button_details,
-                           command=master.change_entry_gui)
+                           command=master.circ_menu)
             b6.grid(row=6, column=0, padx=5, pady=5)
 
             # c1 = tk.Checkbutton(master.frame1, text = "Dimensioned Circulation",relief='flat',**button_details,selectcolor='#4A4E69',width=13 ,variable = master.checkvar2,onvalue = 1, offvalue = 0)
@@ -1437,11 +1440,11 @@ class gui_class:
 
             # b6 = tk.Button(master.frame1,width=10, text='Restart',relief='flat', **button_details,command=master.restart)
             # b6.grid(row=6,column=0,padx=5,pady=5)
-            c1 = tk.Checkbutton(master.frame1, text = "Dimensioned Circulation",relief='flat',**button_details,selectcolor='#4A4E69',width=7 ,variable = master.checkvar2,onvalue = 1, offvalue = 0)
-            c1.grid(row=4,column=1,padx=5,pady=5)
+            # c1 = tk.Checkbutton(master.frame1, text = "Dimensioned Circulation",relief='flat',**button_details,selectcolor='#4A4E69',width=7 ,variable = master.checkvar2,onvalue = 1, offvalue = 0)
+            # c1.grid(row=4,column=1,padx=5,pady=5)
 
-            c2 = tk.Checkbutton(master.frame1, text = "Remove Circulation",relief='flat',**button_details,selectcolor='#4A4E69',width=7 ,variable = master.checkvar3,onvalue = 1, offvalue = 0)
-            c2.grid(row=5,column=1,padx=5,pady=5)
+            # c2 = tk.Checkbutton(master.frame1, text = "Remove Circulation",relief='flat',**button_details,selectcolor='#4A4E69',width=7 ,variable = master.checkvar3,onvalue = 1, offvalue = 0)
+            # c2.grid(row=5,column=1,padx=5,pady=5)
 
             b5 = tk.Button(master.frame1,width=10, text='EXIT',relief='flat', **button_details,command=master.exit)
             b5.grid(row=6,column=1,padx=5,pady=5)
@@ -1982,9 +1985,63 @@ class gui_class:
         self.rem = self.opti.get()
         print("The whole spanning circulation will be displayed")
 
+    def circ_menu(self):
+        """Choose which type of circulation you want
+        """
+        # c1 = tk.Checkbutton(master.frame1, text = "Dimensioned Circulation",relief='flat',**button_details,selectcolor='#4A4E69',width=7 ,variable = master.checkvar2,onvalue = 1, offvalue = 0)
+        # c1.grid(row=4,column=1,padx=5,pady=5)
+
+        # c2 = tk.Checkbutton(master.frame1, text = "Remove Circulation",relief='flat',**button_details,selectcolor='#4A4E69',width=7 ,variable = master.checkvar3,onvalue = 1, offvalue = 0)
+        # c2.grid(row=5,column=1,padx=5,pady=5)
+
+        self.top = tk.Toplevel(self.root, width=300, height=300)
+        root = self.top
+        sub_text = tk.Label(root, text="""Choose the circulation choice:""", justify=tk.LEFT, padx=20)
+        sub_text.grid(row=3)
+
+        btn1 = tk.Radiobutton(root, text="Normal", padx=20, variable=self.circ_choice, value=1)
+        btn1.grid(row=4, column=0)
+        
+        btn2 = tk.Radiobutton(root, text="Dimensioned circulation", padx=20, variable=self.circ_choice, value=2)
+        btn2.grid(row=4, column=1)
+
+        btn3 = tk.Radiobutton(root, text="Remove corridors", padx=20, variable=self.circ_choice, value=3)
+        btn3.grid(row=4, column=2)
+
+        ex = tk.Button(root, text="Submit", command=self.change_entry_gui)
+        ex.grid(row=6)
+
+        
+        # self.top1 = tk.Toplevel(self.root, width=1000, height=1000)
+        # root = self.top1
+        # root.geometry("500x200")
+        # root.title('Circulation Entry Changer')
+        # main_text = tk.Label(root, text="Enter the two rooms adjacent to the new entry door")
+        # main_text.grid(row= 1, column= 0, padx = 20, ipady = 10)
+        # l_val = tk.Entry(root, textvariable = self.l)
+        # l_val.grid(row  = 3, column = 0)
+        # r_val = tk.Entry(root, textvariable = self.r)
+        # r_val.grid(row = 3, column = 2)
+        # opti_btn = tk.Radiobutton(root, text="Remove redundant corridors", padx=20, variable=self.opti, value=1, command=lambda: self.radio_sel())
+        # opti_btn.grid(row = 7, column = 0)
+        # clear_button = tk.Button(root, text="Clear Selection", command=lambda: self.radio_desel())
+        # clear_button.grid(row = 7, column = 2, pady=10)
+        # ex = tk.Button(root,text = "Submit",command = self.corridor_thickness_gui, justify=tk.CENTER)
+        # ex.grid(padx=100, pady=20)
+
+
     def change_entry_gui(self):
         """This function takes user input for starting edge/door for the corridor
         """
+
+        # Set mode
+        if(self.circ_choice == 2):
+            self.checkvar2.set(1)
+            self.checkvar3.set(0)
+        elif(self.circ_choice == 3):
+            self.checkvar2.set(0)
+            self.checkvar3.set(1)
+
         self.top1 = tk.Toplevel(self.root, width=1000, height=1000)
         root = self.top1
         root.geometry("500x200")
