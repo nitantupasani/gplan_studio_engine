@@ -36,28 +36,65 @@ def LShapedFloorplan(graph, nodes_data):
         return "cips greater than 5"
     print("len of cip {}".format(len(cip)))
     triplet = find_triplet(graph)
-    path1 = find_paths(graph, triplet, cip)
-    print("checking path1", path1)
-    new_adjacency_mat = connect_northeast(graph, path1)
-    print("checking new_adjacency_matrix", new_adjacency_mat)
+    if(triplet==-1):
+        trivialL(graph)
+    else:
+        path1 = find_paths(graph, triplet, cip)
+        print("checking path1", path1)
+        new_adjacency_mat = connect_northeast(graph, path1)
+        print("checking new_adjacency_matrix", new_adjacency_mat)
+        graph.user_matrix = new_adjacency_mat
+        graph.cip = find_cips(graph)
+        print("len of cip {}".format(len(graph.cip)))
+        new_adjacency_mat = add_NESW(graph, new_adjacency_mat, path1)
+        graph.matrix = new_adjacency_mat
+        graph.matrix[graph.north][graph.south] = 1
+        graph.matrix[graph.south][graph.north] = 1
+        print("checking final graph.matrix ", graph.matrix)
+
+        can = canonical()
+        can.displayInputGraph(graph.nodecnt, graph.matrix, nodes_data)
+        can.runWithArguments(graph.nodecnt, graph.west, graph.south, graph.north, triplet, graph, graph.matrix,cip)
+        graph.matrix[graph.north][graph.south] = 0
+        graph.matrix[graph.south][graph.north] = 0
+        print(can.graph_data['indexToCanOrd'])
+        my_rel = Canonical_LShaped.Canonical_L_Shaped(can.graph_data['indexToCanOrd'], graph)
+        graph.matrix = my_rel
+        get_floorplan(graph, triplet)
+
+def trivialL(graph):
+    graph.cip = find_cips(graph)
+    print(graph.cip)
+    if(len(graph.cip)>0):
+        cip = randint(0, len(graph.cip)-1)
+        path1 = graph.cip[cip][0:randint(2, max(2, len(graph.cip[cip])-2))]
+        new_adjacency_mat = connect_northeast(graph, path1)
+    else:
+        triangular_cycles = opr.get_trngls(graph.matrix)
+        digraph = opr.get_directed(graph.matrix)
+        graph.bdy_nodes, graph.bdy_edges = opr.get_bdy(triangular_cycles, digraph)
+        ordered_boundary = opr.ordered_bdy(graph.bdy_nodes, graph.bdy_edges)
+        path1 = ordered_boundary[0: randint(2, len(ordered_boundary)-1)]
+        new_adjacency_mat = connect_northeast(graph, path1)
+    
     graph.user_matrix = new_adjacency_mat
+    graph.matrix = new_adjacency_mat
     graph.cip = find_cips(graph)
     print("len of cip {}".format(len(graph.cip)))
     new_adjacency_mat = add_NESW(graph, new_adjacency_mat, path1)
     graph.matrix = new_adjacency_mat
-    graph.matrix[graph.north][graph.south] = 1
-    graph.matrix[graph.south][graph.north] = 1
-    print("checking final graph.matrix ", graph.matrix)
+    # Contraction
+    degrees = cntr.degrees(graph.matrix)
+    goodnodes = cntr.goodnodes(graph.matrix, degrees)
+    graph.matrix, degrees, goodnodes, cntrs = cntr.contract(
+        graph.matrix, goodnodes, degrees)
 
-    can = canonical()
-    can.displayInputGraph(graph.nodecnt, graph.matrix, nodes_data)
-    can.runWithArguments(graph.nodecnt, graph.west, graph.south, graph.north, triplet, graph, graph.matrix,cip)
-    graph.matrix[graph.north][graph.south] = 0
-    graph.matrix[graph.south][graph.north] = 0
-    print(can.graph_data['indexToCanOrd'])
-    my_rel = Canonical_LShaped.Canonical_L_Shaped(can.graph_data['indexToCanOrd'], graph)
-    graph.matrix = my_rel
-    get_floorplan(graph, triplet)
+    # Expansion
+    graph.matrix = exp.basecase(graph.matrix, graph.nodecnt)
+    while len(cntrs) != 0:
+        graph.matrix = exp.expand(graph.matrix, graph.nodecnt, cntrs)
+    
+    get_floorplan(graph, -1)
 
 
 def find_cips(graph):
@@ -258,8 +295,10 @@ def new_matrix(graph, node_count):
 
 
 def boundary_path_single(paths, boundary, corner_points):
+    ne = corner_points[0]
     for path in paths:
-        corner_points.append(path[randint(0, len(path) - 1)])
+        if ne not in path:
+            corner_points.append(path[randint(0, len(path) - 1)])
     while (len(corner_points) < 4):
         corner_vertex = boundary[randint(0, len(boundary) - 1)]
         while (corner_vertex in corner_points):
@@ -305,10 +344,10 @@ def get_rel(graph, path1):
 
 
 def get_floorplan(graph, triplet):
-    a = triplet[0]
-    b = triplet[1]
-    c = triplet[2]
-    b_ne = graph.matrix[b][graph.northeast]
+    # a = triplet[0]
+    # b = triplet[1]
+    # c = triplet[2]
+    # b_ne = graph.matrix[b][graph.northeast]
 
     graph.extranodes.append(graph.northeast)
     print("here")
