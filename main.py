@@ -668,6 +668,30 @@ def run():
                         ,gclass.value[6]
                         ,[]
                         ,origin,gclass.outer_boundary, gclass.shape)
+                
+            elif (gclass.command == "door_connectivity"):  # Door Connectivity Floorplan
+                start = time.time()
+                graph.door_connectivity()
+                end = time.time()
+                printe("Time taken: " + str((end - start) * 1000) + " ms")
+                graph_data = {
+                    'room_x': graph.room_x,
+                    'room_y': graph.room_y,
+                    'room_width': graph.room_width,
+                    'room_height': graph.room_height,
+                    'area': graph.area,
+                    'extranodes': graph.extranodes,
+                    'mergednodes': graph.mergednodes,
+                    'irreg_nodes': graph.irreg_nodes1
+                }
+                gclass.output_data.append(graph_data)
+                draw.draw_rdg(graph_data
+                                , 1
+                                , gclass.pen
+                                , 1
+                                , gclass.value[6]
+                                , []
+                                , origin)
 
             gclass.time_taken = (end-start)*1000
             gclass.num_rfp = len(graph.room_x)
