@@ -12,11 +12,11 @@ import copy
 import numpy as np
 import networkx as nx
 from random import randint
-import source.lettershape.ushape.ushape
-import source.lettershape.zshape.zshape
-import source.lettershape.tshape.tshape
-import source.staircaseshape.staircaseshape
-import source.lettershape.lshape.Lshaped
+from .lettershape.ushape.ushape import *
+from .lettershape.zshape.zshape import *
+from .lettershape.tshape.tshape import *
+from .staircaseshape.staircaseshape import *
+from .lettershape.lshape.Lshaped import *
 from .graphoperations import biconnectivity as bcn
 from .graphoperations import oneconnectivity as onc
 from .graphoperations import operations as opr
@@ -887,14 +887,14 @@ def generate_multiple_bdy(matrix, nodecnt, edgecnt, bcn_edges, trng_edges, merge
 
 def lettershape(graph, node_data, letter):
     if(letter == "L Shape"):
-        source.lettershape.lshape.Lshaped.LShapedFloorplan(graph, node_data)
+        LShapedFloorplan(graph, node_data)
     elif(letter == "T Shape"):
-        source.lettershape.tshape.tshape.TShapedFloorplan(graph)
+        TShapedFloorplan(graph)
     elif(letter == "Z Shape"):
-        source.lettershape.zshape.zshape.ZShapedFloorplan(graph)
+        ZShapedFloorplan(graph)
     elif(letter == "U Shape"):
-        source.lettershape.ushape.ushape.UShapedFloorplan(graph)
+        UShapedFloorplan(graph)
 
 def staircaseshaped(graph):
-    source.staircaseshape.staircaseshape.StaircaseShapedFloorplan(graph)
+    StaircaseShapedFloorplan(graph)
 

@@ -1,4 +1,4 @@
-import source.graphoperations.operations as opr
+from ...graphoperations import operations as opr
 import numpy as np
 import copy
 

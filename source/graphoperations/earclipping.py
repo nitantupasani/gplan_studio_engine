@@ -130,7 +130,6 @@ def isConvex(vertex_prev, vertex, vertex_next):
     # if(internal_angle > np.pi):
     #     internal_angle = 2*np.pi - internal_angle
     # return internal_angle <= np.pi
-
     if angle1<=0 and angle2<=0:
         return angle2-angle1 <0 
     elif angle1>=0 and angle2>=0:

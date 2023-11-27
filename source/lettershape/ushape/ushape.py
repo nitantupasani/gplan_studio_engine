@@ -3,16 +3,16 @@ from random import randint
 #from networkx.algorithms.centrality.betweenness_subset import betweenness_centrality_source
 from networkx.algorithms.core import core_number
 from networkx.classes import graph
-from source.floorplangen import rdg as rdg
 # from LShaped import connect_news, new_matrix
-import source.boundary.cip as cip
-import source.graphoperations.operations as opr
+from ...floorplangen import rdg 
+from ...boundary import cip  
+from ...graphoperations import operations as opr
 import numpy as np
-import source.boundary.news as news
-import source.irregular.shortcutresolver as sr 
-import source.floorplangen.contraction as cntr
-import source.floorplangen.expansion as exp
-import pythongui.drawing as draw
+from ...boundary import news as news
+from ...irregular import shortcutresolver as sr 
+from ...floorplangen import contraction as cntr
+from ...floorplangen import expansion as exp
+# import pythongui.drawing as draw
 import copy
 
 
@@ -35,10 +35,10 @@ def connect_news(matrix, graph):
 
 
 def path_lister(graph, cip):
-    triangular_cycles = opr.get_trngls(graph.matrix)
-    digraph = opr.get_directed(graph.matrix)
-    graph.bdy_nodes, graph.bdy_edges = opr.get_bdy(triangular_cycles, digraph)
-    ordered_boundary = opr.ordered_bdy(graph.bdy_nodes, graph.bdy_edges)
+    triangular_cycles = get_trngls(graph.matrix)
+    digraph = get_directed(graph.matrix)
+    graph.bdy_nodes, graph.bdy_edges = get_bdy(triangular_cycles, digraph)
+    ordered_boundary = ordered_bdy(graph.bdy_nodes, graph.bdy_edges)
     path_list = []
     centre_cip = []
     centre_cip_temp = []
@@ -121,11 +121,11 @@ def add_edges1(graph, matrix, adj_vertices1, new_vertex1):
 
 
 def find_cips(graph):
-	triangular_cycles = opr.get_trngls(graph.matrix)
-	digraph = opr.get_directed(graph.matrix)
-	graph.bdy_nodes, graph.bdy_edges = opr.get_bdy(triangular_cycles, digraph)
-	shortcuts = sr.get_shortcut(graph.matrix, graph.bdy_nodes, graph.bdy_edges)
-	ordered_boundary = opr.ordered_bdy(graph.bdy_nodes, graph.bdy_edges)
+	triangular_cycles = get_trngls(graph.matrix)
+	digraph = get_directed(graph.matrix)
+	graph.bdy_nodes, graph.bdy_edges = get_bdy(triangular_cycles, digraph)
+	shortcuts = get_shortcut(graph.matrix, graph.bdy_nodes, graph.bdy_edges)
+	ordered_boundary = ordered_bdy(graph.bdy_nodes, graph.bdy_edges)
 
 	cips = cip.find_cip(ordered_boundary,shortcuts)
 	print("====cip====")
@@ -134,12 +134,12 @@ def find_cips(graph):
 
 
 def get_rel(graph, path1):
-    graph.degrees = cntr.degrees(graph.matrix)
-    goodnodes = cntr.goodnodes(graph.matrix, graph.degrees)
-    graph.matrix, graph.degrees, goodnodes, cntrs = cntr.contract(graph.matrix, goodnodes, graph.degrees)
-    graph.matrix = exp.basecase(graph.matrix, graph.nodecnt)
+    graph.degrees = degrees(graph.matrix)
+    goodnodes = goodnodes(graph.matrix, graph.degrees)
+    graph.matrix, graph.degrees, goodnodes, cntrs = contract(graph.matrix, goodnodes, graph.degrees)
+    graph.matrix = basecase(graph.matrix, graph.nodecnt)
     while len(cntrs) != 0:
-        graph.matrix = exp.expand(graph.matrix, graph.nodecnt, cntrs)
+        graph.matrix = expand(graph.matrix, graph.nodecnt, cntrs)
 
     print("REL")
     print(graph.matrix)
@@ -147,9 +147,9 @@ def get_rel(graph, path1):
 
 def add_NESW(graph, new_adjacency_mat):
     graph.matrix = new_adjacency_mat
-    triangular_cycles = opr.get_trngls(graph.matrix)
-    digraph = opr.get_directed(graph.matrix)
-    graph.bdy_nodes, graph.bdy_edges = opr.get_bdy(triangular_cycles, digraph)
+    triangular_cycles = get_trngls(graph.matrix)
+    digraph = get_directed(graph.matrix)
+    graph.bdy_nodes, graph.bdy_edges = get_bdy(triangular_cycles, digraph)
     
     cips = find_cips_U_shaped(graph)
 
@@ -181,7 +181,7 @@ def add_NESW(graph, new_adjacency_mat):
 def find_cips_U_shaped(graph):
     cips = find_cips(graph)
     corner_points = []
-    graph.cip = boundary_path_single(news.find_bdy(cips),opr.ordered_bdy(graph.bdy_nodes,graph.bdy_edges), corner_points)
+    graph.cip = boundary_path_single(find_bdy(cips),ordered_bdy(graph.bdy_nodes,graph.bdy_edges), corner_points)
     cips = graph.cip
     return cips
 

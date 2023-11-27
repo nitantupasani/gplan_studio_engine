@@ -791,14 +791,16 @@ def call_circulation(graph_data, gclass, coord, is_dimensioned, dim_constraints,
         circ.adjust_RFP_to_circulation()
 
         # Printing how much shift was done for each room
+        print("\t\tT\tB\t\L\tR\t\tTarget")
         for room in circ.RFP.rooms:
-            print("Room ",room.id, ":")
-            print("Push top edge by: ", room.rel_push_T)
-            print("Push bottom edge by: ", room.rel_push_B)
-            print("Push left edge by: ", room.rel_push_L)
-            print("Push right edge by: ", room.rel_push_R)
-            print(room.target)
-            print('\n')
+            print(f"{room.id}\t{room.rel_push_T}\t{room.rel_push_B}\t{room.rel_push_L}\t{room.rel_push_R}\t\t{room.target}")
+            # print("Room ",room.id, ":")
+            # print("Push top edge by: ", room.rel_push_T)
+            # print("Push bottom edge by: ", room.rel_push_B)
+            # print("Push left edge by: ", room.rel_push_L)
+            # print("Push right edge by: ", room.rel_push_R)
+            # print(room.target)
+            # print('\n')
 
         room_x1 = []
         room_y1 = []
@@ -836,14 +838,16 @@ def call_circulation(graph_data, gclass, coord, is_dimensioned, dim_constraints,
     circulation_obj.adjust_RFP_to_circulation()
 
     # Printing how much shift was done for each room
+    print("\tT\tB\tL\tR")
     for room in circulation_obj.RFP.rooms:
-        print("Room ",room.id, ":")
-        print("Push top edge by: ", room.rel_push_T)
-        print("Push bottom edge by: ", room.rel_push_B)
-        print("Push left edge by: ", room.rel_push_L)
-        print("Push right edge by: ", room.rel_push_R)
-        print(room.target)
-        print('\n')
+        print(f"{room.id}\t{room.rel_push_T}\t{room.rel_push_B}\t{room.rel_push_L}\t{room.rel_push_R}")
+        # print("Room ",room.id, ":")
+        # print("Push top edge by: ", room.rel_push_T)
+        # print("Push bottom edge by: ", room.rel_push_B)
+        # print("Push left edge by: ", room.rel_push_L)
+        # print("Push right edge by: ", room.rel_push_R)
+        # print(room.target)
+        # print('\n')
 
     room_x = []
     room_y = []

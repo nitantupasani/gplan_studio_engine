@@ -20,11 +20,13 @@ source gplan_env/bin/activate
 
 **Windows**
 ```bash
-pip install -r requirements.txt
+pip install -e .
+# pip install -r requirements.txt //DONT RUN THIS NOW
 ```
 **Unix/macOS**
 ```bash
-python3 -m pip install -r requirements.txt
+pip install -e .
+# python3 -m pip install -r requirements.txt //DONT RUN THIS NOW
 ```
 
 3. Execute the main.py file.

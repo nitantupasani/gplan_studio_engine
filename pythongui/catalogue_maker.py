@@ -7,6 +7,9 @@ from tkinter.filedialog import asksaveasfilename
 from tkinter import messagebox
 
 import numpy as np
+import sys
+sys.path.append("..")
+
 from source.graphoperations.operations import get_encoded_matrix
 
 pdf_w=210
