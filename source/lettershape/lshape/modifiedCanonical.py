@@ -303,13 +303,13 @@ class canonical:
 
         # for i in range(0,n, 1):
         #     print("i : {}",self.graph_data['neighbors'][i])
-        fig, axes = plt.subplots(nrows=1, ncols=2)
-        ax = axes.flatten()
-        fig.set_size_inches(15.0, 5.25)
-        ax[0].invert_yaxis()
-        ax[0].set_title('Input Graph')
-        ax[1].invert_yaxis()
-        ax[1].set_title('Output Graph after Canonical Order')
+        # fig, axes = plt.subplots(nrows=1, ncols=2)
+        # ax = axes.flatten()
+        # fig.set_size_inches(15.0, 5.25)
+        # ax[0].invert_yaxis()
+        # ax[0].set_title('Input Graph')
+        # ax[1].invert_yaxis()
+        # ax[1].set_title('Output Graph after Canonical Order')
 
         # nx.draw(self.graphs[0],self.node_coordinate,with_labels=True, font_weight='bold',ax = ax[0])
         # ax[0].set_axis_off()

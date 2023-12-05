@@ -1453,6 +1453,10 @@ class gui_class:
                             **button_details, command=master.door_connectivity)
             b12.grid(row=7, column=0, padx=5, pady=5)
 
+            b13 = tk.Button(master.frame1, width=10, text='Multiple L-shaped floorplans', relief='flat',
+                            **button_details, command=master.multiple_l_floorplan)
+            b13.grid(row=7, column=1, padx=5, pady=5)
+
             b5 = tk.Button(master.frame1,width=10, text='EXIT',relief='flat', **button_details,command=master.exit)
             b5.grid(row=6,column=1,padx=5,pady=5)
 
@@ -1634,6 +1638,12 @@ class gui_class:
         self.command = "multiple_oc"
         self.end.set(self.end.get() + 1)
         # self.root.state('zoomed')
+        # root.destroy()
+
+    def multiple_l_floorplan(self):
+        self.app.command = "multiple_l"
+        self.command = "multiple_l"
+        self.end.set(self.end.get() + 1)
         # root.destroy()
 
     def circulation(self):

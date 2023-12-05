@@ -379,6 +379,28 @@ def run():
                                 , []
                                 , origin)
                     
+            elif(gclass.command == "multiple_l"):#Multiple L-shaped Floorplan
+                if(gclass.value[4] == 0):#Non-Dimensioned multiple dual
+                    start = time.time()
+                    Lshaped.multipleLshapedFloorplans(graph, gclass.app.nodes_data)
+                    end = time.time()
+                    printe("Average Time taken: " + str(((end - start) * 1000) / graph.fpcnt) + " ms")
+                    printe("Number of floorplans: " + str(graph.fpcnt))
+                    for idx in range(graph.fpcnt):
+                        graph_data = {
+                            'room_x': graph.room_x[idx],
+                            'room_y': graph.room_y[idx],
+                            'room_width': graph.room_width[idx],
+                            'room_height': graph.room_height[idx],
+                            'area': graph.area,
+                            'extranodes': graph.extranodes[idx],
+                            'mergednodes': graph.mergednodes[idx],
+                            'irreg_nodes': graph.irreg_nodes1[idx]
+                        }
+                        gclass.multiple_output_found = 1
+
+                        gclass.output_data.append(graph_data)
+                    
             elif (gclass.command == "staircase_shaped"):
                 start = time.time()
                 inputgraph.staircaseshaped(graph)
