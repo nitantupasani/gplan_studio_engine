@@ -1,6 +1,7 @@
 """Main file of the project
 
 """
+# from graphoperations.operations import get_encoded_matrix
 from dataclasses import is_dataclass
 import warnings
 import time
@@ -12,10 +13,14 @@ import pythongui.gui as gui
 import source.inputgraph as inputgraph
 import pythongui.drawing as draw
 import pythongui.dimensiongui as dimgui
+import pythongui.mindimensiongui as mindimgui
 import circulation as cir
 import matplotlib.pyplot as plt
 import copy
-
+import input.input_for_min_dim as input_for_min_dim
+from source.graphoperations.operations import get_encoded_matrix
+import json
+# from graphoperations import operations as opr
 
 import source.lettershape.lshape.Lshaped as Lshaped
 import source.lettershape.tshape.tshape as Tshaped
@@ -56,6 +61,8 @@ def run():
 
     warnings.filterwarnings("ignore")
     gclass = gui.gui_class() 
+    for i in range(0,11):
+        print(gclass.value[i])
 
     dim_circ = False
 
@@ -70,6 +77,7 @@ def run():
                         # Get node coordinates
             node_coord = graph.coordinates
             origin = 0
+            # print("GUI Return", gclass.__dir__())
             if(gclass.command == "circulation"): # For spanning circulation
                 is_dimensioned = False
                 remove_corridor = False
@@ -500,7 +508,7 @@ def run():
                         # gclass.pen = gclass.ocan.getpen()
                         # gclass.pen.speed(0)
             elif(gclass.command == "single_oc"):
-                if(gclass.value[4] == 0): #Non-Dimensioned single rectangular dual
+                if(gclass.value[4] == 0 and gclass.value[10] == 0): #Non-Dimensioned single rectangular dual
                     start = time.time()
                     try:
                         graph.oneconnected_dual("single")
@@ -528,7 +536,7 @@ def run():
                                   , gclass.value[6]
                                   , []
                                   , origin)
-                else:  # Dimensioned single floorplan
+                elif (gclass.value[4] == 1):  # Dimensioned single floorplan
                     old_dims = [[0] * gclass.value[0]
                         , [0] * gclass.value[0]
                         , [0] * gclass.value[0]
@@ -576,6 +584,56 @@ def run():
                                   , gclass.value[6]
                                   , []
                                   , origin)
+                elif(gclass.value[10] == 1):
+                    print("Sujay rocks")
+                    old_dims = [[0] * gclass.value[0]
+                        , [0] * gclass.value[0]]
+                    min_width, min_height = mindimgui.gui_fnc(old_dims, gclass.value[0])
+                    print(min_width)
+                    print(min_height)
+                    start = time.time()
+                    try:
+                        graph.oneconnected_dual("single")
+                    except inputgraph.OCError:
+                        gclass.show_warning("Can not generate rectangular floorplan.")
+                        graph.irreg_single_dual()
+                    except inputgraph.BCNError:
+                        graph.irreg_single_dual()
+                    # end = time.time()
+                    # printe("Time taken: " + str((end - start) * 1000) + " ms")
+                    graph_data = {
+                        'room_x': graph.room_x,
+                        'room_y': graph.room_y,
+                        'room_width': graph.room_width,
+                        'room_height': graph.room_height,
+                        'area': graph.area,
+                        'extranodes': graph.extranodes,
+                        'mergednodes': graph.mergednodes,
+                        'irreg_nodes': graph.irreg_nodes1
+                    }
+                    print("graph_data", graph_data)
+                    floorplan_obj = input_for_min_dim.floorplan(gclass.value[3], gclass.value[4],
+                                                           gclass.value[8], gclass.value[9], gclass.corridor_thickness)
+                    enc_mat = get_encoded_matrix(gclass.value[0], graph.room_x, graph.room_y, graph.room_width, graph.room_height)
+                    floorplan_data = floorplan_obj.get_floorplan_details(
+                        gclass.value[5], gclass.value[6], gclass.value[7], min_width, min_height, 
+                        gclass.value[2], enc_mat
+                    )
+                    print("floorplan data")
+                    print(floorplan_data)
+                    file_path = "input_provided.json"
+                    json_data = json.dumps(floorplan_data, indent=2)
+                    with open(file_path, 'w') as json_file:
+                        json_file.write(json_data)
+                    print(f"JSON data has been written to {file_path}")
+                    # draw.draw_rdg(graph_data
+                    #               , 1
+                    #               , gclass.pen
+                    #               , 1
+                    #               , gclass.value[6]
+                    #               , []
+                    #               , origin)
+                    
             elif (gclass.command == "multiple_oc"):
                 if (gclass.value[4] == 0):  # Non-Dimensioned multiple dual
                     start = time.time()

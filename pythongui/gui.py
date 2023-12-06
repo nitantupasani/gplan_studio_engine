@@ -185,6 +185,7 @@ class gui_class:
         self.checkvar2.set(0)
         self.checkvar3 = tk.IntVar(None) # For remove/add circulation
         self.checkvar3.set(0)
+        self.checkvar4 = tk.IntVar()
 
         self.e1 = tk.IntVar()
         self.e2 = tk.IntVar()
@@ -300,7 +301,7 @@ class gui_class:
                 temp_node_data.append(i.pos_y)
                 node_coordinate.append(temp_node_data)
             return [len(self.nodes_data), self.edge_count, self.edges, self.command, self.master.checkvar1.get(),
-                    list(filter(None, [row[1].get() for row in self.table._data_vars])), self.hex_list, node_coordinate, self.master.checkvar2.get(), self.master.checkvar3.get()]
+                    list(filter(None, [row[1].get() for row in self.table._data_vars])), self.hex_list, node_coordinate, self.master.checkvar2.get(), self.master.checkvar3.get(), self.master.checkvar4.get()]
 
         def createCanvas(self):
             self.id_circle.clear()
@@ -1459,6 +1460,10 @@ class gui_class:
 
             b5 = tk.Button(master.frame1,width=10, text='EXIT',relief='flat', **button_details,command=master.exit)
             b5.grid(row=6,column=1,padx=5,pady=5)
+            
+            b14 = tk.Checkbutton(master.frame1, text="Min Dim", relief='flat', **button_details,
+                                selectcolor='#4A4E69', width=7, variable=master.checkvar4, onvalue=1, offvalue=0)
+            b14.grid(row=8, column=0, padx=5, pady=5)
 
     class menu:
         def __init__(self, master):

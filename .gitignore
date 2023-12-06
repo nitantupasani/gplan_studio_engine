@@ -11,3 +11,4 @@ __pycache__\
 myenv/
 gplan_test_env
 GPLAN.egg-info/
+input_provided.json
