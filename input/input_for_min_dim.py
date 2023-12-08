@@ -18,6 +18,10 @@ class floorplan:
             id = int(id)
             node_obj = nodes()
             self.nodes.append(node_obj.add_node(id, colors[id], coords[id][0], coords[id][1], min_width[id], min_height[id], room_x=room_x[id], room_y=room_y[id], room_width=room_width[id], room_height=room_height[id]))
+            curr = self.nodes[id]
+            curr["room_x"] = curr["room_x"] + curr["room_height"]
+            self.nodes.pop()
+            self.nodes.append(curr) 
     
     def fill_edges(self, edge_list):
         for edge in edge_list:

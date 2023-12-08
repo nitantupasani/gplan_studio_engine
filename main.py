@@ -588,8 +588,8 @@ def run():
                     old_dims = [[0] * gclass.value[0]
                         , [0] * gclass.value[0]]
                     min_width, min_height = mindimgui.gui_fnc(old_dims, gclass.value[0])
-                    # print(min_width)
-                    # print(min_height)
+                    print(min_width)
+                    print(min_height)
                     start = time.time()
                     try:
                         graph.oneconnected_dual("single")
@@ -600,17 +600,8 @@ def run():
                         graph.irreg_single_dual()
                     # end = time.time()
                     # printe("Time taken: " + str((end - start) * 1000) + " ms")
-                    graph_data = {
-                        'room_x': graph.room_x,
-                        'room_y': graph.room_y,
-                        'room_width': graph.room_width,
-                        'room_height': graph.room_height,
-                        'area': graph.area,
-                        'extranodes': graph.extranodes,
-                        'mergednodes': graph.mergednodes,
-                        'irreg_nodes': graph.irreg_nodes1
-                    }
-                    print("graph_data", graph_data)
+                    
+                    # print("graph_data", graph_data)
                     floorplan_obj = input_for_min_dim.floorplan(gclass.value[3], gclass.value[4],
                                                            gclass.value[8], gclass.value[9], gclass.corridor_thickness)
                     enc_mat = get_encoded_matrix(gclass.value[0], graph.room_x, graph.room_y, graph.room_width, graph.room_height)
@@ -618,13 +609,41 @@ def run():
                         gclass.value[5], gclass.value[6], gclass.value[7], min_width, min_height, graph.room_x, graph.room_y, graph.room_width, graph.room_height,
                         gclass.value[2], enc_mat
                     )
-                    # print("floorplan data")
-                    # print(floorplan_data)
-                    file_path = "input_provided.json"
+                    print("floorplan data")
+                    print(floorplan_data)
+                    file_path = "input_to_min_dim.json"
                     json_data = json.dumps(floorplan_data, indent=2)
                     with open(file_path, 'w') as json_file:
                         json_file.write(json_data)
                     print(f"JSON data has been written to {file_path}")
+                    file_path = "output_from_min_dim.json"
+                    with open(file_path, 'r') as file:
+                        json_content = json.load(file)
+                    # print(json_content)
+                    end = time.time()
+                    printe("Time taken: " + str((end - start) * 1000) + " ms")
+                    room_x = [] 
+                    room_y = [] 
+                    room_width = [] 
+                    room_height = [] 
+                    room_area = []
+                    for room_detail in json_content["floorplans"][0]:
+                        room_x.append(room_detail["left"])
+                        room_y.append(room_detail["left"])
+                        room_width.append(room_detail["width"])
+                        room_height.append(room_detail["height"])
+                        room_area.append(room_detail["width"] * room_detail["height"])
+                    
+                    graph_data = {
+                        'room_x': room_x,
+                        'room_y': room_y,
+                        'room_width': room_width,
+                        'room_height': room_height,
+                        'area': room_area,
+                        'extranodes': graph.extranodes,
+                        'mergednodes': graph.mergednodes,
+                        'irreg_nodes': graph.irreg_nodes1
+                    }
                     # draw.draw_rdg(graph_data
                     #               , 1
                     #               , gclass.pen
