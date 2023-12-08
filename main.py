@@ -585,12 +585,11 @@ def run():
                                   , []
                                   , origin)
                 elif(gclass.value[10] == 1):
-                    print("Sujay rocks")
                     old_dims = [[0] * gclass.value[0]
                         , [0] * gclass.value[0]]
                     min_width, min_height = mindimgui.gui_fnc(old_dims, gclass.value[0])
-                    print(min_width)
-                    print(min_height)
+                    # print(min_width)
+                    # print(min_height)
                     start = time.time()
                     try:
                         graph.oneconnected_dual("single")
@@ -616,11 +615,11 @@ def run():
                                                            gclass.value[8], gclass.value[9], gclass.corridor_thickness)
                     enc_mat = get_encoded_matrix(gclass.value[0], graph.room_x, graph.room_y, graph.room_width, graph.room_height)
                     floorplan_data = floorplan_obj.get_floorplan_details(
-                        gclass.value[5], gclass.value[6], gclass.value[7], min_width, min_height, 
+                        gclass.value[5], gclass.value[6], gclass.value[7], min_width, min_height, graph.room_x, graph.room_y, graph.room_width, graph.room_height,
                         gclass.value[2], enc_mat
                     )
-                    print("floorplan data")
-                    print(floorplan_data)
+                    # print("floorplan data")
+                    # print(floorplan_data)
                     file_path = "input_provided.json"
                     json_data = json.dumps(floorplan_data, indent=2)
                     with open(file_path, 'w') as json_file:

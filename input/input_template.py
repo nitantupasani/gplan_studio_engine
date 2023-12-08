@@ -20,6 +20,10 @@ class nodes:
         self.max_width = None
         self.min_height = None
         self.max_height = None
+        self.room_x = None
+        self.room_y = None
+        self.room_width = None
+        self.room_height = None
         self.node_data = {}
     
     def set_identity(self, id, color, label = None):
@@ -39,6 +43,16 @@ class nodes:
             self.max_width = max_w
         if max_h is not None:
             self.max_height = max_h
+        
+    def set_undim_rfp_data(self, room_x = None, room_y = None, room_width = None, room_height = None):
+        if room_x is not None:
+            self.room_x = room_x
+        if room_y is not None:
+            self.room_y = room_y
+        if room_width is not None:
+            self.room_width = room_width
+        if room_height is not None:
+            self.room_height = room_height
             
     def append_identity(self):
         self.node_data["id"] = self.id
@@ -58,16 +72,28 @@ class nodes:
         if self.max_height is not None:
             self.node_data["max_height"] = self.max_height
     
+    def append_undim_rfp_data(self):
+        if self.room_x is not None:
+            self.node_data["room_x"] = self.room_x
+        if self.room_y is not None:
+            self.node_data["room_y"] = self.room_y
+        if self.room_width is not None:
+            self.node_data["room_width"] = self.room_width
+        if self.room_height is not None:
+            self.node_data["room_height"] = self.room_height
+    
     def get_node_data(self):
         self.append_identity()
         self.append_coordinates()
         self.append_constraints()
+        self.append_undim_rfp_data()
         return self.node_data
     
-    def add_node(self, id, color, x, y, min_w, min_h, max_w = None, max_h = None, label = None):
+    def add_node(self, id, color, x, y, min_w, min_h, max_w = None, max_h = None, label = None, room_x = None, room_y = None, room_width = None, room_height = None):
         self.set_identity(id, color, label)
         self.set_coordinates(x, y)
         self.set_constraints(min_w, min_h, max_w, max_h)
+        self.set_undim_rfp_data(room_x, room_y, room_width, room_height)
         return self.get_node_data()
     
 class edges:
@@ -99,14 +125,14 @@ class boundary_rooms:
     def identify_boundary(self, enc_mat):
         for i in range(0, len(enc_mat)):
             for j in range(0, len(enc_mat[0])):
-                if i == 0 and i not in self.north:
-                    self.north.append(i)
-                if i == len(enc_mat)-1 and i not in self.south:
-                    self.south.append(i)
-                if j == 0 and j not in self.west:
-                    self.west.append(j)
-                if j == len(enc_mat)-1 and j not in self.east:
-                    self.east.append(j)
+                if i == 0 and enc_mat[i][j] not in self.north:
+                    self.north.append(int(enc_mat[i][j]))
+                if i == len(enc_mat)-1 and enc_mat[i][j] not in self.south:
+                    self.south.append(int(enc_mat[i][j]))
+                if j == 0 and enc_mat[i][j] not in self.west:
+                    self.west.append(int(enc_mat[i][j]))
+                if j == len(enc_mat[0])-1 and enc_mat[i][j] not in self.east:
+                    self.east.append(int(enc_mat[i][j]))
                     
     def get_boundary_rooms(self, enc_mat):
         self.identify_boundary(enc_mat)

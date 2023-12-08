@@ -13,11 +13,11 @@ class floorplan:
         self.floorplan_limit = 100000
         self.boundary_rooms = {}
         
-    def fill_nodes(self, id_list, colors, coords, min_width, min_height):
+    def fill_nodes(self, id_list, colors, coords, min_width, min_height, room_x, room_y, room_width, room_height):
         for id in id_list:
             id = int(id)
             node_obj = nodes()
-            self.nodes.append(node_obj.add_node(id, colors[id], coords[id][0], coords[id][1], min_width[id], min_height[id]))
+            self.nodes.append(node_obj.add_node(id, colors[id], coords[id][0], coords[id][1], min_width[id], min_height[id], room_x=room_x[id], room_y=room_y[id], room_width=room_width[id], room_height=room_height[id]))
     
     def fill_edges(self, edge_list):
         for edge in edge_list:
@@ -29,8 +29,8 @@ class floorplan:
         self.boundary_rooms = boundary_room_obj.get_boundary_rooms(enc_mat)
     
     def get_floorplan_details(self, id_list, colors, coords, min_width, min_height, 
-                              edge_list, enc_mat):
-        self.fill_nodes(id_list, colors, coords, min_width, min_height)
+                              room_x, room_y, room_width, room_height, edge_list, enc_mat):
+        self.fill_nodes(id_list, colors, coords, min_width, min_height, room_x, room_y, room_width, room_height)
         self.fill_edges(edge_list)
         self.fill_boundary_rooms(enc_mat)
         
