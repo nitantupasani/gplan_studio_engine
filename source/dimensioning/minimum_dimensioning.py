@@ -455,7 +455,6 @@ def reinitialize():
 
 # main wrapper
 def main(file_path):
-    print("Main khul gaya")
     global data
     reinitialize()
     f = open(file_path)
@@ -480,8 +479,6 @@ def main(file_path):
     compute_placement()  # Compute placements using longest path algorithm
     print_placements()  # Print computed placements
     create_json()
-    
-    print("bache ka code chal gaya")
 
 
 # Main execution
