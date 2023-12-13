@@ -122,20 +122,24 @@ class boundary_rooms:
         self.east = []
         self.west = []
     
-    def identify_boundary(self, enc_mat):
+    def identify_boundary(self, enc_mat, room_x, room_y):      
+        for i in range(0, len(room_x)):
+            if (room_x[i] == 0.0):
+                self.west.append(i)
+        
+        for i in range(0, len(room_y)):
+            if (room_y[i] == 0.0):
+                self.south.append(i)
+                
         for i in range(0, len(enc_mat)):
             for j in range(0, len(enc_mat[0])):
-                if i == 0 and enc_mat[i][j] not in self.north:
+                if ((i == 0 or i == len(enc_mat)-1) and enc_mat[i][j] not in self.north and enc_mat[i][j] not in self.south):
                     self.north.append(int(enc_mat[i][j]))
-                if i == len(enc_mat)-1 and enc_mat[i][j] not in self.south:
-                    self.south.append(int(enc_mat[i][j]))
-                if j == 0 and enc_mat[i][j] not in self.west:
-                    self.west.append(int(enc_mat[i][j]))
-                if j == len(enc_mat[0])-1 and enc_mat[i][j] not in self.east:
+                if ((j == 0 or j == len(enc_mat[0])-1) and enc_mat[i][j] not in self.east and enc_mat[i][j] not in self.west):
                     self.east.append(int(enc_mat[i][j]))
                     
-    def get_boundary_rooms(self, enc_mat):
-        self.identify_boundary(enc_mat)
+    def get_boundary_rooms(self, enc_mat, room_x, room_y):
+        self.identify_boundary(enc_mat, room_x, room_y)
         return {
             "north": self.north,
             "south": self.south,

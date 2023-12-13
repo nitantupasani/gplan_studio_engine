@@ -20,7 +20,8 @@ import copy
 import input.input_for_min_dim as input_for_min_dim
 from source.graphoperations.operations import get_encoded_matrix
 import json
-# from graphoperations import operations as opr
+from system_functions.os_functions import delete_file
+import source.dimensioning.minimum_dimensioning as min_dim
 
 import source.lettershape.lshape.Lshaped as Lshaped
 import source.lettershape.tshape.tshape as Tshaped
@@ -588,8 +589,6 @@ def run():
                     old_dims = [[0] * gclass.value[0]
                         , [0] * gclass.value[0]]
                     min_width, min_height = mindimgui.gui_fnc(old_dims, gclass.value[0])
-                    print(min_width)
-                    print(min_height)
                     start = time.time()
                     try:
                         graph.oneconnected_dual("single")
@@ -598,10 +597,7 @@ def run():
                         graph.irreg_single_dual()
                     except inputgraph.BCNError:
                         graph.irreg_single_dual()
-                    # end = time.time()
-                    # printe("Time taken: " + str((end - start) * 1000) + " ms")
                     
-                    # print("graph_data", graph_data)
                     floorplan_obj = input_for_min_dim.floorplan(gclass.value[3], gclass.value[4],
                                                            gclass.value[8], gclass.value[9], gclass.corridor_thickness)
                     enc_mat = get_encoded_matrix(gclass.value[0], graph.room_x, graph.room_y, graph.room_width, graph.room_height)
@@ -609,17 +605,16 @@ def run():
                         gclass.value[5], gclass.value[6], gclass.value[7], min_width, min_height, graph.room_x, graph.room_y, graph.room_width, graph.room_height,
                         gclass.value[2], enc_mat
                     )
-                    print("floorplan data")
-                    print(floorplan_data)
-                    file_path = "input_to_min_dim.json"
+                    input_path = "input_to_min_dim.json"
                     json_data = json.dumps(floorplan_data, indent=2)
-                    with open(file_path, 'w') as json_file:
+                    with open(input_path, 'w') as json_file:
                         json_file.write(json_data)
-                    print(f"JSON data has been written to {file_path}")
-                    file_path = "output_from_min_dim.json"
-                    with open(file_path, 'r') as file:
+                    print(f"JSON data has been written to {input_path}")
+                    min_dim.main(input_path)
+                    output_path = "output_from_min_dim.json"
+                    with open(output_path, 'r') as file:
                         json_content = json.load(file)
-                    # print(json_content)
+                    
                     end = time.time()
                     printe("Time taken: " + str((end - start) * 1000) + " ms")
                     room_x = [] 
@@ -627,12 +622,17 @@ def run():
                     room_width = [] 
                     room_height = [] 
                     room_area = []
-                    for room_detail in json_content["floorplans"][0]:
-                        room_x.append(room_detail["left"])
-                        room_y.append(room_detail["left"])
+                    for room_detail in json_content["nodes"]:
+                        room_x.append(room_detail["room_x"])
+                        room_y.append(room_detail["room_y"])
                         room_width.append(room_detail["width"])
                         room_height.append(room_detail["height"])
                         room_area.append(room_detail["width"] * room_detail["height"])
+                    
+                    room_x = np.array(room_x)
+                    room_y = np.array(room_y)
+                    room_width = np.array(room_width)
+                    room_height = np.array(room_height)
                     
                     graph_data = {
                         'room_x': room_x,
@@ -644,13 +644,18 @@ def run():
                         'mergednodes': graph.mergednodes,
                         'irreg_nodes': graph.irreg_nodes1
                     }
-                    # draw.draw_rdg(graph_data
-                    #               , 1
-                    #               , gclass.pen
-                    #               , 1
-                    #               , gclass.value[6]
-                    #               , []
-                    #               , origin)
+                    draw.draw_rdg(graph_data
+                                  , 1
+                                  , gclass.pen
+                                  , 1
+                                  , gclass.value[6]
+                                  , []
+                                  , origin)
+                    
+                    # delete_file(input_path)
+                    # delete_file(output_path)
+                    
+                    
                     
             elif (gclass.command == "multiple_oc"):
                 if (gclass.value[4] == 0):  # Non-Dimensioned multiple dual

@@ -19,7 +19,7 @@ class floorplan:
             node_obj = nodes()
             self.nodes.append(node_obj.add_node(id, colors[id], coords[id][0], coords[id][1], min_width[id], min_height[id], room_x=room_x[id], room_y=room_y[id], room_width=room_width[id], room_height=room_height[id]))
             curr = self.nodes[id]
-            curr["room_x"] = curr["room_x"] + curr["room_height"]
+            curr["room_y"] = curr["room_y"] + curr["room_height"]
             self.nodes.pop()
             self.nodes.append(curr) 
     
@@ -28,15 +28,15 @@ class floorplan:
             edge_obj = edges()
             self.edges.append(edge_obj.add_edge(edge[0], edge[1]))
             
-    def fill_boundary_rooms(self, enc_mat):
+    def fill_boundary_rooms(self, enc_mat, room_x, room_y):
         boundary_room_obj = boundary_rooms()
-        self.boundary_rooms = boundary_room_obj.get_boundary_rooms(enc_mat)
+        self.boundary_rooms = boundary_room_obj.get_boundary_rooms(enc_mat, room_x, room_y)
     
     def get_floorplan_details(self, id_list, colors, coords, min_width, min_height, 
                               room_x, room_y, room_width, room_height, edge_list, enc_mat):
         self.fill_nodes(id_list, colors, coords, min_width, min_height, room_x, room_y, room_width, room_height)
         self.fill_edges(edge_list)
-        self.fill_boundary_rooms(enc_mat)
+        self.fill_boundary_rooms(enc_mat, room_x, room_y)
         
         return {
             "nodes": self.nodes,
