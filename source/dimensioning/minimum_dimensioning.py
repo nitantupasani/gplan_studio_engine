@@ -31,7 +31,7 @@ edgesX = []
 edgesY = []
 edges_setx = []
 edges_sety = []
-small_positive = 0.01
+small_positive = 2
 NEG_INF = -1e8
 POS_INF = 1e8
 
