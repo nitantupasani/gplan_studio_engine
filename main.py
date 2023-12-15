@@ -586,8 +586,8 @@ def run():
                                   , []
                                   , origin)
                 elif(gclass.value[10] == 1):
-                    old_dims = [[0] * gclass.value[0]
-                        , [0] * gclass.value[0]]
+                    old_dims = [[3] * gclass.value[0]
+                        , [3] * gclass.value[0]]
                     min_width, min_height = mindimgui.gui_fnc(old_dims, gclass.value[0])
                     start = time.time()
                     try:
@@ -652,8 +652,8 @@ def run():
                                   , []
                                   , origin)
                     
-                    # delete_file(input_path)
-                    # delete_file(output_path)
+                    delete_file(input_path)
+                    delete_file(output_path)
                     
                     
                     
