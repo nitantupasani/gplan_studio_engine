@@ -163,7 +163,8 @@ def draw_rdg(graph_data,count,pen,mode,color_list,room_names,origin):
             if i in graph_data['extranodes']:
                 continue
             pen.setposition(dim[0]* scale + origin['x']+50, dim[1]* scale + origin['y']-30-value*30)
-            pen.write('Room ' + str(i)+ ': '+ str(graph_data['area'][i]),font=("Arial", 15, "normal"))
+            # pen.write('Room ' + str(i)+ ': '+ str(graph_data['area'][i]),font=("Arial", 15, "normal"))
+            pen.write('Room ' + str(i)+ ': ' + 'W:' + str(graph_data['room_width'][i])+ '  H:' + str(graph_data['room_height'][i]),font=("Arial", 15, "normal"))
             pen.penup()
             value+=1
 
