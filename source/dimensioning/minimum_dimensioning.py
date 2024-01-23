@@ -308,6 +308,7 @@ def pos_longest_path(placement, edge_set, edge_weights):
             if edge_weights[a][b] >= 0:
                 if placement[b] - placement[a] < edge_weights[a][b]:
                     placement[b] = placement[a] + edge_weights[a][b]
+                    stack.append(b)
 
             for j in range(1, 2 * rooms + 1):
                 all_vis = True
