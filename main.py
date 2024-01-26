@@ -25,6 +25,7 @@ import source.lettershape.tshape.tshape as Tshaped
 import source.lettershape.ushape.ushape as Ushaped
 import source.lettershape.zshape.zshape as Zshaped
 import source.polygonal.limits as lim
+import source.polygonal.newcoord as nc
 # import checker
 # from tkinter import messagebox
 # import dimension_gui as dimgui
@@ -724,22 +725,6 @@ def run():
                 edgecnt = graph_data['edgecnt']
                 edgeset = graph_data['edgeset']
                 node_coordinate = graph_data['node_coordinate']
-                # graph1 = inputgraph.InputGraph(nodecnt
-                #                 , edgecnt
-                #                 , edgeset
-                #                 , node_coordinate)
-
-                # adj = nx.to_numpy_array(graph1)
-                # G = nx.Graph(edgeset)
-                # adj = nx.to_numpy_array(G)
-
-                # edgecnt = adj.sum()/2
-                # nodecnt = len(graph1)
-                # edgeset = []
-                # for i in range(len(graph1)):
-                #     for j in range(i+1, len(graph1)):
-                #         if(adj[i,j] == 1):
-                #             edgeset.append((i,j))
 
                 adj_matrix = np.zeros((nodecnt,nodecnt), int)
                 for edges in (edgeset):
@@ -752,14 +737,6 @@ def run():
                             'room_y': graph_data["room_y"],
                             'room_width': graph_data["room_width"],
                             'room_height': graph_data["room_height"],
-                            # 'room_x_bottom_left': graph_data["room_x_bottom_left"],
-                            # 'room_x_bottom_right': graph_data["room_x_bottom_right"],
-                            # 'room_x_top_left': graph_data["room_x_top_left"],
-                            # 'room_x_top_right': graph_data["room_x_top_right"],
-                            # 'room_y_left_bottom': graph_data["room_y_left_bottom"],
-                            # 'room_y_right_bottom': graph_data["room_y_right_bottom"],
-                            # 'room_y_left_top': graph_data["room_y_left_top"],
-                            # 'room_y_right_top': graph_data["room_y_right_top"],
                             'area': graph_data["area"],
                             'extranodes': graph_data["extranodes"],
                             'mergednodes': graph_data["mergednodes"],
@@ -794,6 +771,32 @@ def run():
                     rooms.append(Room_i)
 
                 limits_instance = lim.LimitsAlgorithm(gclass.side,gclass.room_limits,rooms,adj_matrix)
+                
+                if(limits_instance.proceed==1):
+                    newRoomSet = []
+                    for i in range(len(adj_matrix[gclass.room_limits])):
+                        if adj_matrix[gclass.room_limits][i]==1:
+                            newRoomSet.append(romms[i])
+                    newCoordsInstance = NewCoordinateAlgorithm(newRoomSet,limits_instance.coords_input1,limits_instance.coords_input2,gclass.s_dir,glcass.dist)
+                    
+                    graph_data = {
+                                'room_x': graph_data["room_x"],
+                                'room_y': graph_data["room_y"],
+                                'room_width': graph_data["room_width"],
+                                'room_height': graph_data["room_height"],
+                                'area': [],
+                                'extranodes': [],
+                                'mergednodes': [],
+                                'irreg_nodes': []
+                            }
+
+                    draw.draw_rdg(graph_data
+                                  , 1
+                                  , gclass.pen
+                                  , 1
+                                  , gclass.value[6]
+                                  , []
+                                  , origin)
                 
 
 

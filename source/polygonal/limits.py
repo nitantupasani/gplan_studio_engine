@@ -5,10 +5,12 @@ import tkinter as tk
 import numpy as np
 import re
 import math
-
+import newcoord as newcoord
 class LimitsAlgorithm:
 
-    def __init__(self, opti, room_input, rooms, adj_mat):
+    def __init__(self, opti, room_input, rooms, adj_mat,shiftDirection,shiftValue):
+        self.proceed = 0
+        self.errorMessage = ""
         self.opti = opti
         self.room_input = room_input
         self.rooms = rooms
@@ -22,7 +24,29 @@ class LimitsAlgorithm:
         for i in range(len(self.rooms)):
             print(self.rooms[i].coords) 
         print("")
-        self.run()
+        (x_max,y_max) = self.run()
+        self.proceed = 1
+        if shiftDirection == "left" :
+            if shiftValue>x_max:
+                errorMessage = "Exceeding beyond the limits in the Left Direction" 
+                print(errorMessage)
+                self.proceed = 0
+        elif shiftDirection == "right" :
+            if shiftValue>y_max:
+                errorMessage = "Exceeding beyond the limits in the Right Direction" 
+                print(errorMessage)
+                self.proceed = 0
+        elif shiftDirection == "up" :
+            if shiftValue>x_max:
+                errorMessage = "Exceeding beyond the limits in the Up Direction" 
+                print(errorMessage)
+                self.proceed = 0
+        elif shiftDirection == "down" :
+            if shiftValue>y_max:
+                errorMessage = "Exceeding beyond the limits in the Down Direction" 
+                print(errorMessage)
+                self.proceed = 0        
+
 
     def slope(self,x,y):
         if (y[0]-x[0])!=0:
@@ -386,17 +410,19 @@ class LimitsAlgorithm:
             answer_right.append(0)
         print("can move towards the left by : ", max(answer_left))
         print("can move towards the right by : ", max(answer_right)) 
+        return (max(answer_left),max(answer_right))
 
-    def find_limits(self,adj_mat,rooms):
-        print()
-        print()
-        print()
-        print("printing all room coords")
-        for i in range(len(self.rooms)):
-            print(self.rooms[i].coords)      #The order of self.rooms is like 1st room , 2nd room ..... 8th room, 0th room.
-        print(f"Adj MAT = {self.adj_mat}")    #There is a node with 0 index in the graph, hence there is a zero room.
-        self.wall_input()
-        run(self.rooms,self.adj_mat)
+    # def find_limits(self,adj_mat,rooms):
+    #     print()
+    #     print()
+    #     print()
+    #     print("printing all room coords")
+    #     for i in range(len(self.rooms)):
+    #         print(self.rooms[i].coords)      #The order of self.rooms is like 1st room , 2nd room ..... 8th room, 0th room.
+    #     print(f"Adj MAT = {self.adj_mat}")    #There is a node with 0 index in the graph, hence there is a zero room.
+    #     self.wall_input()
+        # run(self.rooms,self.adj_mat)
 
 if __name__ == "__main__":
-    LimitsAlgorithm().find_limits(Null,Null)
+    print()
+    # LimitsAlgorithm().find_limits(Null,Null)
