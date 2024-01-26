@@ -3,7 +3,7 @@ import tkinter as tk
 # import turtle
 # from source.polygonal.draw import DrawOuterBoundary
 from source.polygonal.polygui import PolyGUI 
-from source.polygonal.limits import find_limits 
+# from source.polygonal.limits import find_limits 
 # import time
 
 
@@ -14,7 +14,7 @@ class Room:
         self.rightDisecDone = False
         self.disecAllowed = True
         self.noOfSides = 0
-    def coord():
+    def coord(self):
         return self.coords
 
 class dissected:
@@ -51,7 +51,7 @@ class dissected:
             self.lowestPointIndex= polygui.createCustom(self.outerBoundary)
         self.mainDisectionFunction()
         polygui.startDisection()
-        find_limits(self.adj_mat,self.rooms)
+        # find_limits(self.adj_mat,self.rooms)
 
 
     def createDefaultDisectionsforPentagon(self):

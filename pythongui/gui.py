@@ -96,6 +96,9 @@ class gui_class:
         self.root =tk.Tk()
         # For entry to start circulation
         self.entry_door = []
+        self.f = tk.IntVar(None)
+        self.f.set(0) 
+        self.room_limits = 0
         self.l = tk.IntVar(None)
         self.l.set(0)
         self.r = tk.IntVar(None)
@@ -107,6 +110,7 @@ class gui_class:
 
         # Remove redundant rooms
         self.opti = tk.IntVar(None)
+        self.side = 0
         self.rem = 0
 
         # To get user input for corridor thickness
@@ -1392,6 +1396,10 @@ class gui_class:
                            command=master.change_entry_gui)
             b6.grid(row=6, column=0, padx=5, pady=5)
 
+            b12 = tk.Button(master.frame1, width=10, text='Find Limits', relief='flat', **button_details,
+                           command=master.change_limits)                 #variable name to be checked when integrating
+            b12.grid(row=6, column=1, padx=5, pady=5)   
+
             # c1 = tk.Checkbutton(master.frame1, text = "Dimensioned Circulation",relief='flat',**button_details,selectcolor='#4A4E69',width=13 ,variable = master.checkvar2,onvalue = 1, offvalue = 0)
             # c1.grid(row=7,column=0,padx=5,pady=5)
 
@@ -1442,7 +1450,7 @@ class gui_class:
             c2.grid(row=5,column=1,padx=5,pady=5)
 
             b5 = tk.Button(master.frame1,width=10, text='EXIT',relief='flat', **button_details,command=master.exit)
-            b5.grid(row=6,column=1,padx=5,pady=5)
+            b5.grid(row=7,column=0,padx=5,pady=5)
 
     class menu:
         def __init__(self, master):
@@ -1979,7 +1987,41 @@ class gui_class:
         self.opti.set(0)
         self.rem = self.opti.get()
         print("The whole spanning circulation will be displayed")
+    
+    def change_limits(self):
+        self.top1 = tk.Toplevel(self.root, width=1000, height=1000)
+        root = self.top1
+        root.geometry("500x300")
+        root.title('Finding Limits')
+        main_text = tk.Label(root, text="Enter the room to be adjusted")
+        main_text.grid(row= 1, column= 0, padx = 20, ipady = 10)
+        room_input = tk.Entry(root, textvariable = self.f)
+        room_input.grid(row  = 3, column = 0)
+        main_text = tk.Label(root, text="Choose the wall to be moved")
+        main_text.grid(row= 7, column= 0, padx = 20, ipady = 10)
+        opti_btn1 = tk.Radiobutton(root, text="Left", padx=20, variable=self.opti, value=0, command=lambda: self.radio_sel())
+        opti_btn1.grid(row = 8, column = 0)
+        opti_btn2 = tk.Radiobutton(root, text="Right", padx=20, variable=self.opti, value=1, command=lambda: self.radio_sel())
+        opti_btn2.grid(row = 9, column = 0)
+        opti_btn3 = tk.Radiobutton(root, text="Top", padx=20, variable=self.opti, value=2, command=lambda: self.radio_sel())
+        opti_btn3.grid(row = 10, column = 0)
+        opti_btn4 = tk.Radiobutton(root, text="Bottom", padx=20, variable=self.opti, value=3, command=lambda: self.radio_sel())
+        opti_btn4.grid(row = 11, column = 0)
+        clear_button = tk.Button(root, text="Clear Selection", command=lambda: self.radio_desel())
+        clear_button.grid(row = 12, column = 0, pady=10)
+        ex = tk.Button(root,text = "Submit",command = self.change_limits_ender, justify=tk.CENTER)
+        ex.grid(padx=100, pady=20)
 
+    def change_limits_ender(self):
+        self.room_limits = self.f.get()
+        self.side = self.opti.get()
+        self.end.set(self.end.get()+1)
+        self.top1.destroy()
+        
+        self.app.command="limits"
+        self.command = "limits"
+        self.end.set(self.end.get()+1)
+        
     def change_entry_gui(self):
         """This function takes user input for starting edge/door for the corridor
         """

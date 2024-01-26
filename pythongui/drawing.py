@@ -53,6 +53,9 @@ def draw_rdg(graph_data,count,pen,mode,color_list,room_names,origin):
         data.append([(graph_data['room_x'][i],graph_data['room_y'][i] + graph_data['room_height'][i]),
                         (graph_data['room_x'][i],graph_data['room_y'][i])])
         coordinates[i] = data
+        print(data)
+        #find_limits(self.adj_mat,self.rooms)     #temporary, to be erased, as it will run everytime
+                                                 #button for finding limits needs to be made
     
     for i in range(len(graph_data['mergednodes'])):
         node_1 = graph_data['mergednodes'][i]
