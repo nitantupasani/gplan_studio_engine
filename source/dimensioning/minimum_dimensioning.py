@@ -345,6 +345,13 @@ def longest_path(placement, edge_set, edge_weights):
     done = False
     total_neg = sum(1 for a, b in edge_set if edge_weights[a][b] < 0)
 
+    # Collects the rooms that are initially adjacent to s
+    adj_s = []
+    for i in range(len(edge_set)):
+        a, b = edge_set[i]
+        if a == 0:
+            adj_s.append(b)
+
     while not done and ctr <= total_neg:
         if not pos_longest_path(placement, edge_set, edge_weights):
             return False
@@ -352,11 +359,43 @@ def longest_path(placement, edge_set, edge_weights):
         ctr += 1
         done = True
         
+        # Verifies that at least one room is adjacent to s else no legal placement
+        first_room = False
+        for x in adj_s:
+            if placement[x] == 0:
+                first_room = True
+        if not first_room:
+            done = False
+            break
+
         for i in range(len(edge_set)):
             a, b = edge_set[i]
             if edge_weights[a][b] < 0:
                 if placement[b] - placement[a] < edge_weights[a][b]:
                     placement[b] = placement[a] + edge_weights[a][b]
+
+                    # Checks whether the placements of the walls adjacent to b are also satisfied.
+                    stack = [0]
+                    stack.append(b)
+                    while stack:
+                        v = stack.pop()
+                        for i in range(len(edge_set)):
+                            a, b = edge_set[i]
+                            if a != v:
+                                continue
+                            if edge_weights[a][b] >= 0 and placement[b] - placement[a] < edge_weights[a][b]:
+                                '''
+                                If b is vertex s, then the lower bound for distance between wall a and s is increased.
+                                If all walls initially adjacent to s have their placements changed, then no legal placement exists.
+                                '''
+                                if b == 0:
+                                    edge_weights[a][b] = -1 * placement[a]
+                                    continue
+
+                                # Update placements and check if adjacent walls are also satisfied.
+                                placement[b] = placement[a] + edge_weights[a][b]
+                                stack.append(b)
+
                     done = False
 
     if not done:
@@ -386,10 +425,13 @@ def compute_placement():
 
     if not longest_path(placementx, edges_setx, edgesX):
         print("Not able to assign placement in horizontal constraint graph")
+        return False
     
     if not longest_path(placementy, edges_sety, edgesY):
         print("Not able to assign placement in vertical constraint graph")
-        
+        return False
+    
+    return True
         
 # debuggin functions
 def print_edges():
@@ -477,10 +519,12 @@ def main(file_path):
     construct_constraintgraphX()  # Using the inputs, construct X constraint graph
     construct_constraintgraphY()  # Construct Y constraint graph
     print_edges()  # Print edges for X and Y constraints
-    compute_placement()  # Compute placements using longest path algorithm
+    if not compute_placement():  # Compute placements using longest path algorithm and return false if no legal placement found
+        print_placements()
+        return False
     print_placements()  # Print computed placements
     create_json()
-
+    return True
 
 # Main execution
 # main(file_path)
