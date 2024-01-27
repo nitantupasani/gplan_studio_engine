@@ -795,7 +795,7 @@ def run():
                             old_unchanged_coordinates.append(False)
                         else:
                             old_unchanged_coordinates.append(True)
-                    newCoordsInstance = nc.NewCoordinateAlgorithm(newRoomSet,limits_instance.coords_input1,limits_instance.coords_input2,s_dir,dist)
+                    # newCoordsInstance = nc.NewCoordinateAlgorithm(newRoomSet,limits_instance.coords_input1,limits_instance.coords_input2,s_dir,dist)
                     k=0
                     new_graph_data = {}
                     for i in range(len(old_unchanged_coordinates)):

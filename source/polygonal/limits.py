@@ -408,8 +408,8 @@ class LimitsAlgorithm:
             answer_left.append(0)
         if len(answer_right) == 0:
             answer_right.append(0)
-        print("can move towards the left by : ", max(answer_left))
-        print("can move towards the right by : ", max(answer_right)) 
+        print("can move towards the left by : ", min(answer_left))
+        print("can move towards the right by : ", min(answer_right)) 
         return (max(answer_left),max(answer_right))
 
     # def find_limits(self,adj_mat,rooms):
