@@ -784,6 +784,10 @@ def run():
                 elif(gclass.side == 3):
                     s_dir = gclass.bottom_dropdown_value
                     dist = gclass.bottom_shift_value
+                
+                print("YO")
+                print(s_dir)
+                print(dist)
 
                 limits_instance = lim.LimitsAlgorithm(gclass.side,gclass.room_limits,rooms,adj_matrix,s_dir,dist)
                 old_unchanged_coordinates = []
@@ -795,15 +799,24 @@ def run():
                             old_unchanged_coordinates.append(False)
                         else:
                             old_unchanged_coordinates.append(True)
-                    newCoordsInstance = nc.NewCoordinateAlgorithm(newRoomSet,limits_instance.coords_input1,limits_instance.coords_input2,s_dir,dist)
+                    newCoordsInstance = nc.NewCoordinateAlgorithm(newRoomSet,s_dir,dist,limits_instance.coords_input1,limits_instance.coords_input2)
                     k=0
-                    new_graph_data = {}
+                    new_graph_data = {
+                                'room_x': [],
+                                'room_y': [],
+                                'room_width': [],
+                                'room_height': [],
+                                'area': [],
+                                'extranodes': [],
+                                'mergednodes': [],
+                                'irreg_nodes': []
+                    }
                     for i in range(len(old_unchanged_coordinates)):
                         if(old_unchanged_coordinates[i]==False):
-                            new_graph_data['room_x'].append(new_graph_data['room_x'][i])
-                            new_graph_data['room_y'].append(new_graph_data['room_y'][i])
-                            new_graph_data['room_width'].append(new_graph_data['room_width'][i])
-                            new_graph_data['room_height'].append(new_graph_data['room_height'][i])
+                            new_graph_data['room_x'].append(graph_data['room_x'][i])
+                            new_graph_data['room_y'].append(graph_data['room_y'][i])
+                            new_graph_data['room_width'].append(graph_data['room_width'][i])
+                            new_graph_data['room_height'].append(graph_data['room_height'][i])
                         else:
                             new_graph_data['room_x'].append(newCoordsInstance.converterForMain(k,'room_x'))
                             new_graph_data['room_y'].append(newCoordsInstance.converterForMain(k,'room_y'))
@@ -839,7 +852,14 @@ def run():
                         json_data = json.dump(temp_graph_data,json_file, indent=2)
                     print(f"JSON data has been written to {input_path}")
 
-                    draw.draw_rdg(graph_data
+                    for key, value in new_graph_data.items():
+                        if isinstance(value, list):
+                            new_graph_data[key] = np.array(value)
+                        else:
+                            new_graph_data[key] = value
+
+
+                    draw.draw_rdg(new_graph_data
                                   , 1
                                   , gclass.pen
                                   , 1
@@ -847,7 +867,8 @@ def run():
                                   , []
                                   , origin)
                 else:
-                    gclass.show_warning(newCoordsInstance.error_message)
+                    print("Limit Exceeded")
+                    # gclass.show_warning(newCoordsInstance.error_message)
 
 
 
