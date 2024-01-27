@@ -518,7 +518,7 @@ def run():
                         else:
                             temp_graph_data[key] = value
 
-                    input_path = "input_to_limits.json"
+                    input_path = "./saved_files/input_to_limits.json"
                     with open(input_path, 'w') as json_file:
                         json_data = json.dump(temp_graph_data,json_file, indent=2)
                     print(f"JSON data has been written to {input_path}")
@@ -697,7 +697,7 @@ def run():
                 input_json = {}
                 graph_data = {}
                 start = time.time()
-                input_path = "input_to_limits.json"
+                input_path = "./saved_files/input_to_limits.json"
 
                 try:
                     with open(input_path, 'r') as file:
@@ -769,26 +769,75 @@ def run():
                     for i in temp2:
                         Room_i.coords.append(i)
                     rooms.append(Room_i)
-
-                limits_instance = lim.LimitsAlgorithm(gclass.side,gclass.room_limits,rooms,adj_matrix)
                 
+                s_dir = ""
+                dist = 0
+                if(gclass.side == 0):
+                    s_dir = gclass.left_dropdown_value
+                    dist = gclass.left_shift_value
+                elif(gclass.side == 1):
+                    s_dir = gclass.right_dropdown_value
+                    dist = gclass.right_shift_value
+                elif(gclass.side == 2):
+                    s_dir = gclass.top_dropdown_value
+                    dist = gclass.top_shift_value
+                elif(gclass.side == 3):
+                    s_dir = gclass.bottom_dropdown_value
+                    dist = gclass.bottom_shift_value
+
+                limits_instance = lim.LimitsAlgorithm(gclass.side,gclass.room_limits,rooms,adj_matrix,s_dir,dist)
+                old_unchanged_coordinates = []
                 if(limits_instance.proceed==1):
                     newRoomSet = []
                     for i in range(len(adj_matrix[gclass.room_limits])):
                         if adj_matrix[gclass.room_limits][i]==1:
-                            newRoomSet.append(romms[i])
-                    newCoordsInstance = NewCoordinateAlgorithm(newRoomSet,limits_instance.coords_input1,limits_instance.coords_input2,gclass.s_dir,glcass.dist)
-                    
+                            newRoomSet.append(rooms[i])
+                            old_unchanged_coordinates.append(False)
+                        else:
+                            old_unchanged_coordinates.append(True)
+                    newCoordsInstance = nc.NewCoordinateAlgorithm(newRoomSet,limits_instance.coords_input1,limits_instance.coords_input2,s_dir,dist)
+                    k=0
+                    new_graph_data = {}
+                    for i in range(len(old_unchanged_coordinates)):
+                        if(old_unchanged_coordinates[i]==False):
+                            new_graph_data['room_x'].append(new_graph_data['room_x'][i])
+                            new_graph_data['room_y'].append(new_graph_data['room_y'][i])
+                            new_graph_data['room_width'].append(new_graph_data['room_width'][i])
+                            new_graph_data['room_height'].append(new_graph_data['room_height'][i])
+                        else:
+                            new_graph_data['room_x'].append(newCoordsInstance.converterForMain(k,'room_x'))
+                            new_graph_data['room_y'].append(newCoordsInstance.converterForMain(k,'room_y'))
+                            new_graph_data['room_width'].append(newCoordsInstance.converterForMain(k,'room_width'))
+                            new_graph_data['room_height'].append(newCoordsInstance.converterForMain(k,'room_height'))
+                            k = k + 1
+
                     graph_data = {
-                                'room_x': graph_data["room_x"],
-                                'room_y': graph_data["room_y"],
-                                'room_width': graph_data["room_width"],
-                                'room_height': graph_data["room_height"],
+                                'room_x': new_graph_data["room_x"],
+                                'room_y': new_graph_data["room_y"],
+                                'room_width': new_graph_data["room_width"],
+                                'room_height': new_graph_data["room_height"],
                                 'area': [],
                                 'extranodes': [],
                                 'mergednodes': [],
                                 'irreg_nodes': []
                             }
+                    
+                    temp_graph_data = {}
+                    temp_graph_data["nodecnt"] = gclass.value[0]
+                    temp_graph_data["edgecnt"] = gclass.value[1]
+                    temp_graph_data["edgeset"] = gclass.value[2]
+                    temp_graph_data["node_coordinate"] = gclass.value[7]
+
+                    for key, value in graph_data.items():
+                        if isinstance(value, np.ndarray):
+                            temp_graph_data[key] = value.tolist()
+                        else:
+                            temp_graph_data[key] = value
+
+                    input_path = "./saved_files/input_to_limits.json"
+                    with open(input_path, 'w') as json_file:
+                        json_data = json.dump(temp_graph_data,json_file, indent=2)
+                    print(f"JSON data has been written to {input_path}")
 
                     draw.draw_rdg(graph_data
                                   , 1
@@ -797,7 +846,9 @@ def run():
                                   , gclass.value[6]
                                   , []
                                   , origin)
-                
+                else:
+                    gclass.show_warning(newCoordsInstance.error_message)
+
 
 
             gclass.time_taken = (end-start)*1000

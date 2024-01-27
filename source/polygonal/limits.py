@@ -5,7 +5,7 @@ import tkinter as tk
 import numpy as np
 import re
 import math
-import newcoord as newcoord
+# import newcoord as newcoord
 class LimitsAlgorithm:
 
     def __init__(self, opti, room_input, rooms, adj_mat,shiftDirection,shiftValue):
@@ -26,25 +26,25 @@ class LimitsAlgorithm:
         print("")
         (x_max,y_max) = self.run()
         self.proceed = 1
-        if shiftDirection == "left" :
+        if shiftDirection == "Left" :
             if shiftValue>x_max:
-                errorMessage = "Exceeding beyond the limits in the Left Direction" 
-                print(errorMessage)
+                self.errorMessage = "Exceeding beyond the limits in the Left Direction" 
+                print(self.errorMessage)
                 self.proceed = 0
-        elif shiftDirection == "right" :
+        elif shiftDirection == "Right" :
             if shiftValue>y_max:
-                errorMessage = "Exceeding beyond the limits in the Right Direction" 
-                print(errorMessage)
+                self.errorMessage = "Exceeding beyond the limits in the Right Direction" 
+                print(self.errorMessage)
                 self.proceed = 0
-        elif shiftDirection == "up" :
+        elif shiftDirection == "Up" :
             if shiftValue>x_max:
-                errorMessage = "Exceeding beyond the limits in the Up Direction" 
-                print(errorMessage)
+                self.errorMessage = "Exceeding beyond the limits in the Up Direction" 
+                print(self.errorMessage)
                 self.proceed = 0
-        elif shiftDirection == "down" :
+        elif shiftDirection == "Down" :
             if shiftValue>y_max:
-                errorMessage = "Exceeding beyond the limits in the Down Direction" 
-                print(errorMessage)
+                self.errorMessage = "Exceeding beyond the limits in the Down Direction" 
+                print(self.errorMessage)
                 self.proceed = 0        
 
 

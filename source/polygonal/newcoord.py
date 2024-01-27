@@ -10,6 +10,16 @@ class NewCoordinateAlgorithm:
         self.shift_value = shift_value
         self.adjrooms = adjrooms
         self.run(adjrooms, x, y)
+    
+    def converterForMain(self, index, key):
+        if key == "room_x":
+            return self.adjrooms[index].coords[0][0]
+        elif key == "room_y":
+            return self.adjrooms[index].coords[0][1]
+        elif key == "room_width":
+            return self.adjrooms[index].coords[3][0] - self.adjrooms[index].coords[0][0]
+        elif key == "room_height":
+            return self.adjrooms[index].coords[1][1] - self.adjrooms[index].coords[0][1]
 
     def distance(self, x, y):
         d = ((y[1] - x[1])**2 + (y[0] - x[0])**2)**0.5
