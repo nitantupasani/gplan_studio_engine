@@ -338,6 +338,7 @@ class LimitsAlgorithm:
                                 pts[(X,Y)] = abs(X - self.coords_input2[0])      
                     else:
                         m = self.slope(self.rooms[i].coords[j],self.rooms[i].coords[n-1])
+                        m_ = self.slope(self.coords_input1,self.coords_input2)
                         if m != 'NOT DEFINED':
                             if m_ != "NOT DEFINED" and m_ != 0:
                                 m_ = -1/m_
