@@ -622,8 +622,6 @@ def run():
                             with open(output_path, 'r') as file:
                                 json_content = json.load(file)
                             
-                            end = time.time()
-                            printe("Time taken: " + str((end - start) * 1000) + " ms")
                             room_x = [] 
                             room_y = [] 
                             room_width = [] 
@@ -666,7 +664,9 @@ def run():
                         else:
                             delete_file(input_path)
                     if not floorplan_found:
-                        print("No floorplan found which satisfies the minimum dimensions input by user.")     
+                        print("No floorplan found which satisfies the minimum dimensions input by user.")
+                    end = time.time()
+                    printe("Time taken: " + str((end - start) * 1000) + " ms")
                     
             elif (gclass.command == "multiple_oc"):
                 if (gclass.value[4] == 0):  # Non-Dimensioned multiple dual

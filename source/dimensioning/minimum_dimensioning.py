@@ -132,12 +132,12 @@ def input_constraints():
         # print("Lower Length:")
         low_len = float(data['nodes'][i-1]['min_height'])
         # print("Upper Length:")
-        up_len = 2*float(data['nodes'][i-1]['min_height'])
+        up_len = float(1.2*data['nodes'][i-1]['min_height'])
 
         # print("Lower Width:")
         low_width = float(data['nodes'][i-1]['min_width'])
         # print("Upper Width:")
-        up_width = 2*float(data['nodes'][i-1]['min_width'])
+        up_width = float(1.2*data['nodes'][i-1]['min_width'])
 
         lb_len.append(low_len)
         ub_len.append(up_len)
