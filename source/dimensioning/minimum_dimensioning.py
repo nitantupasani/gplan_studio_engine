@@ -22,6 +22,8 @@ rooms = 0  # the total number of rooms
 num_sx, num_tx, num_sy, num_ty = 0, 0, 0, 0
 sx_adj = []
 sy_adj = []
+tx_adj=[]
+ty_adj=[]
 
 adjacent_pairs = 0
 adj = defaultdict(list)  # contains the adjacency of all the rooms
@@ -92,7 +94,7 @@ def input_adjacency():
 
 # helper function to extract the the useful information from the json objects read
 def  tblr_rooms(): 
-    global num_sx, num_sy, sx_adj, sy_adj, edges_setx, edges_sety
+    global num_sx, num_sy, sx_adj, sy_adj, edges_setx, edges_sety,num_tx,tx_adj,num_ty,ty_adj
 
     # print("Please enter the number of rooms that are to be connected to sx:")
     num_sx = len(data['boundary_rooms']['west'])
@@ -113,6 +115,22 @@ def  tblr_rooms():
         sy_adj.append(a)
         edges_sety.append((0, 2 * a))
         edgesY[0][2 * a] = 0
+
+    num_tx = len(data['boundary_rooms']['east'])
+
+    for i in range(num_tx):
+        a = data['boundary_rooms']['east'][i]
+        tx_adj.append(a)
+        edges_setx.append((2 * a, 2*len(data['nodes'])+1))
+        edgesX[2 * a][2*len(data['nodes'])+1] = 0    
+
+    num_ty = len(data['boundary_rooms']['north'])    
+
+    for i in range(num_ty):
+        a = data['boundary_rooms']['north'][i]
+        ty_adj.append(a)
+        edges_sety.append((2 * a - 1, 2*len(data['nodes'])+1))
+        edgesY[2 * a - 1][2*len(data['nodes'])+1] = 0
 
 
 # populates the structures with the user constraints to be further used in the longest path caculations
@@ -423,6 +441,9 @@ def compute_placement():
         placementx.append(-1)
         placementy.append(-1)
 
+    placementx.append(-1) #tx
+    placementy.append(-1) #ty    
+
     if not longest_path(placementx, edges_setx, edgesX):
         print("Not able to assign placement in horizontal constraint graph")
         return False
@@ -473,11 +494,13 @@ def create_json():
  
 
 def reinitialize():
-    global rooms,num_sx,num_tx,num_sy,num_ty,sx_adj,sy_adj,adjacent_pairs,adj,adj_type,edgesX,edgesY,edges_setx,edges_sety,lb_len,ub_len,lb_width,ub_width,placementx,placementy
+    global rooms,num_sx,num_tx,num_sy,num_ty,sx_adj,sy_adj,adjacent_pairs,adj,adj_type,edgesX,edgesY,edges_setx,edges_sety,lb_len,ub_len,lb_width,ub_width,placementx,placementy,tx_adj,ty_adj
     rooms = 0
     num_sx, num_tx, num_sy, num_ty = 0, 0, 0, 0
     sx_adj = []
     sy_adj = []
+    tx_adj=[]
+    ty_adj=[]
 
     adjacent_pairs = 0
     adj = defaultdict(list)  # contains the adjacency of all the rooms
