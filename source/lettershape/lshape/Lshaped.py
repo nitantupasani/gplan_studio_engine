@@ -176,6 +176,7 @@ def multipleLshapedFloorplans(graph, nodes_data):
         graph.room_width.append(room_width)
         graph.room_height.append(room_height)
 
+
     print("check", graph.room_x)
 
 

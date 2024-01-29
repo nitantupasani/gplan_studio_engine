@@ -117,6 +117,8 @@ class InputGraph:
         self.floorplan_exist = False
         self.fpcnt = 0
         self.coordinates = [np.array(x) for x in node_coordinates]
+        self.circular_traversal = []
+        self.final_traversal=[]
 
         # Check if input has crossings
         x_coord = [x[0] for x in node_coordinates]
@@ -242,6 +244,7 @@ class InputGraph:
                                                                                            self.mergednodes,
                                                                                            self.irreg_nodes1)
 
+
     def door_connectivity(self):
         """Generates an single dual for a door connectivity input graph.
 
@@ -251,12 +254,16 @@ class InputGraph:
         Returns:
             None
         """
+
+
+
         if (self.nodecnt == 2 and self.edgecnt == 1):
             self.room_x = np.array([0.0, 1.0])
             self.room_y = np.array([0.0, 0.0])
             self.room_width = np.array([1.0, 1.0])
             self.room_height = np.array([1.0, 1.0])
             return
+        one_connected=  copy.deepcopy(self.matrix)
             # Biconnectivity Augmentation
         bcn_edges = []
         if (not bcn.is_biconnected(self.matrix)):
@@ -298,15 +305,21 @@ class InputGraph:
 
         # Separating Triangle Elimination
         if (self.nodecnt - self.edgecnt + len(opr.get_trngls(self.matrix)) != 1):
-            ptpg_matrices, extra_nodes = st.handle_STs(
-                self.matrix, positions, 1)
+            
+            ptpg_matrices, extra_nodes = st.handle_STs_with_edge_selection(one_connected, self.matrix, positions, 1)
+            
+            # ptpg_matrices, extra_nodes = st.handle_STs(
+            #     self.matrix, positions, 1)
+            
+
             self.matrix = ptpg_matrices[0]
             self.nodecnt = self.matrix.shape[0]
             self.edgecnt = int(np.count_nonzero(self.matrix == 1) / 2)
-            for key in extra_nodes[0]:
-                self.mergednodes.append(key)
-                self.irreg_nodes1.append(extra_nodes[0][key][0])
-                self.irreg_nodes2.append(extra_nodes[0][key][1])
+            if(len(extra_nodes)):
+                for key in extra_nodes[0]:
+                    self.mergednodes.append(key)
+                    self.irreg_nodes1.append(extra_nodes[0][key][0])
+                    self.irreg_nodes2.append(extra_nodes[0][key][1])
 
         # Boundary Identification
         triangular_cycles = opr.get_trngls(self.matrix)
@@ -357,6 +370,7 @@ class InputGraph:
         [self.room_x, self.room_y, self.room_width, self.room_height] = rdg.construct_dual(self.matrix, self.nodecnt,
                                                                                            self.mergednodes,
                                                                                            self.irreg_nodes1)
+        
 
 
     def single_floorplan(self, min_width, min_height, max_width, max_height, symm_rooms, min_ar, max_ar, plot_width,
@@ -897,4 +911,112 @@ def lettershape(graph, node_data, letter):
 
 def staircaseshaped(graph):
     StaircaseShapedFloorplan(graph)
+
+def check_overlap(list, edge):
+    if edge[0][0] == edge[1][0]:
+            # x coords same
+            for i,x in enumerate(list):
+                if(((edge[0][0] == list[i][0]) and (edge[1][0] == list[i][0])) and
+                    ((edge[0][0] == list[(i+1)%len(list)][0]) and (edge[1][0] == list[(i+1)%len(list)][0]))): 
+                    if ((min(list[i][1],list[(i+1)%len(list)][1]) <= edge[0][1] <= max(list[i][1],list[(i+1)%len(list)][1])) or  
+                        (min(list[i][1],list[(i+1)%len(list)][1]) <= edge[1][1] <= max(list[i][1],list[(i+1)%len(list)][1])) or
+                        (min(edge[0][1],edge[1][1])<=list[i][1]<=max(edge[0][1],edge[1][0])) or
+                        (min(edge[0][1],edge[1][1])<=list[(i+1)%(len(list))][1]<=max(edge[0][1],edge[1][1]))) :
+                        return i
+    
+    elif edge[0][1] == edge[1][1]: 
+        for i,x in enumerate(list):
+                if(((edge[0][1] == list[i][1]) and (edge[1][1] == list[i][1])) and
+                    ((edge[0][1] == list[(i+1)%len(list)][1]) and (edge[1][1] == list[(i+1)%len(list)][1]))): 
+                    if ((min(list[i][0],list[(i+1)%len(list)][0]) <= edge[0][0] <= max(list[i][0],list[(i+1)%len(list)][0])) or  
+                        (min(list[i][0],list[(i+1)%len(list)][0]) <= edge[1][0] <= max(list[i][0],list[(i+1)%len(list)][0])) or
+                        (min(edge[0][0],edge[1][0])<=list[i][0]<=max(edge[0][0],edge[1][0])) or
+                        (min(edge[0][0],edge[1][0])<=list[(i+1)%(len(list))][0]<=max(edge[0][0],edge[1][0]))):
+                        return i
+    return -1
+
+def remove_dups(traversal):
+    # print("\n in remove_dups: ", traversal)
+    
+    freq={}
+    for item in traversal:
+        if (item in freq):
+                freq[item] += 1
+        else:
+                freq[item] = 1
+
+    new_traversal=[]
+    for key,val in freq.items():
+        if(val==1):
+            new_traversal.append(key)
+    # print("\n after remove_dups: ", new_traversal)
+    traversal = new_traversal
+
+    return traversal
+        
+             
+def merge_traversal(list1, list2, index):
+    newList = list1[:index+1]
+    newList += list2
+    newList += list1[index+1:]
+
+    return newList
+
+def get_circular_traversal(graph):
+
+    
+    # print("irreg_nodes: " ,graph.irreg_nodes1, "merged_nodes: ", graph.mergednodes)
+    # print(" x : ", graph.room_x, " y : ",graph.room_y)
+    # print(" w : ",graph.room_width, " h : ",graph.room_height)
+    for i in range(len(graph['room_x'])):
+        list_ = []
+        list_.append(tuple([graph['room_x'][i], graph['room_y'][i]]))
+        list_.append (tuple([graph['room_x'][i], graph['room_y'][i] + graph['room_height'][i]]))
+        list_.append(tuple([graph['room_x'][i] + graph['room_width'][i], graph['room_y'][i]+graph['room_height'][i]]))
+        list_.append(tuple([graph['room_x'][i] + graph['room_width'][i], graph['room_y'][i]]))
+        graph['circular_traversal'].append(list_)
+        # print(i ,": ", list_)
+
+    for i,j in zip(graph['irreg_nodes'], graph['mergednodes']):
+        node1 = graph['circular_traversal'][i]
+        node2 = graph['circular_traversal'][j]
+
+        for k in range(len(node1)):
+            edge = (node1[k], node1[(k+1)%len(node1)])
+            x = -1
+            x = check_overlap(node2, edge)
+            print("node2 rect: ", node2, "\n edge: ", edge, "\n node1: ", node1)
+            print("overlapping node index: ", x)
+
+            if(x!=-1):
+                node2 = node2[x:] + node2[:x]
+                traversal = []
+                traversal = merge_traversal(node1, node2, k)
+                # print("k: ", k)
+                traversal = remove_dups(traversal)
+                print("first overlap " ,traversal)
+                y = -1
+                y = check_overlap( [node1[k], node1[(k+1)%len(node1)]], [node2[0], node2[1]])
+                if(y!=-1):
+                    node2 = node2[1:] + node2[:1]
+                    traversal = merge_traversal(node1, node2, k)
+                    # print("partial_ k: ", k)
+                    traversal = remove_dups(traversal)
+                    print("partially overlapped : " ,traversal)
+                node1 = traversal
+                graph['circular_traversal'][i] = traversal
+                break
+
+    for i in range(len(graph['circular_traversal'])):
+        if(i not in graph['mergednodes']):
+            graph['final_traversal'].append(graph['circular_traversal'][i])
+    print("circular traversal for all rooms: ", graph['final_traversal'])
+
+    return graph['final_traversal']
+    
+
+
+            
+
+
 

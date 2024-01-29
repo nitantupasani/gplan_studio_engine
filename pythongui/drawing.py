@@ -9,6 +9,8 @@ import source.floorplangen.dual as dual
 import math
 import source.polygonal.poly as poly
 from source.polygonal.draw import DrawOuterBoundary
+import source.inputgraph as inputgraph
+
 
 scale = 300
 origin = {'x': 300, 'y': -150}
@@ -40,7 +42,59 @@ def find_points(x1, y1, x2, y2,
     return [(x7,y7), (x8,y8)],first_rect,second_rect
 
 # Draw rectangular dual of graph
-def draw_rdg(graph_data,count,pen,mode,color_list,room_names,origin):
+
+def draw_rdg(graph_data,count,pen,mode,color_list,room_names_unused,origin):
+
+    graph_data['final_traversal'] = inputgraph.get_circular_traversal(graph_data)
+    pen.width(1.5)
+    pen.color('black')
+    pen.hideturtle()
+    pen.penup()
+
+    width= np.amax(graph_data['room_width'])
+    scale = 100*(math.exp(-0.30*width+math.log(0.8)) + 0.1)
+    shapes=graph_data['final_traversal']
+    origin = {'x': origin - 100, 'y': -100}
+    for i, shape_coords in enumerate(shapes):
+        if ((len(shape_coords) == 0) or (i in graph_data['extranodes'])):
+            continue
+
+        pen.fillcolor(color_list[i%len(color_list)])
+        pen.begin_fill()
+
+        # Move to the starting point without drawing
+        start_x, start_y = shape_coords[0]
+        pen.setposition(start_x * scale + origin['x'], start_y * scale + origin['y'])
+        pen.pendown()
+
+        for coord in shape_coords:
+            x, y = coord
+            pen.setposition(x * scale + origin['x'], y * scale + origin['y'])
+            pen.pendown()
+
+        # Connect the last point to the starting point
+        pen.setposition(start_x * scale + origin['x'], start_y * scale + origin['y'])
+        pen.penup()
+
+        pen.end_fill()
+
+    for i in range(graph_data['room_x'].shape[0]):
+        if i in graph_data['extranodes']:
+            continue
+        pen.color('black')
+        if(i not in graph_data['mergednodes']):
+            pen.setposition(((2 * graph_data['room_x'][i] ) * scale / 2) + origin['x'] + 5,
+                            ((2 * graph_data['room_y'][i] + graph_data['room_height'][i]) * scale / 2) + origin['y'])
+            pen.write(i)
+            pen.penup()
+        if(i in graph_data['mergednodes'] and mode == 2):
+            pen.setposition(((2 * graph_data['room_x'][i] ) * scale / 2) + origin['x'] + 5,
+                            ((2 * graph_data['room_y'][i] + graph_data['room_height'][i]) * scale / 2) + origin['y'])
+            pen.write(i)
+            pen.penup()    
+
+
+def draw_rdg2(graph_data,count,pen,mode,color_list,room_names,origin):
     coordinates = {}
     for i in range(graph_data['room_x'].shape[0]):
         data = []

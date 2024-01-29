@@ -77,6 +77,7 @@ def run():
                                           , gclass.value[7])
                         # Get node coordinates
             node_coord = graph.coordinates
+
             origin = 0
             # print("GUI Return", gclass.__dir__())
             if(gclass.command == "circulation"): # For spanning circulation
@@ -105,7 +106,9 @@ def run():
                             'area': graph.area,
                             'extranodes': graph.extranodes,
                             'mergednodes': graph.mergednodes,
-                            'irreg_nodes': graph.irreg_nodes1
+                            'irreg_nodes': graph.irreg_nodes1,
+                            'final_traversal': graph.final_traversal,
+                            'circular_traversal': graph.circular_traversal
                         }
                     
                     # new_graph_data = call_circulation(graph_data, gclass.value[2], gclass.entry_door, gclass.corridor_thickness)
@@ -119,6 +122,7 @@ def run():
                     else :
                         # draw_circulation(new_graph_data, gclass.ocan.canvas, gclass.value[6], gclass.entry_door)
                         # draw_circulation(new_graph_data, gclass.pen, gclass.ocan.canvas, gclass.value[6])
+                        draw.draw_rdg(new_graph_data, 1, gclass.pen, 1, gclass.value[6], [],origin)
                         draw.draw_rdg(new_graph_data, 1, gclass.pen, 1, gclass.value[6], [],origin)
 
 
@@ -160,7 +164,9 @@ def run():
                                 'area': graph.area,
                                 'extranodes': graph.extranodes,
                                 'mergednodes': graph.mergednodes,
-                                'irreg_nodes': graph.irreg_nodes1
+                                'irreg_nodes': graph.irreg_nodes1,
+                                'final_traversal': graph.final_traversal,
+                                'circular_traversal': graph.circular_traversal
                             }
 
                         # new_graph_data = call_circulation(graph_data, gclass.value[2], gclass.entry_door, gclass.corridor_thickness)
@@ -202,7 +208,9 @@ def run():
                             'area': graph.area,
                             'extranodes': graph.extranodes,
                             'mergednodes': graph.mergednodes,
-                            'irreg_nodes': graph.irreg_nodes1
+                            'irreg_nodes': graph.irreg_nodes1,
+                            'final_traversal': graph.final_traversal,
+                            'circular_traversal': graph.circular_traversal
                         }
                     
                     (new_graph_data, success) = call_circulation(graph_data, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor)
@@ -234,7 +242,9 @@ def run():
                         'area': graph.area,
                         'extranodes': graph.extranodes,
                         'mergednodes': graph.mergednodes,
-                        'irreg_nodes': graph.irreg_nodes1
+                        'irreg_nodes': graph.irreg_nodes1,
+                        'final_traversal': graph.final_traversal,
+                        'circular_traversal': graph.circular_traversal
                     }
                     gclass.output_data.append(graph_data)
                     draw.draw_rdg(graph_data
@@ -275,7 +285,9 @@ def run():
                             'area': graph.area,
                             'extranodes': graph.extranodes,
                             'mergednodes': graph.mergednodes,
-                            'irreg_nodes': graph.irreg_nodes1
+                            'irreg_nodes': graph.irreg_nodes1,
+                            'final_traversal': graph.final_traversal,
+                            'circular_traversal': graph.circular_traversal
                         }
                     draw.draw_rdg(graph_data
                             ,1
@@ -306,7 +318,9 @@ def run():
                         'area': graph.area,
                         'extranodes': graph.extranodes,
                         'mergednodes': graph.mergednodes,
-                        'irreg_nodes': graph.irreg_nodes1
+                        'irreg_nodes': graph.irreg_nodes1,
+                        'final_traversal': graph.final_traversal,
+                        'circular_traversal': graph.circular_traversal
                     }
                     draw.draw_rdg(graph_data
                                 , 1
@@ -378,7 +392,9 @@ def run():
                         'area': graph.area,
                         'extranodes': graph.extranodes,
                         'mergednodes': graph.mergednodes,
-                        'irreg_nodes': graph.irreg_nodes1
+                        'irreg_nodes': graph.irreg_nodes1,
+                        'final_traversal': graph.final_traversal,
+                        'circular_traversal': graph.circular_traversal
                     }
                     draw.draw_rdg(graph_data
                                 , 1
@@ -396,6 +412,8 @@ def run():
                     printe("Average Time taken: " + str(((end - start) * 1000) / graph.fpcnt) + " ms")
                     printe("Number of floorplans: " + str(graph.fpcnt))
                     for idx in range(graph.fpcnt):
+                        graph.final_traversal = []
+                        graph.circular_traversal = []
                         graph_data = {
                             'room_x': graph.room_x[idx],
                             'room_y': graph.room_y[idx],
@@ -404,11 +422,25 @@ def run():
                             'area': graph.area,
                             'extranodes': graph.extranodes[idx],
                             'mergednodes': graph.mergednodes[idx],
-                            'irreg_nodes': graph.irreg_nodes1[idx]
+                            'irreg_nodes': graph.irreg_nodes1[idx],
+                            'final_traversal': graph.final_traversal,
+                            'circular_traversal': graph.circular_traversal
                         }
                         gclass.multiple_output_found = 1
 
                         gclass.output_data.append(graph_data)
+                        draw.draw_rdg(graph_data
+                            ,idx+1
+                            ,gclass.pen
+                            ,1
+                            ,gclass.value[6]
+                            ,[]
+                            ,origin)
+                        # origin += 1000
+                        gclass.ocan.add_tab()
+                        gclass.pen = gclass.ocan.getpen()
+                        gclass.pen.speed(0)
+                        
                     
             elif (gclass.command == "staircase_shaped"):
                 start = time.time()
@@ -422,7 +454,9 @@ def run():
                     'area': graph.area,
                     'extranodes': graph.extranodes,
                     'mergednodes': graph.mergednodes,
-                    'irreg_nodes': graph.irreg_nodes1
+                    'irreg_nodes': graph.irreg_nodes1,
+                    'final_traversal': graph.final_traversal,
+                    'circular_traversal': graph.circular_traversal
                 }
                 draw.draw_rdg(graph_data
                               , 1
@@ -440,6 +474,8 @@ def run():
                     printe("Average Time taken: " + str(((end - start) * 1000) / graph.fpcnt) + " ms")
                     printe("Number of floorplans: " + str(graph.fpcnt))
                     for idx in range(graph.fpcnt):
+                        graph.final_traversal = []
+                        graph.circular_traversal = []
                         graph_data = {
                             'room_x': graph.room_x[idx],
                             'room_y': graph.room_y[idx],
@@ -448,23 +484,24 @@ def run():
                             'area': graph.area,
                             'extranodes': graph.extranodes[idx],
                             'mergednodes': graph.mergednodes[idx],
-                            'irreg_nodes': graph.irreg_nodes1[idx]
+                            'irreg_nodes': graph.irreg_nodes1[idx],
+                            'final_traversal': graph.final_traversal,
+                            'circular_traversal': graph.circular_traversal
                         }
                         gclass.multiple_output_found = 1
 
                         gclass.output_data.append(graph_data)
-                        # draw.draw_rdg(graph_data
-                        #     ,idx+1
-                        #     ,gclass.pen
-                        #     ,1
-                        #     ,gclass.value[6]
-                        #     ,[]
-                        #     ,origin)
-                        # origin += 1000
+                        draw.draw_rdg(graph_data
+                            ,idx+1
+                            ,gclass.pen
+                            ,1
+                            ,gclass.value[6]
+                            ,[]
+                            ,origin)
                         
-                        # gclass.ocan.add_tab()
-                        # gclass.pen = gclass.ocan.getpen()
-                        # gclass.pen.speed(0)
+                        gclass.ocan.add_tab()
+                        gclass.pen = gclass.ocan.getpen()
+                        gclass.pen.speed(0)
                 else:#Dimensioned multiple floorplans
                     old_dims = [[0] * gclass.value[0]
                                 , [0] * gclass.value[0]
@@ -489,7 +526,9 @@ def run():
                             'area': graph.area[idx],
                             'extranodes': graph.extranodes[idx],
                             'mergednodes': graph.mergednodes[idx],
-                            'irreg_nodes': graph.irreg_nodes1[idx]
+                            'irreg_nodes': graph.irreg_nodes1[idx],
+                            'final_traversal': graph.final_traversal,
+                            'circular_traversal': graph.circular_traversal
                         }
                         gclass.multiple_output_found = 1
 
@@ -528,8 +567,11 @@ def run():
                         'area': graph.area,
                         'extranodes': graph.extranodes,
                         'mergednodes': graph.mergednodes,
-                        'irreg_nodes': graph.irreg_nodes1
+                        'irreg_nodes': graph.irreg_nodes1,
+                        'final_traversal': graph.final_traversal,
+                        'circular_traversal': graph.circular_traversal
                     }
+
                     draw.draw_rdg(graph_data
                                   , 1
                                   , gclass.pen
@@ -574,7 +616,9 @@ def run():
                         'area': graph.area,
                         'extranodes': graph.extranodes,
                         'mergednodes': graph.mergednodes,
-                        'irreg_nodes': graph.irreg_nodes1
+                        'irreg_nodes': graph.irreg_nodes1,
+                        'final_traversal': graph.final_traversal,
+                        'circular_traversal': graph.circular_traversal
                     }
 
                     gclass.output_data.append(graph_data)
@@ -642,7 +686,9 @@ def run():
                         'area': room_area,
                         'extranodes': graph.extranodes,
                         'mergednodes': graph.mergednodes,
-                        'irreg_nodes': graph.irreg_nodes1
+                        'irreg_nodes': graph.irreg_nodes1,
+                        'final_traversal': graph.final_traversal,
+                        'circular_traversal': graph.circular_traversal
                     }
                     draw.draw_rdg(graph_data
                                   , 1
@@ -681,7 +727,9 @@ def run():
                             'area': graph.area,
                             'extranodes': graph.extranodes[idx],
                             'mergednodes': graph.mergednodes[idx],
-                            'irreg_nodes': graph.irreg_nodes1[idx]
+                            'irreg_nodes': graph.irreg_nodes1[idx],
+                            'final_traversal': graph.final_traversal,
+                            'circular_traversal': graph.circular_traversal
                         }
                         gclass.output_data.append(graph_data)
                         # draw.draw_rdg(graph_data
@@ -729,7 +777,9 @@ def run():
                             'area': graph.area[idx],
                             'extranodes': graph.extranodes[idx],
                             'mergednodes': graph.mergednodes[idx],
-                            'irreg_nodes': graph.irreg_nodes1[idx]
+                            'irreg_nodes': graph.irreg_nodes1[idx],
+                            'final_traversal': graph.final_traversal,
+                            'circular_traversal': graph.circular_traversal
                         }
                         gclass.output_data.append(graph_data)
                         gclass.dimensional_constraints = dimensional_constraints
@@ -785,7 +835,9 @@ def run():
                     'area': graph.area,
                     'extranodes': graph.extranodes,
                     'mergednodes': graph.mergednodes,
-                    'irreg_nodes': graph.irreg_nodes1
+                    'irreg_nodes': graph.irreg_nodes1,
+                    'final_traversal': graph.final_traversal,
+                    'circular_traversal': graph.circular_traversal
                 }
                 gclass.output_data.append(graph_data)
                 draw.draw_rdg(graph_data
@@ -793,8 +845,14 @@ def run():
                                 , gclass.pen
                                 , 1
                                 , gclass.value[6]
-                                , []
+                                ,[]
                                 , origin)
+                # draw.draw_new(graph_data
+                #                 , 1
+                #                 , gclass.pen
+                #                 , 1
+                #                 , gclass.value[6]
+                #                 , origin)
 
             gclass.time_taken = (end-start)*1000
             gclass.num_rfp = len(graph.room_x)
@@ -926,6 +984,9 @@ def call_circulation(graph_data, gclass, coord, is_dimensioned, dim_constraints,
         graph_data1['extranodes'] = graph_data['extranodes']
         graph_data1['mergednodes'] = graph_data['mergednodes']
         graph_data1['irreg_nodes'] = graph_data['irreg_nodes']
+        graph_data1['final_traversal'] = graph_data['final_traversal']
+        graph_data1['circular_traversal'] = graph_data['circular_traversal']
+
         draw.draw_rdg(graph_data1, 1, gclass.pen, 1, gclass.value[6], [], origin)
 
         # Now going back to flow of removing circulation

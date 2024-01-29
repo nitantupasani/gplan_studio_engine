@@ -33,18 +33,22 @@ def graph_to_rfp(input_data, normalize_const=40, limit=100000):
         node_coordinates.append([node['x'], node['y']])
     graph = inputgraph.InputGraph(nodecnt, edgecnt, edgedata, node_coordinates)
     output_data = []
-    graph.irreg_multiple_dual()
+    graphs = graph.irreg_multiple_dual()
+    # graph.final_traversal= inputgraph.get_circular_traversal(graph)
     for idx in range(min(graph.fpcnt, limit)):
         output_fp = []
+        graph.final_traversal = []
+        graph.final_traversal = inputgraph.get_circular_traversal(graph)
         for node in input_data['nodes']:
             output_fp.append({
                 "id": node["id"],
                 "label": node["label"],
                 "color": node["color"],
-                "left": int(graph.room_x[idx][node["id"]] * normalize_const),
-                "top": int(graph.room_y[idx][node["id"]] * normalize_const),
-                "width": int(graph.room_width[idx][node["id"]] * normalize_const),
-                "height": int(graph.room_height[idx][node["id"]] * normalize_const)
+                "final_traversal": graph.final_traversal[node]
+                # "left": int(graph.room_x[idx][node["id"]] * normalize_const),
+                # "top": int(graph.room_y[idx][node["id"]] * normalize_const),
+                # "width": int(graph.room_width[idx][node["id"]] * normalize_const),
+                # "height": int(graph.room_height[idx][node["id"]] * normalize_const)
             })
         for cnt in range(len(graph.mergednodes[idx])):
             output_fp.append({
