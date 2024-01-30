@@ -156,7 +156,7 @@ class NewCoordinateAlgorithm:
             s = "left"
         elif self.s_dir == "Right":
             s = "right"
-        elif self.s_dir == "Top":
+        elif self.s_dir == "Up":
             s = "up"
         else: 
             s = "down"  
