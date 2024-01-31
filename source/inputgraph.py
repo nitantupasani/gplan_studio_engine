@@ -371,8 +371,6 @@ class InputGraph:
                                                                                            self.mergednodes,
                                                                                            self.irreg_nodes1)
         
-
-
     def single_floorplan(self, min_width, min_height, max_width, max_height, symm_rooms, min_ar, max_ar, plot_width,
                          plot_height):
         """Generates a single floorplan for a given input graph.
@@ -825,7 +823,6 @@ class InputGraph:
                 self.irreg_nodes2.append([])
                 self.extranodes.append([])
 
-
 def generate_multiple_rel(bdys, matrix, nodecnt, edgecnt):
     """Generates multiple RELs for given matrix and boundary.
 
@@ -865,7 +862,6 @@ def generate_multiple_rel(bdys, matrix, nodecnt, edgecnt):
             if (not any(np.array_equal(new_rel, i) for i in rel_matrix)):
                 rel_matrix.append(new_rel)
     return rel_matrix
-
 
 def generate_multiple_bdy(matrix, nodecnt, edgecnt, bcn_edges, trng_edges, mergednodes, irreg_nodes1, irreg_nodes2):
     """Generates multiple boundary for given matrix and extra edges.
@@ -953,8 +949,7 @@ def remove_dups(traversal):
     traversal = new_traversal
 
     return traversal
-        
-             
+                 
 def merge_traversal(list1, list2, index):
     newList = list1[:index+1]
     newList += list2
@@ -968,18 +963,18 @@ def get_circular_traversal(graph):
     # print("irreg_nodes: " ,graph.irreg_nodes1, "merged_nodes: ", graph.mergednodes)
     # print(" x : ", graph.room_x, " y : ",graph.room_y)
     # print(" w : ",graph.room_width, " h : ",graph.room_height)
-    for i in range(len(graph['room_x'])):
+    for i in range(len(graph.room_x)):
         list_ = []
-        list_.append(tuple([graph['room_x'][i], graph['room_y'][i]]))
-        list_.append (tuple([graph['room_x'][i], graph['room_y'][i] + graph['room_height'][i]]))
-        list_.append(tuple([graph['room_x'][i] + graph['room_width'][i], graph['room_y'][i]+graph['room_height'][i]]))
-        list_.append(tuple([graph['room_x'][i] + graph['room_width'][i], graph['room_y'][i]]))
-        graph['circular_traversal'].append(list_)
+        list_.append(tuple([graph.room_x[i], graph.room_y[i]]))
+        list_.append (tuple([graph.room_x[i], graph.room_y[i] + graph.room_height[i]]))
+        list_.append(tuple([graph.room_x[i] + graph.room_width[i], graph.room_y[i]+graph.room_height[i]]))
+        list_.append(tuple([graph.room_x[i] + graph.room_width[i], graph.room_y[i]]))
+        graph.circular_traversal.append(list_)
         # print(i ,": ", list_)
 
-    for i,j in zip(graph['irreg_nodes'], graph['mergednodes']):
-        node1 = graph['circular_traversal'][i]
-        node2 = graph['circular_traversal'][j]
+    for i,j in zip(graph.irreg_nodes1, graph.mergednodes):
+        node1 = graph.circular_traversal[i]
+        node2 = graph.circular_traversal[j]
 
         for k in range(len(node1)):
             edge = (node1[k], node1[(k+1)%len(node1)])
@@ -1004,15 +999,15 @@ def get_circular_traversal(graph):
                     traversal = remove_dups(traversal)
                     print("partially overlapped : " ,traversal)
                 node1 = traversal
-                graph['circular_traversal'][i] = traversal
+                graph.circular_traversal[i] = traversal
                 break
 
-    for i in range(len(graph['circular_traversal'])):
-        if(i not in graph['mergednodes']):
-            graph['final_traversal'].append(graph['circular_traversal'][i])
-    print("circular traversal for all rooms: ", graph['final_traversal'])
+    for i in range(len(graph.circular_traversal)):
+        if(i not in graph.mergednodes):
+            graph.final_traversal.append(graph.circular_traversal[i])
+    print("circular traversal for all rooms: ", graph.final_traversal)
 
-    return graph['final_traversal']
+    return graph.final_traversal
     
 
 
