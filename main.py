@@ -588,7 +588,7 @@ def run():
                 elif(gclass.value[10] == 1):
                     old_dims = [[3] * gclass.value[0]
                         , [3] * gclass.value[0]]
-                    min_width, min_height = mindimgui.gui_fnc(old_dims, gclass.value[0])
+                    min_width, min_height, plot_width, plot_height = mindimgui.gui_fnc(old_dims, gclass.value[0])
                     start = time.time()
                     try:
                         graph.oneconnected_dual("multiple")
@@ -617,7 +617,7 @@ def run():
                         print(f"JSON data has been written to {input_path}")
 
                         # If floorplan satisfying the given constraints is satisfied
-                        if min_dim.main(input_path):
+                        if min_dim.main(input_path, plot_width, plot_height):
                             output_path = "output_from_min_dim.json"
                             with open(output_path, 'r') as file:
                                 json_content = json.load(file)

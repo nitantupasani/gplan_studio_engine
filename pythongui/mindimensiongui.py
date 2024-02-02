@@ -10,6 +10,8 @@ def gui_fnc(old_dims, nodes):
     Returns:
         min_width: A list containing minimum width for each room in the floorplan.
         min_height: A list containing minimum height for each room in the floorplan.
+        plot_width: Input width of the plot for the floorplan.
+        plot_height: Input height of the plot for the floorplan.
     """
     min_width = []
     min_height = []
@@ -36,10 +38,8 @@ def gui_fnc(old_dims, nodes):
     default_height = []
 
     # Support for free dimensions feature
-    ''' 
     plot_height = tk.IntVar(root, 0)
     plot_width = tk.IntVar(root, 0)
-    '''
     
     for i in range(0, nodes):
         i_value_x = 0
@@ -80,22 +80,20 @@ def gui_fnc(old_dims, nodes):
                             anchor='ne')
 
     # Support for free dimensions feature
-    '''
-    plot_label = tk.Label(root, text="Enter the plot dimensions", font=("Times New Roman", 10))
-    plot_label.place(relx=0.45, rely=0.5 + 0.04 * nodes)
+    plot_label = tk.Label(root, text="Enter the plot dimensions\n(0 if no limit)", font=("Times New Roman", 10))
+    plot_label.place(relx=0.9, rely=0.2, anchor='ne')
 
-    plot_width_label = tk.Label(root, text="Plot Width :", font=("Times New Roman", 10))
-    plot_width_label.place(relx=0.31, rely=0.5 + 0.04 * (nodes+2))
+    plot_width_label = tk.Label(root, text="Plot Width", font=("Times New Roman", 10))
+    plot_width_label.place(relx=0.55, rely=0.3, anchor='nw')
 
     plot_width_tbox = tk.Entry(root, textvariable=plot_width)
-    plot_width_tbox.place(relx=0.51, rely=0.5 + 0.04 * (nodes+2))
+    plot_width_tbox.place(relx=0.98, rely=0.3, anchor='ne')
 
-    plot_height_label = tk.Label(root, text="Plot Height :", font=("Times New Roman", 10))
-    plot_height_label.place(relx=0.31, rely=0.5 + 0.04 * (nodes+3))
+    plot_height_label = tk.Label(root, text="Plot Height", font=("Times New Roman", 10))
+    plot_height_label.place(relx=0.55, rely=0.34, anchor='nw')
 
     plot_height_tbox = tk.Entry(root, textvariable=plot_height)
-    plot_height_tbox.place(relx=0.51, rely=0.5+ 0.04 * (nodes+3))
-    '''
+    plot_height_tbox.place(relx=0.98, rely=0.34, anchor='ne')
 
     def submit_clicked():
         # Helper function for submit button click
@@ -127,7 +125,7 @@ def gui_fnc(old_dims, nodes):
     # destroying the GUI window
     root.wait_window(root)
     
-    return min_width, min_height
+    return min_width, min_height, plot_width.get(), plot_height.get()
 
 
 if __name__ == "__main__":

@@ -41,6 +41,8 @@ lb_len = []
 ub_len = []
 lb_width = []
 ub_width = []
+plot_width = 0
+plot_height = 0
 
 placementx = []
 placementy = []
@@ -150,12 +152,12 @@ def input_constraints():
         # print("Lower Length:")
         low_len = float(data['nodes'][i-1]['min_height'])
         # print("Upper Length:")
-        up_len = float(1.2*data['nodes'][i-1]['min_height'])
+        up_len = float(2*data['nodes'][i-1]['min_height'])
 
         # print("Lower Width:")
         low_width = float(data['nodes'][i-1]['min_width'])
         # print("Upper Width:")
-        up_width = float(1.2*data['nodes'][i-1]['min_width'])
+        up_width = float(2*data['nodes'][i-1]['min_width'])
 
         lb_len.append(low_len)
         ub_len.append(up_len)
@@ -184,6 +186,11 @@ def input_data():
 #  adding necessary edges pertaining to the adjacency and constraints to the constraint graphs
 def construct_constraintgraphX():
     global edgesX, edgesY, edges_setx, edges_sety
+
+    # Add limiter of plot width if provided
+    if plot_width > 0:
+        edgesX[2 * rooms + 1][0] = -1 * plot_width
+        edges_setx.append((2 * rooms + 1, 0)) 
 
     # Add edges for widths of each single room - the user constraints
     for i in range(1, rooms + 1):
@@ -248,6 +255,11 @@ def construct_constraintgraphX():
 # same as above in Y direction
 def construct_constraintgraphY():
     global edgesX, edgesY, edges_setx, edges_sety
+
+    # Add limiter of plot height if provided
+    if plot_height > 0:
+        edgesY[2 * rooms + 1][0] = -1 * plot_height
+        edges_sety.append((2 * rooms + 1, 0)) 
 
     # Add edges for the same room
     for i in range(1, rooms + 1):
@@ -386,6 +398,11 @@ def longest_path(placement, edge_set, edge_weights):
             done = False
             break
 
+        # Verifies that the plot is not out of bounds
+        if (2 * rooms + 1, 0) in edge_set and placement[2 * rooms + 1] > abs(edge_weights[2 * rooms + 1][0]):
+            done = False
+            break
+
         for i in range(len(edge_set)):
             a, b = edge_set[i]
             if edge_weights[a][b] < 0:
@@ -494,7 +511,7 @@ def create_json():
  
 
 def reinitialize():
-    global rooms,num_sx,num_tx,num_sy,num_ty,sx_adj,sy_adj,adjacent_pairs,adj,adj_type,edgesX,edgesY,edges_setx,edges_sety,lb_len,ub_len,lb_width,ub_width,placementx,placementy,tx_adj,ty_adj
+    global rooms,num_sx,num_tx,num_sy,num_ty,sx_adj,sy_adj,adjacent_pairs,adj,adj_type,edgesX,edgesY,edges_setx,edges_sety,lb_len,ub_len,lb_width,ub_width,placementx,placementy,tx_adj,ty_adj,plot_width,plot_height
     rooms = 0
     num_sx, num_tx, num_sy, num_ty = 0, 0, 0, 0
     sx_adj = []
@@ -515,12 +532,14 @@ def reinitialize():
     ub_len = []
     lb_width = []
     ub_width = []
+    plot_width = 0
+    plot_height = 0
 
     placementx = []
     placementy = []
 
 # main wrapper
-def main(file_path):
+def main(file_path, plot_width, plot_height):
     global data
     reinitialize()
     f = open(file_path)
@@ -536,6 +555,8 @@ def main(file_path):
         data['boundary_rooms']['east'][i]= data['boundary_rooms']['east'][i]+1
     for i in range(len(data['boundary_rooms']['west'])):
         data['boundary_rooms']['west'][i]= data['boundary_rooms']['west'][i]+1
+    globals()['plot_width'] = plot_width
+    globals()['plot_height'] = plot_height
         
     input_data()  # Take all the necessary inputs
     print_input()
