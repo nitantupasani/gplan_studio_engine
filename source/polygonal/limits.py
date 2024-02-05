@@ -114,6 +114,7 @@ class LimitsAlgorithm:
         n=len(self.rooms[self.room_input].coords)
         # print(n)
         nbd_rooms=[]
+        nbd_rooms.append(self.room_input)
         # print(self.coords_input1)
         # print(self.coords_input2)
         # print("")
@@ -390,6 +391,8 @@ class LimitsAlgorithm:
         print(pts) 
         answer_left = []
         answer_right = []
+        answer_top = []
+        answer_bottom = []
         
         if self.opti == 0 or self.opti == 1:
             for i in pts.keys():
@@ -402,16 +405,26 @@ class LimitsAlgorithm:
             for i in pts.keys():
                 if isinstance(pts[i], float) and not math.isinf(pts[i]) and not math.isnan(pts[i]):
                     if i[1] - self.coords_input1[1] < 0:
-                        answer_left.append(pts[i])
+                        answer_bottom.append(pts[i])
                     if i[1] - self.coords_input1[1] > 0:
-                        answer_right.append(pts[i])     
+                        answer_top.append(pts[i])     
         if len(answer_left) == 0:
             answer_left.append(0)
         if len(answer_right) == 0:
             answer_right.append(0)
-        print("can move towards the left by : ", min(answer_left))
-        print("can move towards the right by : ", min(answer_right)) 
-        return (max(answer_left),max(answer_right))
+        if len(answer_bottom) == 0:
+            answer_bottom.append(0)
+        if len(answer_top) == 0:
+            answer_top.append(0)
+
+        if self.opti == 0 or self.opti == 1:
+            print("can move towards the left by : ", min(answer_left))
+            print("can move towards the right by : ", min(answer_right)) 
+            return (max(answer_left),max(answer_right))
+        elif self.opti == 2 or self.opti == 3:
+            print("can move towards the bottom by : ", min(answer_bottom))
+            print("can move towards the top by : ", min(answer_top)) 
+            return (max(answer_bottom),max(answer_top))
 
     # def find_limits(self,adj_mat,rooms):
     #     print()
