@@ -43,20 +43,19 @@ def find_points(x1, y1, x2, y2,
 
 # Draw rectangular dual of graph
 
-def draw_rdg(graph_data,count,pen,mode,color_list,room_names_unused,origin):
+def draw_rdg(graph,count,pen,mode,color_list,room_names_unused,origin):
 
-    graph_data['final_traversal'] = inputgraph.get_circular_traversal(graph_data)
     pen.width(1.5)
     pen.color('black')
     pen.hideturtle()
     pen.penup()
 
-    width= np.amax(graph_data['room_width'])
+    width= np.amax(graph.room_width)
     scale = 100*(math.exp(-0.30*width+math.log(0.8)) + 0.1)
-    shapes=graph_data['final_traversal']
+    shapes=graph.final_traversal
     origin = {'x': origin - 100, 'y': -100}
     for i, shape_coords in enumerate(shapes):
-        if ((len(shape_coords) == 0) or (i in graph_data['extranodes'])):
+        if ((len(shape_coords) == 0) or (i in graph.extranodes)):
             continue
 
         pen.fillcolor(color_list[i%len(color_list)])
@@ -78,18 +77,18 @@ def draw_rdg(graph_data,count,pen,mode,color_list,room_names_unused,origin):
 
         pen.end_fill()
 
-    for i in range(graph_data['room_x'].shape[0]):
-        if i in graph_data['extranodes']:
+    for i in range(len(graph.room_x)):
+        if i in graph.extranodes:
             continue
         pen.color('black')
-        if(i not in graph_data['mergednodes']):
-            pen.setposition(((2 * graph_data['room_x'][i] ) * scale / 2) + origin['x'] + 5,
-                            ((2 * graph_data['room_y'][i] + graph_data['room_height'][i]) * scale / 2) + origin['y'])
+        if(i not in graph.mergednodes):
+            pen.setposition(((2 * graph.room_x[i] ) * scale / 2) + origin['x'] + 5,
+                            ((2 * graph.room_y[i] + graph.room_height[i]) * scale / 2) + origin['y'])
             pen.write(i)
             pen.penup()
-        if(i in graph_data['mergednodes'] and mode == 2):
-            pen.setposition(((2 * graph_data['room_x'][i] ) * scale / 2) + origin['x'] + 5,
-                            ((2 * graph_data['room_y'][i] + graph_data['room_height'][i]) * scale / 2) + origin['y'])
+        if(i in graph.mergednodes and mode == 2):
+            pen.setposition(((2 * graph.room_x[i] ) * scale / 2) + origin['x'] + 5,
+                            ((2 * graph.room_y[i] + graph.room_height[i]) * scale / 2) + origin['y'])
             pen.write(i)
             pen.penup()    
 
