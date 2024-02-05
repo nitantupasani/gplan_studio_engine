@@ -46,6 +46,11 @@ plot_height = 0
 
 placementx = []
 placementy = []
+
+rotx1=[]
+rotx2=[]
+roty1=[]
+roty2=[]
 """
 LEFT WALL - 1
 TOP WALL - 2
@@ -471,7 +476,7 @@ def compute_placement():
     
     return True
         
-# debuggin functions
+# debugging functions
 def print_edges():
     print("printing horizontal_edges")
     for i in range(len(edges_setx)):
@@ -481,6 +486,102 @@ def print_edges():
     for i in range(len(edges_sety)):
         print(edges_sety[i][0], edges_sety[i][1], edgesY[edges_sety[i][0]][edges_sety[i][1]])
  
+#for computing range of tolerance of each node
+def compute_rot():
+    for i in range(2*rooms):
+        rotx1.append(0)#rotx1 represents lower bound of each wall
+        rotx2.append(placementx[2*rooms+1])
+        roty1.append(0)#represents lower bound of each wall
+        roty2.append(placementy[2*rooms+1])
+
+    for i in range(1,rooms+1):
+        rotx2[2*i-2]=min(rotx2[2*i-2],placementx[2*i]-data['nodes'][i-1]['min_width'])
+        rotx1[2*i-1]=max(rotx1[2*i-1],placementx[2*i-1]+data['nodes'][i-1]['min_width'])
+        roty1[2*i-2]=max(roty1[2*i-2],placementy[2*i]+data['nodes'][i-1]['min_height'])
+        roty2[2*i-1]=min(roty2[2*i-1],placementy[2*i-1]-data['nodes'][i-1]['min_height'])
+
+    for i in range(1,rooms+1):
+        for x in adj[i]:
+            type_val = adj_type[(i, x)]
+            if type_val==1:#1st wall of ith room will be 
+                b=data['nodes'][x-1]['min_width']+placementx[2*x-1]
+                rotx1[2*i-2]=max(rotx1[2*i-2],b)
+
+            elif type_val==2:
+                a=placementx[2*x]-data['nodes'][x-1]['min_width']
+                rotx2[2*i-1]=min(rotx2[2*i-1],a)
+
+            elif type_val==3:
+                a=placementy[2*x-1]-data['nodes'][x-1]['min_height']
+                roty2[2*i-2]=min(roty2[2*i-2],a)
+
+            elif type_val==4:
+                a=placementy[2*x]+data['nodes'][x-1]['min_height']
+                roty1[2*i-1]=max(roty1[2*i-1],a)   
+
+    for i in range(1,rooms+1):#to handle the small positive 
+        for x in adj[i]:
+             type_val = adj_type[(i, x)]
+             if type_val==1 or type_val==2:
+                 a=placementy[2*x]+small_positive
+                 b=placementy[2*x-1]-small_positive
+                 if roty1[2*i-2]<a:
+                    roty1[2*i-2]=a
+                 if roty2[2*i-1]>b:
+                    roty2[2*i-1]=b 
+             if type_val==3 or type_val==4:
+                 a=placementx[2*x-1]+small_positive
+                 b=placementx[2*x]-small_positive
+                 if rotx1[2*i-1]<a:
+                    rotx1[2*i-1]=a
+                 if rotx2[2*i-2]>b:
+                    rotx2[2*i-2]=b 
+
+    for i in range(1,rooms+1):#to make sure that same walls have same range of tolerance
+        for x in adj[i]:
+            type_val=adj_type[(i,x)]
+            if type_val==1:
+                a=max(rotx1[2*i-2],rotx1[2*x-1])
+                b=min(rotx2[2*i-2],rotx2[2*x-1])
+                rotx1[2*i-2]=a
+                rotx1[2*x-1]=a
+                rotx2[2*i-2]=b
+                rotx2[2*x-1]=b     
+            elif type_val==2:
+                a=max(rotx1[2*i-1],rotx1[2*x-2])
+                b=min(rotx2[2*i-1],rotx2[2*x-2])
+                rotx1[2*i-1]=a
+                rotx1[2*x-2]=a
+                rotx2[2*i-1]=b
+                rotx2[2*x-2]=b                           
+            elif type_val==3:
+                a=max(roty1[2*i-2],roty1[2*x-1])
+                b=min(roty2[2*i-2],roty2[2*x-1])
+                roty1[2*i-2]=a
+                roty1[2*x-1]=a
+                roty2[2*i-2]=b
+                roty2[2*x-1]=b 
+            elif type_val==4:
+                a=max(roty1[2*i-1],roty1[2*x-2])
+                b=min(roty2[2*i-1],roty2[2*x-2])
+                roty1[2*i-1]=a
+                roty1[2*x-2]=a
+                roty2[2*i-1]=b
+                roty2[2*x-2]=b      
+
+                
+
+
+                
+
+# function for printing range of tolerance
+def print_rot():
+    print("Range of tolerance in x direction")
+    for i in range (2*rooms):
+        print(i+1,rotx1[i],rotx2[i])
+    print("Range of tolerance in y direction")  
+    for i in range (2*rooms):
+        print(i+1,roty1[i],roty2[i])
 
 # debugging function
 def print_input():
@@ -511,7 +612,7 @@ def create_json():
  
 
 def reinitialize():
-    global rooms,num_sx,num_tx,num_sy,num_ty,sx_adj,sy_adj,adjacent_pairs,adj,adj_type,edgesX,edgesY,edges_setx,edges_sety,lb_len,ub_len,lb_width,ub_width,placementx,placementy,tx_adj,ty_adj,plot_width,plot_height
+    global rooms,num_sx,num_tx,num_sy,num_ty,sx_adj,sy_adj,adjacent_pairs,adj,adj_type,edgesX,edgesY,edges_setx,edges_sety,lb_len,ub_len,lb_width,ub_width,placementx,placementy,tx_adj,ty_adj,plot_width,plot_height,rotx1,rotx2,roty1,roty2
     rooms = 0
     num_sx, num_tx, num_sy, num_ty = 0, 0, 0, 0
     sx_adj = []
@@ -537,6 +638,11 @@ def reinitialize():
 
     placementx = []
     placementy = []
+
+    rotx1=[]
+    rotx2=[]
+    roty1=[]
+    roty2=[]
 
 # main wrapper
 def main(file_path, plot_width, plot_height):
@@ -568,6 +674,8 @@ def main(file_path, plot_width, plot_height):
         return False
     print_placements()  # Print computed placements
     create_json()
+    compute_rot()
+    print_rot()
     return True
 
 # Main execution
