@@ -509,6 +509,14 @@ class InputGraph:
             ptpg_matrices, extra_nodes = st.handle_STs(self.matrix, positions, 20)
 
             for cnt in range(len(ptpg_matrices)):
+# nodecnt, edgecnt, edgeset, node_coordinates)
+                nodecnt = ptpg_matrices[cnt].shape[0]
+                edgecnt = int(np.count_nonzero(ptpg_matrices[cnt] == 1) / 2)
+                g = nx.from_numpy_matrix(ptpg_matrices[cnt], create_using=nx.DiGraph)
+                edgeset = g.edges()
+                
+                new_graph = InputGraph(nodecnt, edgecnt, edgeset) 
+
                 self.matrix = ptpg_matrices[cnt]
                 self.nodecnt = self.matrix.shape[0]
                 self.edgecnt = int(np.count_nonzero(self.matrix == 1) / 2)

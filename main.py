@@ -234,20 +234,8 @@ def run():
                     graph.irreg_single_dual()
                     end = time.time()
                     printe("Time taken: " + str((end - start) * 1000) + " ms")
-                    graph_data = {
-                        'room_x': graph.room_x,
-                        'room_y': graph.room_y,
-                        'room_width': graph.room_width,
-                        'room_height': graph.room_height,
-                        'area': graph.area,
-                        'extranodes': graph.extranodes,
-                        'mergednodes': graph.mergednodes,
-                        'irreg_nodes': graph.irreg_nodes1,
-                        'final_traversal': graph.final_traversal,
-                        'circular_traversal': graph.circular_traversal
-                    }
-                    gclass.output_data.append(graph_data)
-                    draw.draw_rdg(graph_data
+                    gclass.output_data.append(graph) //TODO: check
+                    draw.draw_rdg(graph
                                   , 1
                                   , gclass.pen
                                   , 1
@@ -277,19 +265,7 @@ def run():
                         graph.single_floorplan(min_width,min_height,max_width,max_height,symm_string, min_aspect, max_aspect, plot_width, plot_height)
                     end = time.time()
                     printe("Time taken: " + str((end-start)*1000) + " ms")
-                    graph_data = {
-                            'room_x': graph.room_x,
-                            'room_y': graph.room_y,
-                            'room_width': graph.room_width,
-                            'room_height': graph.room_height,
-                            'area': graph.area,
-                            'extranodes': graph.extranodes,
-                            'mergednodes': graph.mergednodes,
-                            'irreg_nodes': graph.irreg_nodes1,
-                            'final_traversal': graph.final_traversal,
-                            'circular_traversal': graph.circular_traversal
-                        }
-                    draw.draw_rdg(graph_data
+                    draw.draw_rdg(graph
                             ,1
                             ,gclass.pen
                             ,1
@@ -310,19 +286,7 @@ def run():
                         Ushaped.UShapedFloorplan(graph)
                     end = time.time()
                     print("REL MATRIX \n", graph.matrix)
-                    graph_data = {
-                        'room_x': graph.room_x,
-                        'room_y': graph.room_y,
-                        'room_width': graph.room_width,
-                        'room_height': graph.room_height,
-                        'area': graph.area,
-                        'extranodes': graph.extranodes,
-                        'mergednodes': graph.mergednodes,
-                        'irreg_nodes': graph.irreg_nodes1,
-                        'final_traversal': graph.final_traversal,
-                        'circular_traversal': graph.circular_traversal
-                    }
-                    draw.draw_rdg(graph_data
+                    draw.draw_rdg(graph
                                 , 1
                                 , gclass.pen
                                 , 1
@@ -384,19 +348,7 @@ def run():
                     
                     end = time.time()
                     printe("Time taken: " + str((end - start) * 1000) + " ms") 
-                    graph_data = {
-                        'room_x': graph.room_x,
-                        'room_y': graph.room_y,
-                        'room_width': graph.room_width,
-                        'room_height': graph.room_height,
-                        'area': graph.area,
-                        'extranodes': graph.extranodes,
-                        'mergednodes': graph.mergednodes,
-                        'irreg_nodes': graph.irreg_nodes1,
-                        'final_traversal': graph.final_traversal,
-                        'circular_traversal': graph.circular_traversal
-                    }
-                    draw.draw_rdg(graph_data
+                    draw.draw_rdg(graph
                                 , 1
                                 , gclass.pen
                                 , 1
