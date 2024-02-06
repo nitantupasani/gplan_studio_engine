@@ -40,6 +40,7 @@ def gui_fnc(old_dims, nodes):
     # Support for free dimensions feature
     plot_height = tk.IntVar(root, 0)
     plot_width = tk.IntVar(root, 0)
+    optimal_floorplan = tk.IntVar(root)
     
     for i in range(0, nodes):
         i_value_x = 0
@@ -95,6 +96,10 @@ def gui_fnc(old_dims, nodes):
     plot_height_tbox = tk.Entry(root, textvariable=plot_height)
     plot_height_tbox.place(relx=0.98, rely=0.34, anchor='ne')
 
+    # Placing checkbox for generating floorplan with least area
+    optimal_floorplan_checkbox = tk.Checkbutton(root, text="Generate Optimal Floorplan", variable=optimal_floorplan, onvalue=1, offvalue=0)
+    optimal_floorplan_checkbox.place(relx=0.55, rely=0.4, anchor='nw')
+
     def submit_clicked():
         # Helper function for submit button click
         for i in range(0, nodes):
@@ -125,7 +130,7 @@ def gui_fnc(old_dims, nodes):
     # destroying the GUI window
     root.wait_window(root)
     
-    return min_width, min_height, plot_width.get(), plot_height.get()
+    return min_width, min_height, plot_width.get(), plot_height.get(), optimal_floorplan.get()
 
 
 if __name__ == "__main__":

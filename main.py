@@ -588,7 +588,7 @@ def run():
                 elif(gclass.value[10] == 1):
                     old_dims = [[3] * gclass.value[0]
                         , [3] * gclass.value[0]]
-                    min_width, min_height, plot_width, plot_height = mindimgui.gui_fnc(old_dims, gclass.value[0])
+                    min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(old_dims, gclass.value[0])
                     start = time.time()
                     try:
                         graph.oneconnected_dual("multiple")
@@ -599,6 +599,11 @@ def run():
                         graph.irreg_multiple_dual()
                     number_of_floorplans = graph.fpcnt
                     floorplan_found = False
+
+                    # Variables for storing the data of the floorplan with minimal area
+                    min_area = -1
+                    min_graph_data = None
+                    areas = []
                     
                     # Iterate through all possible floorplans to find one which satisfies the given conditions
                     for i in range(number_of_floorplans):
@@ -649,22 +654,45 @@ def run():
                                 'mergednodes': graph.mergednodes,
                                 'irreg_nodes': graph.irreg_nodes1
                             }
-                            draw.draw_rdg(graph_data
-                                        , 1
-                                        , gclass.pen
-                                        , 1
-                                        , gclass.value[6]
-                                        , []
-                                        , origin)
-                            
+
                             delete_file(input_path)
                             delete_file(output_path)
                             floorplan_found = True
-                            break
+
+                            # If optimal area not required, display floorplan
+                            if optimal_floorplan == 0:
+                                draw.draw_rdg(graph_data
+                                            , 1
+                                            , gclass.pen
+                                            , 1
+                                            , gclass.value[6]
+                                            , []
+                                            , origin)
+                                break
+
+                            # Store graph data if graph area is less than current minimal area
+                            area_sum = sum(room_area)
+                            areas.append(area_sum)
+                            if min_area < 0 or area_sum < min_area:
+                                min_area = area_sum
+                                min_graph_data = graph_data
+                            
                         else:
                             delete_file(input_path)
                     if not floorplan_found:
                         print("No floorplan found which satisfies the minimum dimensions input by user.")
+                    
+                    # Display floorplan with optimal area if required
+                    elif optimal_floorplan == 1:
+                        print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
+                        draw.draw_rdg(min_graph_data
+                                    , 1
+                                    , gclass.pen
+                                    , 1
+                                    , gclass.value[6]
+                                    , []
+                                    , origin)
+
                     end = time.time()
                     printe("Time taken: " + str((end - start) * 1000) + " ms")
                     
