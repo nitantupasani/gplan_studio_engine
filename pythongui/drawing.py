@@ -42,7 +42,7 @@ def find_points(x1, y1, x2, y2,
     return [(x7,y7), (x8,y8)],first_rect,second_rect
 
 # Draw rectangular dual of graph
-
+# import turtle as pen
 def draw_rdg(graph,count,pen,mode,color_list,room_names_unused,origin):
 
     pen.width(1.5)
@@ -91,7 +91,6 @@ def draw_rdg(graph,count,pen,mode,color_list,room_names_unused,origin):
                             ((2 * graph.room_y[i] + graph.room_height[i]) * scale / 2) + origin['y'])
             pen.write(i)
             pen.penup()    
-
 
 def draw_rdg2(graph_data,count,pen,mode,color_list,room_names,origin):
     coordinates = {}

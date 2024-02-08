@@ -121,6 +121,8 @@ class gui_class:
         self.corridor_thickness=0.1
         self.remove_or_not = []
         self.remove_edges = []
+        self.rem_edges=[]
+        self.removed_rooms=[]
         self.adjacency = {}
         # self.entry_door.append(self.l)
         # self.entry_door.append(self.r)
@@ -185,6 +187,8 @@ class gui_class:
         self.checkvar2.set(0)
         self.checkvar3 = tk.IntVar(None) # For remove/add circulation
         self.checkvar3.set(0)
+        self.checkvar5 = tk.IntVar(None) # For remove/add circulation
+        self.checkvar5.set(0)
         self.checkvar4 = tk.IntVar()
 
         self.e1 = tk.IntVar()
@@ -301,7 +305,7 @@ class gui_class:
                 temp_node_data.append(i.pos_y)
                 node_coordinate.append(temp_node_data)
             return [len(self.nodes_data), self.edge_count, self.edges, self.command, self.master.checkvar1.get(),
-                    list(filter(None, [row[1].get() for row in self.table._data_vars])), self.hex_list, node_coordinate, self.master.checkvar2.get(), self.master.checkvar3.get(), self.master.checkvar4.get()]
+                    list(filter(None, [row[1].get() for row in self.table._data_vars])), self.hex_list, node_coordinate, self.master.checkvar2.get(), self.master.checkvar3.get(), self.master.checkvar4.get(),self.master.checkvar5.get()]
 
         def createCanvas(self):
             self.id_circle.clear()
@@ -1389,6 +1393,7 @@ class gui_class:
                                 selectcolor='#4A4E69', width=7, variable=master.checkvar1, onvalue=1, offvalue=0)
             c1.grid(row=4, column=1, padx=5, pady=5)
 
+
             b3 = tk.Button(master.frame1, width=10, text='Rectangular Floor Plan', relief='flat', **button_details,
                            command=master.single_oc_floorplan)
             b3.grid(row=3, column=0, padx=5, pady=5)
@@ -1464,6 +1469,10 @@ class gui_class:
             b14 = tk.Checkbutton(master.frame1, text="Min Dim", relief='flat', **button_details,
                                 selectcolor='#4A4E69', width=7, variable=master.checkvar4, onvalue=1, offvalue=0)
             b14.grid(row=8, column=0, padx=5, pady=5)
+
+            c2 = tk.Checkbutton(master.frame1, text="Public/", relief='flat', **button_details,
+                                selectcolor='#4A4E69', width=7, variable=master.checkvar5, onvalue=1, offvalue=0)
+            c2.grid(row=8, column=1, padx=5, pady=5)
 
     class menu:
         def __init__(self, master):
@@ -1780,7 +1789,6 @@ class gui_class:
                 generate_catalogue_dimensioned(self.num_rfp, self.output_data, self.dimensional_constraints, 
                                                edges = self.app.edges, time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt)
                 
-
     def polygonal_inputbox(self):
         """This function takes user input for starting edge/door for the corridor
         """
@@ -1875,7 +1883,6 @@ class gui_class:
 
         ex = tk.Button(root, text="Submit", command=self.letterChoiceFunction)
         ex.grid(row=6)
-
 
     def letterChoiceFunction(self):
         self.top.destroy()
@@ -2028,7 +2035,6 @@ class gui_class:
             self.rem = self.opti.get()
             print("The whole spanning circulation will be displayed")
         
-
     def circ_menu(self):
         """Choose which type of circulation you want
         """
@@ -2077,7 +2083,6 @@ class gui_class:
         # ex = tk.Button(root,text = "Submit",command = self.corridor_thickness_gui, justify=tk.CENTER)
         # ex.grid(padx=100, pady=20)
 
-
     def change_entry_gui(self):
         """This function takes user input for starting edge/door for the corridor
         """
@@ -2099,7 +2104,6 @@ class gui_class:
         ex = tk.Button(root,text = "Submit",command = self.corridor_thickness_gui, justify=tk.CENTER)
         ex.grid(padx=100, pady=20)
     
-
     def corridor_thickness_gui(self):
 
         """This function takes user input for starting edge/door for the corridor
@@ -2260,7 +2264,65 @@ class gui_class:
 
     def show_warning(self, str):
         tk.messagebox.showinfo("Warning", str)
+    
+    def remove_selected_rooms (self):
+        for i, room_var in enumerate(self.room_vars):
+            print(room_var) 
+            if(room_var==1):
+                self.removed_rooms.append(i)
+        self.remove_related_corridors()
+        self.root.destroy()
+    
+    def remove_related_corridors(self):
+# Logic to remove the corridors connected to the selected rooms
+        self.removed_rooms=[2,4,7]
+        for room_num in self.removed_rooms:
+            for corridor, rooms in self.new_adj_list.items():
+                print(corridor)
+                print (rooms)
+                if room_num in rooms:
+                    if (self.new_adj_list[corridor] not in self.rem_edges):
+                        self.rem_edges.append(self.new_adj_list[corridor])
+        print("Removed rooms:", self.removed_rooms)
+        print("Removed corridors:", self.rem_edges)
+    
+    def public_rooms(self,adjacency):
+        adj_list = list(adjacency.values())
+        self.new_adj_list=adjacency
+        print(adj_list)
+        self.root=tk.Tk()
+        self.root.title("Remove Rooms and their connected corridors")
+        self.root.geometry('400x400')
 
+        self.main_frame = tk.Frame(self.root)
+        self.main_frame.pack(fill=tk.BOTH, expand=1)
+
+        self.my_canvas = tk.Canvas (self.main_frame)
+        self.my_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=1)
+
+        self.my_scrollbar = ttk.Scrollbar(self.main_frame, orient=tk.VERTICAL,command=self.my_canvas.yview)
+        self.my_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.my_canvas.configure(yscrollcommand=self.my_scrollbar.set)
+        self.my_canvas.bind('<Configure>', lambda e:
+self.my_canvas.configure(scrollregion=self.my_canvas.bbox('all')))
+        self.second_frame = tk.Frame(self.my_canvas)
+        self.my_canvas.create_window((0, 0), window=self.second_frame,anchor="nw")
+        self.room_label = tk.Label(self.second_frame, text="Select rooms to remove:")
+        self.room_label.grid(row=3, column=10, ipadx=5, ipady=20)
+        def create_room_checkboxes (self):
+            self.room_vars=[1,1,1,1,1]
+            # for i in range(1, list(adjacency.keys())[0]):
+            #     room_var = tk.IntVar()
+            #     room_checkbox = tk.Checkbutton(self.second_frame, text=f"Room{i}", variable=room_var,onvalue=1, offvalue=0)
+            #     room_checkbox.grid(row=i + 30, column=10) 
+            #     self.room_vars.append(room_var)
+            # self.submit_button = tk.Button(self.second_frame, text="Submit&quit", command=self.remove_selected_rooms)
+            # self.submit_button.grid(row=len(adj_list) + 30, column=10)
+        self.remove_related_corridors()
+        create_room_checkboxes(self)
+        
+        print(self.rem_edges)
+        return self.rem_edges
 
 if __name__ == '__main__':
     value = gui_class()
