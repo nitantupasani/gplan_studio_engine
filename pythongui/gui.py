@@ -26,7 +26,7 @@ import numpy as np
 import datetime
 from fpdf import FPDF
 
-from .catalogue_maker import generate_catalogue, generate_catalogue_dimensioned
+from .catalogue_maker import generate_catalogue, generate_catalogue_dimensioned, generate_mindim_catalogue
 from source.polygonal import canonical as cano
 
 
@@ -1773,13 +1773,17 @@ class gui_class:
         if not self.multiple_output_found:
             tk.messagebox.showinfo("error", "Output not yet found")
         else:
-            if self.value[4] == 0:
-                generate_catalogue(self.app.edges, self.num_rfp, self.time_taken, self.output_data,
-                                   self.dimensional_constraints)
-            else:
+            # If Dimensioned floorplans have been generated
+            if self.value[4] == 1:
                 generate_catalogue_dimensioned(self.num_rfp, self.output_data, self.dimensional_constraints, 
                                                edges = self.app.edges, time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt)
-                
+            # If Minimum Dimension floorplans have been generated
+            elif self.value[10] == 1:
+                generate_mindim_catalogue(self.num_rfp, self.output_data, self.dimensional_constraints, 
+                                          edges = self.app.edges, time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt)
+            else:
+                generate_catalogue(self.app.edges, self.num_rfp, self.time_taken, self.output_data,
+                                   self.dimensional_constraints)
 
     def polygonal_inputbox(self):
         """This function takes user input for starting edge/door for the corridor
