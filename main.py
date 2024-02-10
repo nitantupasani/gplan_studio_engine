@@ -799,7 +799,7 @@ def run():
                             old_unchanged_coordinates.append(False)
                         else:
                             old_unchanged_coordinates.append(True)
-                    newCoordsInstance = nc.NewCoordinateAlgorithm(newRoomSet,s_dir,dist,limits_instance.coords_input1,limits_instance.coords_input2)
+                    newCoordsInstance = nc.NewCoordinateAlgorithm(newRoomSet,s_dir,dist,limits_instance.coords_input1,limits_instance.coords_input2, gclass.side)
                     k=0
                     new_graph_data = {
                                 'room_x': [],
