@@ -2096,7 +2096,7 @@ class gui_class:
         l_val.grid(row  = 3, column = 0)
         r_val = tk.Entry(root, textvariable = self.r)
         r_val.grid(row = 3, column = 2)
-        opti_btn = tk.Radiobutton(root, text="Remove redundant corridors", padx=20, variable=self.opti, value=1, command=lambda: self.radio_sel("redundant"))
+        opti_btn = tk.Radiobutton(root, text="Get minimal circulation", padx=20, variable=self.opti, value=1, command=lambda: self.radio_sel("redundant"))
         opti_btn.grid(row = 7, column = 0)
         clear_button = tk.Button(root, text="Clear Selection", command=lambda: self.radio_desel("redundant"))
         clear_button.grid(row = 7, column = 2, pady=10)
