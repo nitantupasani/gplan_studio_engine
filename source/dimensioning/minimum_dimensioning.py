@@ -33,7 +33,7 @@ edgesX = []
 edgesY = []
 edges_setx = []
 edges_sety = []
-small_positive = 2
+
 NEG_INF = -1e8
 POS_INF = 1e8
 
@@ -189,7 +189,7 @@ def input_data():
 
 
 #  adding necessary edges pertaining to the adjacency and constraints to the constraint graphs
-def construct_constraintgraphX():
+def construct_constraintgraphX(small_positive = 0.5):
     global edgesX, edgesY, edges_setx, edges_sety
 
     # Add limiter of plot width if provided
@@ -214,6 +214,12 @@ def construct_constraintgraphX():
         bottom_wall_i = 2 * i
 
         for x in adj[i]:
+            for j in range(len(data['edges'])):
+                if (data['edges'][j]['source'] == x and data['edges'][j]['target'] == i) or (data['edges'][j]['source'] == i and data['edges'][j]['target'] == x) :
+                    if(data ['edges'][j]['color'] == 'red') :
+                        small_positive = 3
+
+
             left_wall_x = 2 * x - 1
             right_wall_x = 2 * x
             top_wall_x = 2 * x - 1
@@ -258,7 +264,7 @@ def construct_constraintgraphX():
 
 
 # same as above in Y direction
-def construct_constraintgraphY():
+def construct_constraintgraphY(small_positive = 0.5):
     global edgesX, edgesY, edges_setx, edges_sety
 
     # Add limiter of plot height if provided
@@ -282,6 +288,11 @@ def construct_constraintgraphY():
         bottom_wall_i = 2 * i
         
         for x in adj[i]:
+            for j in range(len(data['edges'])):
+                if (data['edges'][j]['source'] == x and data['edges'][j]['target'] == i) or (data['edges'][j]['source'] == i and data['edges'][j]['target'] == x) :
+                    if(data ['edges'][j]['color'] == 'red') :
+                        small_positive = 3
+
             left_wall_x = 2 * x - 1
             right_wall_x = 2 * x
             top_wall_x = 2 * x - 1
@@ -487,7 +498,7 @@ def print_edges():
         print(edges_sety[i][0], edges_sety[i][1], edgesY[edges_sety[i][0]][edges_sety[i][1]])
  
 #for computing range of tolerance of each node
-def compute_rot():
+def compute_rot(small_positive = 0.5):
     for i in range(2*rooms):
         rotx1.append(0)#rotx1 represents lower bound of each wall
         rotx2.append(placementx[2*rooms+1])
@@ -520,7 +531,13 @@ def compute_rot():
                 roty1[2*i-1]=max(roty1[2*i-1],a)   
 
     for i in range(1,rooms+1):#to handle the small positive 
+
         for x in adj[i]:
+             for j in range(len(data['edges'])):
+                if (data['edges'][j]['source'] == x and data['edges'][j]['target'] == i) or (data['edges'][j]['source'] == i and data['edges'][j]['target'] == x) :
+                    if(data ['edges'][j]['color'] == 'red') :
+                        small_positive = 3
+             #print("Change to be noted",small_positive)
              type_val = adj_type[(i, x)]
              if type_val==1 or type_val==2:
                  a=placementy[2*x]+small_positive
@@ -643,6 +660,10 @@ def reinitialize():
     rotx2=[]
     roty1=[]
     roty2=[]
+
+
+
+
 
 # main wrapper
 def main(file_path, plot_width, plot_height):

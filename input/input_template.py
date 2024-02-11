@@ -9,6 +9,9 @@ This module contains the following classes:
     * edges: which provides the source and target vertices for each edge.
     * boundary_rooms: which provides the rooms at the NSEW boundaries.
 """
+from pickle import NONE
+
+
 class nodes:
     def __init__(self):
         self.id = None
@@ -95,24 +98,27 @@ class nodes:
         self.set_constraints(min_w, min_h, max_w, max_h)
         self.set_undim_rfp_data(room_x, room_y, room_width, room_height)
         return self.get_node_data()
-    
+#changes in class edges
 class edges:
     def __init__(self):
         self.source = None
         self.target = None
+        self.color = None
         self.edge_data = {}
         
-    def set_edge(self, x, y):
+    def set_edge(self, x, y, color):
         self.source = x
         self.target = y
+        self.color = color
     
     def get_edge_data(self):
         self.edge_data["source"] = self.source
         self.edge_data["target"] = self.target
+        self.edge_data["color"] = self.color
         return self.edge_data
     
-    def add_edge(self, x, y):
-        self.set_edge(x, y)
+    def add_edge(self, x, y, color):
+        self.set_edge(x, y,color)
         return self.get_edge_data()
     
 class boundary_rooms:
