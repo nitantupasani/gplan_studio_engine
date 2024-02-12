@@ -1801,16 +1801,18 @@ class gui_class:
         if not self.multiple_output_found:
             tk.messagebox.showinfo("error", "Output not yet found")
         else:
+            edge_list=self.app.edges.copy()
+            edge_list=[[x for x in elem[:-1]] for elem in edge_list]
             # If Dimensioned floorplans have been generated
             if self.value[4] == 1:
                 generate_catalogue_dimensioned(self.num_rfp, self.output_data, self.dimensional_constraints, 
-                                               edges = self.app.edges, time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt)
+                                               edges = edge_list, time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt)
             # If Minimum Dimension floorplans have been generated
             elif self.value[10] == 1:
                 generate_mindim_catalogue(self.num_rfp, self.output_data, self.dimensional_constraints, 
-                                          edges = self.app.edges, time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt)
+                                          edges = edge_list, time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt)
             else:
-                generate_catalogue(self.app.edges, self.num_rfp, self.time_taken, self.output_data,
+                generate_catalogue(edge_list, self.num_rfp, self.time_taken, self.output_data,
                                    self.dimensional_constraints)
 
     def polygonal_inputbox(self):

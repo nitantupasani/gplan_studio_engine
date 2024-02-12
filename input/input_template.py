@@ -103,7 +103,7 @@ class edges:
     def __init__(self):
         self.source = None
         self.target = None
-        self.color = None
+        self.color = 'black'
         self.edge_data = {}
         
     def set_edge(self, x, y, color):
