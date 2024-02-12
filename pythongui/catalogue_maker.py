@@ -77,6 +77,7 @@ def save_graph(edges):
     G.add_edges_from(edges)
     nx.draw_planar(G,node_color=hex_colors[:G.number_of_nodes()], with_labels = True)
     plt.savefig('latest_adj_graph.png')
+    plt.close()
     
 
 def make_encoded_matrix(nodecnt, room_x, room_y, room_width, room_height):
@@ -256,6 +257,12 @@ def draw_one_rfp(pdf: PDF, x, y, rfp_data, room_name = [], grid_w=100, grid_h=10
                     x + scale * int(rfp_data['room_x'][each_room]) + x_disp,	
                     y + scale * int(rfp_data['room_y'][each_room]) + y_disp,	
                     txt = str(round(rfp_data['area'][each_room], 1)))
+                    
+                    # Displays the room number in the floorplans where room names are default, while storing the floorplan catalogue
+                    pdf.text(
+                        x + scale * int(rfp_data['room_x'][each_room]) + x_disp + scale,
+                        y + scale * int(rfp_data['room_y'][each_room]) + y_disp + scale,
+                        txt = "Room" + str(each_room))
         
         pdf.set_font_size(12.0)            
         line_width = 0.2
@@ -268,7 +275,7 @@ def add_dimensional_constraints(pdf : PDF, dimensional_constraints, fpcnt, num_r
     if fpcnt is not None:
         pdf.multi_cell(100,10, str(num_rfp) + " of " + str(fpcnt) + " possible floor plans satisfy the dimensional constraints \n")
     if len(dimensional_constraints) != 0:
-        pdf.multi_cell(100, 10, "Dimenstional Constraints \n", 0, 1, 'C')
+        pdf.multi_cell(100, 10, "Dimensional Constraints \n", 0, 1, 'C')
 
         cons_y = pdf.y
         pdf.multi_cell(20, 10, "Room Name", 1, 1, 'C')
@@ -331,6 +338,42 @@ def add_dimensional_constraints(pdf : PDF, dimensional_constraints, fpcnt, num_r
             pdf.x = pdf.x + 130
             pdf.y = cons_y
             pdf.cell(30, 10, str(max_aspect[room]), 0, 1, 'C')
+
+# Displays the dimensional constraints of minimum dimension floorplans in the first page of the downloaded catalogue
+def add_mindim_dimensional_constraints(pdf : PDF, dimensional_constraints, fpcnt, num_rfp, room_name = None):
+    [min_width, min_height, plot_width, plot_height] = dimensional_constraints
+    if fpcnt is not None:
+        pdf.multi_cell(100, 10, str(num_rfp) + " of " + str(fpcnt) + " possible floor plans satisfy the dimensional constraints \n")
+    if len(dimensional_constraints) != 0:
+        pdf.multi_cell(100, 10, "Dimensional Constraints \n", 0, 1, 'C')
+
+        cons_y = pdf.y
+        pdf.multi_cell(20, 10, "Room Name", 1, 1, 'C')
+
+        pdf.y = cons_y
+        pdf.x = pdf.x + 20
+        pdf.multi_cell(20, 10, "Min. Width", 1, 1, 'C')
+
+        pdf.y = cons_y
+        pdf.x = pdf.x + 40
+        pdf.multi_cell(20, 10, "Min. Height", 1, 1, 'C')
+
+        for room in range(len(min_width)):
+            cons_y = pdf.y
+            
+            if room_name is None:
+                pdf.cell(20, 10, "Room " + str(room), 0, 1, 'C')
+            else:
+                pdf.cell(20, 10, room_name[room], 0, 1, 'C') 
+            
+            
+            pdf.x = pdf.x + 20
+            pdf.y = cons_y
+            pdf.cell(20, 10, str(min_width[room]), 0, 1, 'C')
+            
+            pdf.x = pdf.x + 40
+            pdf.y = cons_y
+            pdf.cell(20, 10, str(min_height[room]), 0, 1, 'C')
 
 def add_home_page(pdf, edges, num_rfp, time_taken):
     pdf.add_page()
@@ -454,10 +497,91 @@ def generate_catalogue_dimensioned(num_rfp, output_data, dimensional_constraints
                     
                 rfp_no += 1
                 j += 2
-    save(pdf)            
+    save(pdf)
+
+# Generates the catalogue of floorplans generated with the minimum dimensions constraint
+def generate_mindim_catalogue(num_rfp, output_data, dimensional_constraints, is_rb = False, edges=None, time_taken=None, fpcnt = None, room_name = None):
+    print("[LOG] Downloading Minimum Dimension Catalogue")
+    pdf = PDF() 
+    add_home_page(pdf, edges, num_rfp, time_taken)
+    num_rfp = len(output_data)
+    add_mindim_dimensional_constraints(pdf, dimensional_constraints, fpcnt, num_rfp, room_name)
+
+    origin_x = 15
+    origin_y = 30
+    rfp_no = 0
+
+    # Sets the maximum height and width that the floorplan can occupy in the page
+    grid_height = pdf_h/2
+    grid_width = pdf_w - origin_x
+
+    # Sets the y-coordinate of the origin for displaying room details in the page
+    room_details_origin_y = grid_height + origin_y + 10
+
+    # Iterate through all of the floorplans satisfying the cosntraints and display its details in one page
+    while rfp_no < num_rfp:
+
+        # Grid scale is used to scale the sizes of rooms for each floorplan to ensure they lie within the designated area
+        grid_scale = get_scale(output_data[rfp_no], grid_width, grid_height) * 2    #Each gridline is at a distance of 2 unit
+        
+        rfp_data = output_data[rfp_no]
+        pdf.add_page()
+        pdf.add_border_and_grid(grid_scale)
+        pdf.cell(40)
+        pdf.cell(100, 10, str(rfp_no + 1) + " of " + str(num_rfp) + " Floor Plans",0,1,'C')
+
+        if is_rb == True: 
+            save_graph(rfp_data['edgeset'])
+            pdf.image("./latest_adj_graph.png", x = origin_x, y = origin_y, w = grid_width/2, h = grid_height/2, type = 'png', link = './latest_adj_graph.png')
+            pdf.set_y(pdf.get_y() + 110)
+            j += 1
+            rfp_x = origin_x + j * (grid_width-18)
+            draw_one_rfp(pdf, rfp_x, origin_y, rfp_data, room_name, grid_width*0.9, grid_height*0.9, dimensioned=1, scale_val=grid_scale/2, is_rb=is_rb)
+        else:
+            draw_one_rfp(pdf, origin_x, origin_y, rfp_data, grid_width, grid_height, dimensioned=1, scale_val=grid_scale/2)
+        
+        display_room_details(pdf, room_details_origin_y, rfp_data, room_name)
+        rfp_no += 1
+
+    save(pdf)
+
+# Helper method to display room details of minimum dimension floorplans
+def display_room_details(pdf, room_details_origin_y, rfp_data, room_name):
+    pdf.y = room_details_origin_y
+    cons_y = pdf.y
+    pdf.multi_cell(40, 5, "Room Name", 1, 1, 'C')
+
+    pdf.y = cons_y
+    pdf.x = pdf.x + 40
+    pdf.multi_cell(40, 5, "Room Width", 1, 1, 'C')
+
+    pdf.y = cons_y
+    pdf.x = pdf.x + 80
+    pdf.multi_cell(40, 5, "Room Height", 1, 1, 'C')
+
+    total_area = 0
+    for room in range(len(rfp_data['room_width'])):
+        cons_y = pdf.y
+        
+        if room_name is None:
+            pdf.cell(40, 5, "Room" + str(room), 0, 1, 'C')
+        else:
+            pdf.cell(40, 5, room_name[room], 0, 1, 'C') 
+        
+        pdf.x = pdf.x + 40
+        pdf.y = cons_y
+        pdf.cell(40, 5, str(rfp_data['room_width'][room]), 0, 1, 'C')
+        
+        pdf.x = pdf.x + 80
+        pdf.y = cons_y
+        pdf.cell(40, 5, str(rfp_data['room_height'][room]), 0, 1, 'C')
+
+        total_area += rfp_data['area'][room]
+    pdf.cell(100, 5, "Total Area: " + str(total_area), 0, 1, 'L')
 
 def save(pdf):
     win = Tk()
+    win.title("Download Catalogue")
     win.geometry("250x150")
 
     # Define the function
@@ -471,4 +595,3 @@ def save(pdf):
     btn = Button(win, text="Save", command=lambda: save_file())
     btn.pack(pady=10)
     win.after(3000, lambda: win.destroy())
-    win.mainloop()

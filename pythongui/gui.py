@@ -28,7 +28,7 @@ import numpy as np
 import datetime
 from fpdf import FPDF
 
-from .catalogue_maker import generate_catalogue, generate_catalogue_dimensioned
+from .catalogue_maker import generate_catalogue, generate_catalogue_dimensioned, generate_mindim_catalogue
 from source.polygonal import canonical as cano
 
 
@@ -1801,13 +1801,17 @@ class gui_class:
         if not self.multiple_output_found:
             tk.messagebox.showinfo("error", "Output not yet found")
         else:
-            if self.value[4] == 0:
-                generate_catalogue(self.app.edges, self.num_rfp, self.time_taken, self.output_data,
-                                   self.dimensional_constraints)
-            else:
+            # If Dimensioned floorplans have been generated
+            if self.value[4] == 1:
                 generate_catalogue_dimensioned(self.num_rfp, self.output_data, self.dimensional_constraints, 
                                                edges = self.app.edges, time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt)
-                
+            # If Minimum Dimension floorplans have been generated
+            elif self.value[10] == 1:
+                generate_mindim_catalogue(self.num_rfp, self.output_data, self.dimensional_constraints, 
+                                          edges = self.app.edges, time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt)
+            else:
+                generate_catalogue(self.app.edges, self.num_rfp, self.time_taken, self.output_data,
+                                   self.dimensional_constraints)
 
     def polygonal_inputbox(self):
         """This function takes user input for starting edge/door for the corridor
@@ -2120,7 +2124,7 @@ class gui_class:
         l_val.grid(row  = 3, column = 0)
         r_val = tk.Entry(root, textvariable = self.r)
         r_val.grid(row = 3, column = 2)
-        opti_btn = tk.Radiobutton(root, text="Remove redundant corridors", padx=20, variable=self.opti, value=1, command=lambda: self.radio_sel("redundant"))
+        opti_btn = tk.Radiobutton(root, text="Get minimal circulation", padx=20, variable=self.opti, value=1, command=lambda: self.radio_sel("redundant"))
         opti_btn.grid(row = 7, column = 0)
         clear_button = tk.Button(root, text="Clear Selection", command=lambda: self.radio_desel("redundant"))
         clear_button.grid(row = 7, column = 2, pady=10)

@@ -600,6 +600,10 @@ def run():
                     number_of_floorplans = graph.fpcnt
                     floorplan_found = False
 
+                    # Resets the data already present for downloading catalogues
+                    gclass.output_data = []
+                    gclass.multiple_output_found = 0
+
                     # Variables for storing the data of the floorplan with minimal area
                     min_area = -1
                     min_graph_data = None
@@ -654,7 +658,14 @@ def run():
                                 'mergednodes': graph.mergednodes,
                                 'irreg_nodes': graph.irreg_nodes1
                             }
-
+                            
+                            '''
+                            Adds the graph data to output_data for downloading the catalogue and 
+                            multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
+                            '''
+                            gclass.output_data.append(graph_data)
+                            gclass.multiple_output_found = 1
+                            
                             delete_file(input_path)
                             delete_file(output_path)
                             floorplan_found = True
@@ -695,6 +706,10 @@ def run():
 
                     end = time.time()
                     printe("Time taken: " + str((end - start) * 1000) + " ms")
+
+                    # Sets the ptpg object to the current graph to use for download catalogue and also stores the dimensional constraints of the graph
+                    gclass.ptpg = graph
+                    gclass.dimensional_constraints = [min_width, min_height, plot_width, plot_height]
                     
             elif (gclass.command == "multiple_oc"):
                 if (gclass.value[4] == 0):  # Non-Dimensioned multiple dual
