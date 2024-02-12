@@ -1801,6 +1801,8 @@ class gui_class:
         if not self.multiple_output_found:
             tk.messagebox.showinfo("error", "Output not yet found")
         else:
+            edge_list=self.app.edges.copy()
+            edge_list=[[x for x in elem[:-1]] for elem in edge_list]
             # If Dimensioned floorplans have been generated
             if self.value[4] == 1:
                 generate_catalogue_dimensioned(self.num_rfp, self.output_data, self.dimensional_constraints, 
