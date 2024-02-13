@@ -31,19 +31,13 @@ class NewCoordinateAlgorithm:
         perimeter = 0.00
         a = room.coord()
         for j in range(len(a)):
-            if j != len(a) - 1:
-                if (a[j][0] == x[0] and a[j + 1][0] == x[0]) or (a[j][1] == x[1] and a[j + 1][1] == x[1]):
-                    perimeter += self.distance(a[j], x) + self.distance(x, a[j + 1])
-                else:
-                    perimeter += self.distance(a[j], a[j + 1])
+            if (a[j][0] == x[0] and a[(j + 1) % len(a)][0] == x[0]) or (a[j][1] == x[1] and a[(j + 1) % len(a)][1] == x[1]):
+                perimeter += self.distance(a[j], x) + self.distance(x, a[(j + 1) % len(a)])
             else:
-                perimeter += self.distance(a[j], a[0])
+                perimeter += self.distance(a[j], a[(j + 1) % len(a)])
         perimeter1 = 0.00
         for k in range(len(a)):
-            if k != len(a) - 1:
-                perimeter1 += self.distance(a[k], a[k + 1])
-            else:
-                perimeter1 += self.distance(a[k], a[0])
+            perimeter1 += self.distance(a[k], a[(k + 1) % len(a)])
         return perimeter == perimeter1        
 
     def sideAdjacent(self, room, x, y):
@@ -51,13 +45,13 @@ class NewCoordinateAlgorithm:
         for j in range(len(a)):
             if j != len(a) - 1:
                 if (a[j][0] == x[0] and a[j + 1][0] == y[0] and self.opti == 1):
-                    return a[j][1] >= x[1] and a[j + 1][1] <= y[1]
+                    return a[j][1] <= x[1] and a[j + 1][1] >= y[1]
                 elif (a[j][1] == x[1] and a[j + 1][1] == y[1] and self.opti == 2):
                     return a[j][0] <= x[0] and a[j + 1][0] >= y[0]
                 if (a[j][0] == x[0] and a[j + 1][0] == y[0] and self.opti == 0):
-                    return a[j][1] <= x[1] and a[j + 1][1] >= y[1]
+                    return a[j][1] >= x[1] and a[j + 1][1] <= y[1]
                 elif (a[j][1] == x[1] and a[j + 1][1] == y[1] and self.opti == 3):
-                    return a[j][0] >= x[0] and a[j + 1][0] <= y[0]
+                    return a[j][0] <= x[0] and a[j + 1][0] >= y[0]
             else:
                 if (a[j][0] == x[0] and a[0][0] == y[0] and self.opti == 1):
                     return a[j][1] <= x[1] and a[0][1] >= y[1]
@@ -69,10 +63,9 @@ class NewCoordinateAlgorithm:
                     return a[j][0] <= x[0] and a[0][0] >= y[0]
         return False
 
-    def isCoord(self, room, x):
-        for j in range(len(room.coord())):
-            if room.coord()[j][0] == x[0] and room.coord()[j][1] == x[1]:
-                return True
+    def isCoord(self, room, x, k):
+        if room.coord()[k][0] == x[0] and room.coord()[k][1] == x[1]:
+            return True
         return False
 
     def shift_coordinate(self, coord, s, shift):
@@ -101,20 +94,36 @@ class NewCoordinateAlgorithm:
             if self.sideAdjacent(self.adjrooms[j], x, y):
                 if self.isInPerimeter(self.adjrooms[j], x):
                     for k in range(len(self.adjrooms[j].coord())):
-                        if self.isCoord(self.adjrooms[j], x):
+                        if self.isCoord(self.adjrooms[j], x, k):
                             self.moveCoordinate(a[j], k, s, shift)
                             break
                         else:
-                            if (self.adjrooms[j].coord()[k][0] <= x[0] <= self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][0]) and (
-                                self.adjrooms[j].coord()[k][1] <= x[1] <= self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][1]):
-                                self.insertCoordinate(a[j], (k + 1), s, shift, x)
-                                self.insertCoordinate(a[j], (k + 2), s, 0, x)
-                                break
-                            elif (self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][0] <= x[0] <= self.adjrooms[j].coord()[k][0])and (
-                                self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][1] <= x[1] <= self.adjrooms[j].coord()[k][1]):
-                                self.insertCoordinate(a[j], (k + 1), s, 0, x)
-                                self.insertCoordinate(a[j], (k + 2), s, shift, x)
-                                break
+                            # if (s == "up") or (s == "right"):
+                                if ((self.adjrooms[j].coord()[k][0] == x[0] == self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][0]) and (
+                                    self.adjrooms[j].coord()[k][1] < x[1] < self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][1]))or((self.adjrooms[j].coord()[k][0] < x[0] < self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][0]) and (
+                                    self.adjrooms[j].coord()[k][1] == x[1] == self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][1])):
+                                    self.insertCoordinate(a[j], (k + 1), s, shift, x)
+                                    self.insertCoordinate(a[j], (k + 2), s, 0, x)
+                                    break
+                                elif ((self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][0] == x[0] == self.adjrooms[j].coord()[k][0])and (
+                                    self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][1] < x[1] < self.adjrooms[j].coord()[k][1]))or((self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][0] < x[0] < self.adjrooms[j].coord()[k][0])and (
+                                    self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][1] == x[1] == self.adjrooms[j].coord()[k][1])):
+                                    self.insertCoordinate(a[j], (k + 1), s, shift, x)
+                                    self.insertCoordinate(a[j], (k + 2), s, 0, x)
+                                    break
+                            # else:
+                            #     if ((self.adjrooms[j].coord()[k][0] == x[0] == self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][0]) and (
+                            #         self.adjrooms[j].coord()[k][1] < x[1] < self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][1]))or((self.adjrooms[j].coord()[k][0] < x[0] < self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][0]) and (
+                            #         self.adjrooms[j].coord()[k][1] == x[1] == self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][1])):
+                            #         self.insertCoordinate(a[j], (k + 1), s, 0, x)
+                            #         self.insertCoordinate(a[j], (k + 2), s, shift, x)
+                            #         break
+                            #     elif ((self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][0] == x[0] == self.adjrooms[j].coord()[k][0])and (
+                            #         self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][1] < x[1] < self.adjrooms[j].coord()[k][1]))or((self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][0] < x[0] < self.adjrooms[j].coord()[k][0])and (
+                            #         self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][1] == x[1] == self.adjrooms[j].coord()[k][1])):
+                            #         self.insertCoordinate(a[j], (k + 1), s, 0, x)
+                            #         self.insertCoordinate(a[j], (k + 2), s, shift, x)
+                            #         break
                     for k in range(len(self.adjrooms[j].coord())):
                         if (
                             (self.adjrooms[j].coord()[k][0] == x[0] and self.adjrooms[j].coord()[k][0] == y[0] and ((self.adjrooms[j].coord()[k][1] < x[1] and self.adjrooms[j].coord()[k][1] > y[1])or(self.adjrooms[j].coord()[k][1] > x[1] and self.adjrooms[j].coord()[k][1] < y[1])))
@@ -123,38 +132,53 @@ class NewCoordinateAlgorithm:
                             self.moveCoordinate(a[j], k, s, shift)    
                 if self.isInPerimeter(self.adjrooms[j], y):
                     for k in range(len(self.adjrooms[j].coord())):
-                        if self.isCoord(self.adjrooms[j], y):
+                        if self.isCoord(self.adjrooms[j], y, k):
                             self.moveCoordinate(a[j], k, s, shift)
                             break
                         else:
-
-                            if (self.adjrooms[j].coord()[k][0] <= y[0] <= self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][0]) and (
-                                self.adjrooms[j].coord()[k][1] <= y[1] <= self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][1]):
-                                self.insertCoordinate(a[j], (k + 1), s, shift, y)
-                                self.insertCoordinate(a[j], (k + 2), s, 0, y)
-                                break
-                            elif (self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][0] <= y[0] <= self.adjrooms[j].coord()[k][0])and (
-                                self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][1] <= y[1] <= self.adjrooms[j].coord()[k][1]):
-                                self.insertCoordinate(a[j], (k + 1), s, 0, y)
-                                self.insertCoordinate(a[j], (k + 2), s, shift, y)
-                                break
+                            # if (s == "down") or (s == "left"):
+                            #     if ((self.adjrooms[j].coord()[k][0] < y[0] < self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][0]) and (
+                            #     self.adjrooms[j].coord()[k][1] == y[1] == self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][1]))or((self.adjrooms[j].coord()[k][0] == y[0] == self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][0]) and (
+                            #     self.adjrooms[j].coord()[k][1] < y[1] < self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][1])):
+                            #         self.insertCoordinate(a[j], (k + 1), s, shift, y)
+                            #         self.insertCoordinate(a[j], (k + 2), s, 0, y)
+                            #         break
+                            #     elif ((self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][0] == y[0] == self.adjrooms[j].coord()[k][0])and (
+                            #     self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][1] < y[1] < self.adjrooms[j].coord()[k][1]))or((self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][0] < y[0] < self.adjrooms[j].coord()[k][0])and (
+                            #     self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][1] == y[1] == self.adjrooms[j].coord()[k][1])):
+                            #         self.insertCoordinate(a[j], (k + 1), s, shift, y)
+                            #         self.insertCoordinate(a[j], (k + 2), s, 0, y)
+                            #         break
+                            # else:
+                                if ((self.adjrooms[j].coord()[k][0] < y[0] < self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][0]) and (
+                                self.adjrooms[j].coord()[k][1] == y[1] == self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][1]))or((self.adjrooms[j].coord()[k][0] == y[0] == self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][0]) and (
+                                self.adjrooms[j].coord()[k][1] < y[1] < self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][1])):
+                                    self.insertCoordinate(a[j], (k + 1), s, 0, y)
+                                    self.insertCoordinate(a[j], (k + 2), s, shift, y)
+                                    break
+                                elif ((self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][0] == y[0] == self.adjrooms[j].coord()[k][0])and (
+                                self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][1] < y[1] < self.adjrooms[j].coord()[k][1]))or((self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][0] < y[0] < self.adjrooms[j].coord()[k][0])and (
+                                self.adjrooms[j].coord()[(k + 1) % len(self.adjrooms[j].coord())][1] == y[1] == self.adjrooms[j].coord()[k][1])):
+                                    self.insertCoordinate(a[j], (k + 1), s, 0, y)
+                                    self.insertCoordinate(a[j], (k + 2), s, shift, y)
+                                    break
                     for k in range(len(self.adjrooms[j].coord())):
                         if (
                             (self.adjrooms[j].coord()[k][0] == x[0] and self.adjrooms[j].coord()[k][0] == y[0] and ((self.adjrooms[j].coord()[k][1] < x[1] and self.adjrooms[j].coord()[k][1] > y[1])or(self.adjrooms[j].coord()[k][1] > x[1] and self.adjrooms[j].coord()[k][1] < y[1])))
                             or (self.adjrooms[j].coord()[k][1] == x[1] and self.adjrooms[j].coord()[k][1] == y[1] and ((self.adjrooms[j].coord()[k][0] < x[0] and self.adjrooms[j].coord()[k][0] > y[0])or(self.adjrooms[j].coord()[k][0] > x[0] and self.adjrooms[j].coord()[k][0] < y[0])))
                         ):
                             self.moveCoordinate(a[j], k, s, shift)          
-                else:
+                if not(self.isInPerimeter(self.adjrooms[j], y)) and not(self.isInPerimeter(self.adjrooms[j], x)) :
                     for k in range(len(self.adjrooms[j].coord())):
                         if (
                             (self.adjrooms[j].coord()[k][0] == x[0] and self.adjrooms[j].coord()[k][0] == y[0] and ((self.adjrooms[j].coord()[k][1] < x[1] and self.adjrooms[j].coord()[k][1] > y[1])or(self.adjrooms[j].coord()[k][1] > x[1] and self.adjrooms[j].coord()[k][1] < y[1])))
                             or (self.adjrooms[j].coord()[k][1] == x[1] and self.adjrooms[j].coord()[k][1] == y[1] and ((self.adjrooms[j].coord()[k][0] < x[0] and self.adjrooms[j].coord()[k][0] > y[0])or(self.adjrooms[j].coord()[k][0] > x[0] and self.adjrooms[j].coord()[k][0] < y[0])))
                         ):
                             self.moveCoordinate(a[j], k, s, shift)
-        self.adjrooms = a
+        return a
 
     def shiftAndUpdateCoordinates(self, adjrooms, x, y, s, shift):
-        self.updateAdjacentRoomCoordinates(self.adjrooms, x, y, s, shift)
+        self.adjrooms = self.updateAdjacentRoomCoordinates(self.adjrooms, x, y, s, shift)
         x = self.shift_coordinate(x, s, shift)
         y = self.shift_coordinate(y, s, shift)
         self.printAllRooms(adjrooms)
