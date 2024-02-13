@@ -799,7 +799,7 @@ def run():
                             old_unchanged_coordinates.append(False)
                         else:
                             old_unchanged_coordinates.append(True)
-                    newCoordsInstance = nc.NewCoordinateAlgorithm(newRoomSet,s_dir,dist,limits_instance.coords_input1,limits_instance.coords_input2, gclass.side)
+                    newCoordsInstance = nc.NewCoordinateAlgorithm(newRoomSet,s_dir,dist,limits_instance.coords_input1,limits_instance.coords_input2, gclass.side,rooms[gclass.room_limits])
                     k=0
                     new_graph_data = {
                                 'room_x': [],
@@ -812,7 +812,12 @@ def run():
                                 'irreg_nodes': []
                     }
                     for i in range(len(old_unchanged_coordinates)):
-                        if(old_unchanged_coordinates[i]==False):
+                        if(i==gclass.room_limits):
+                            new_graph_data['room_x'].append(newCoordsInstance.converterForMain(-1,'room_x'))
+                            new_graph_data['room_y'].append(newCoordsInstance.converterForMain(-1,'room_y'))
+                            new_graph_data['room_width'].append(newCoordsInstance.converterForMain(-1,'room_width'))
+                            new_graph_data['room_height'].append(newCoordsInstance.converterForMain(-1,'room_height'))
+                        elif(old_unchanged_coordinates[i]==True):
                             new_graph_data['room_x'].append(graph_data['room_x'][i])
                             new_graph_data['room_y'].append(graph_data['room_y'][i])
                             new_graph_data['room_width'].append(graph_data['room_width'][i])

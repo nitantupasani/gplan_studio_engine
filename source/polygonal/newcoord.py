@@ -6,22 +6,24 @@ import re
 import copy
 
 class NewCoordinateAlgorithm:
-    def __init__(self, adjrooms, s_dir, shift_value, x, y, opti):
+    def __init__(self, adjrooms, s_dir, shift_value, x, y, opti,originalRoom):
         self.s_dir = s_dir
         self.shift_value = shift_value
         self.adjrooms = adjrooms
         self.opti = opti
-        self.run(adjrooms, x, y)
-    
+        self.originalRoom = originalRoom
+        self.run(adjrooms, x, y)    
+
+
     def converterForMain(self, index, key):
         if key == "room_x":
-            return self.adjrooms[index].coords[0][0]
+            return self.adjrooms[index].coords[0][0] if index!= -1 else self.originalRoom.coords[0][0]
         elif key == "room_y":
-            return self.adjrooms[index].coords[0][1]
+            return self.adjrooms[index].coords[0][1] if index!= -1 else self.originalRoom.coords[0][1]
         elif key == "room_width":
-            return self.adjrooms[index].coords[3][0] - self.adjrooms[index].coords[0][0]
+            return self.adjrooms[index].coords[3][0] - self.adjrooms[index].coords[0][0] if index!= -1 else self.originalRoom.coords[3][0] - self.originalRoom.coords[0][0]
         elif key == "room_height":
-            return self.adjrooms[index].coords[1][1] - self.adjrooms[index].coords[0][1]
+            return self.adjrooms[index].coords[1][1] - self.adjrooms[index].coords[0][1] if index!= -1 else self.originalRoom.coords[1][1] - self.originalRoom.coords[0][1]
 
     def distance(self, x, y):
         d = ((y[1] - x[1])**2 + (y[0] - x[0])**2)**0.5
@@ -181,7 +183,10 @@ class NewCoordinateAlgorithm:
         self.adjrooms = self.updateAdjacentRoomCoordinates(self.adjrooms, x, y, s, shift)
         x = self.shift_coordinate(x, s, shift)
         y = self.shift_coordinate(y, s, shift)
+        print("OLD")
         self.printAllRooms(adjrooms)
+        print("NEW")
+        self.printAllRooms(self.adjrooms)
         return x, y
 
     def run(self, adjrooms, x, y):
@@ -195,8 +200,16 @@ class NewCoordinateAlgorithm:
         else: 
             s = "down"  
         (X,Y) = self.shiftAndUpdateCoordinates(self.adjrooms,x,y,s,self.shift_value)
+        self.chosenRoomNewCoords(x,y,X,Y)
         print("Wall moved from: (x=%d,y=%d) to (X=%d,Y=%d)",x,y,X,Y)
 
+    def chosenRoomNewCoords(self,x,y,X,Y):
+        for i in range(0,len(self.originalRoom.coords)):
+            if(self.originalRoom.coords[i][0]==x[0] and self.originalRoom.coords[i][1]==x[1]):
+                self.originalRoom.coords[i] = (X[0],X[1])
+            elif(self.originalRoom.coords[i][0]==y[0] and self.originalRoom.coords[i][1]==y[1]):
+                self.originalRoom.coords[i] = (Y[0],Y[1])
+                
     def printAllRooms(self, rooms):
         i = 0
         for room in rooms:
