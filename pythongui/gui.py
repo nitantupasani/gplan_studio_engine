@@ -481,7 +481,7 @@ class gui_class:
                                         y + self.radius_circle, width=3, fill=hex_number, tag=str(id_node)))
             self.rcanframe.append(self.canvas.create_window(x, y - self.radius_circle - 12, window=self.rframe))
             self.entry = tk.Entry(self.rframe, textvariable=self.table._data_vars[self.id_circle[0] - 1][1],
-                                  relief='flat', justify='c', width=3, bg='white')
+                                  relief='flat', justify='c', width=7, bg='white')
             self.entry.grid()
 
         def retreive_graph(self, node_data, edge_data, con_data):
@@ -1805,12 +1805,12 @@ class gui_class:
             edge_list=[[x for x in elem[:-1]] for elem in edge_list]
             # If Dimensioned floorplans have been generated
             if self.value[4] == 1:
-                generate_catalogue_dimensioned(self.num_rfp, self.output_data, self.dimensional_constraints, 
-                                               edges = edge_list, time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt)
+                generate_catalogue_dimensioned(self.num_rfp, self.output_data, self.dimensional_constraints, edges = edge_list, 
+                                               time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt, room_name = self.value[5])
             # If Minimum Dimension floorplans have been generated
             elif self.value[10] == 1:
-                generate_mindim_catalogue(self.num_rfp, self.output_data, self.dimensional_constraints, 
-                                          edges = edge_list, time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt)
+                generate_mindim_catalogue(self.num_rfp, self.output_data, self.dimensional_constraints, edges = edge_list, 
+                                          time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt, room_name = self.value[5])
             else:
                 generate_catalogue(edge_list, self.num_rfp, self.time_taken, self.output_data,
                                    self.dimensional_constraints)

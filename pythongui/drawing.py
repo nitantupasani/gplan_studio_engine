@@ -148,12 +148,18 @@ def draw_rdg(graph_data,count,pen,mode,color_list,room_names,origin):
         if(i not in graph_data['mergednodes']):
             pen.setposition(((2 * graph_data['room_x'][i] ) * scale / 2) + origin['x'] + 5,
                             ((2 * graph_data['room_y'][i] + graph_data['room_height'][i]) * scale / 2) + origin['y'])
-            pen.write(i)
+            if not room_names:
+                pen.write(i)
+            else:
+                pen.write(room_names[i])
             pen.penup()
         if(i in graph_data['mergednodes'] and mode == 2):
             pen.setposition(((2 * graph_data['room_x'][i] ) * scale / 2) + origin['x'] + 5,
                             ((2 * graph_data['room_y'][i] + graph_data['room_height'][i]) * scale / 2) + origin['y'])
-            pen.write(i)
+            if not room_names:
+                pen.write(i)
+            else:
+                pen.write(room_names[i])
             pen.penup()       
     value = 1
     if(len(graph_data['area']) != 0):
@@ -164,7 +170,10 @@ def draw_rdg(graph_data,count,pen,mode,color_list,room_names,origin):
                 continue
             pen.setposition(dim[0]* scale + origin['x']+50, dim[1]* scale + origin['y']-30-value*30)
             # pen.write('Room ' + str(i)+ ': '+ str(graph_data['area'][i]),font=("Arial", 15, "normal"))
-            pen.write('Room ' + str(i)+ ': ' + 'W:' + str(graph_data['room_width'][i])+ '  H:' + str(graph_data['room_height'][i]),font=("Arial", 15, "normal"))
+            if not room_names:
+                pen.write('Room ' + str(i)+ ': ' + 'W:' + str(graph_data['room_width'][i])+ '  H:' + str(graph_data['room_height'][i]),font=("Arial", 15, "normal"))
+            else:
+                pen.write(str(room_names[i]) + ': ' + 'W:' + str(graph_data['room_width'][i])+ '  H:' + str(graph_data['room_height'][i]),font=("Arial", 15, "normal"))
             pen.penup()
             value+=1
 

@@ -530,12 +530,17 @@ def run():
                         'mergednodes': graph.mergednodes,
                         'irreg_nodes': graph.irreg_nodes1
                     }
+
+                    # If room labels are provided, they are stored else left empty
+                    room_name = []
+                    if len(gclass.value[5]) > 0:
+                        room_name = gclass.value[5]
                     draw.draw_rdg(graph_data
                                   , 1
                                   , gclass.pen
                                   , 1
                                   , gclass.value[6]
-                                  , []
+                                  , room_name
                                   , origin)
                 elif (gclass.value[4] == 1):  # Dimensioned single floorplan
                     old_dims = [[0] * gclass.value[0]
@@ -546,7 +551,7 @@ def run():
                         , [0] * gclass.value[0]
                         , [0] * gclass.value[0]]
                     min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(
-                        old_dims, gclass.value[0])
+                        old_dims, gclass.value[0], gclass.value[5])
                     start = time.time()
                     try:
                         graph.oneconnected_dual("multiple")
@@ -577,18 +582,22 @@ def run():
                         'irreg_nodes': graph.irreg_nodes1
                     }
 
+                    # If room labels are provided, they are stored else left empty
+                    room_name = []
+                    if len(gclass.value[5]) > 0:
+                        room_name = gclass.value[5]
                     gclass.output_data.append(graph_data)
                     draw.draw_rdg(graph_data
                                   , 1
                                   , gclass.pen
                                   , 1
                                   , gclass.value[6]
-                                  , []
+                                  , room_name
                                   , origin)
                 elif(gclass.value[10] == 1):
                     old_dims = [[3] * gclass.value[0]
                         , [3] * gclass.value[0]]
-                    min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(old_dims, gclass.value[0])
+                    min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(old_dims, gclass.value[0], gclass.value[5])
                     start = time.time()
                     try:
                         graph.oneconnected_dual("multiple")
@@ -636,12 +645,20 @@ def run():
                             room_width = [] 
                             room_height = [] 
                             room_area = []
+                            room_name = []
                             for room_detail in json_content["nodes"]:
                                 room_x.append(room_detail["room_x"])
                                 room_y.append(room_detail["room_y"])
                                 room_width.append(room_detail["width"])
                                 room_height.append(room_detail["height"])
                                 room_area.append(room_detail["width"] * room_detail["height"])
+
+                            # Store the room labels if they have been entered
+                            for room_id in range(len(json_content["nodes"])):
+                                if "label" not in json_content["nodes"][room_id]:
+                                    room_name.append(str(room_id))
+                                else:
+                                    room_name.append(json_content["nodes"][room_id]["label"])
                             
                             room_x = np.array(room_x)
                             room_y = np.array(room_y)
@@ -677,7 +694,7 @@ def run():
                                             , gclass.pen
                                             , 1
                                             , gclass.value[6]
-                                            , []
+                                            , room_name
                                             , origin)
                                 break
 
@@ -701,7 +718,7 @@ def run():
                                     , gclass.pen
                                     , 1
                                     , gclass.value[6]
-                                    , []
+                                    , room_name
                                     , origin)
 
                     end = time.time()
@@ -774,6 +791,11 @@ def run():
                     printe("Time taken: " + str((end - start) * 1000) + " ms")
                     printe("Number of floorplans: " + str(len(graph.room_x)))
                     gclass.multiple_output_found = 1
+
+                    room_name = []
+                    if len(gclass.value[5]) > 0:
+                        room_name = gclass.value[5]
+
                     for idx in range(len(graph.room_x)):
                         graph_data = {
                             'room_x': graph.room_x[idx],
@@ -798,7 +820,7 @@ def run():
                                 ,gclass.pen
                                 ,1
                                 ,gclass.value[6]
-                                ,[]
+                                ,room_name
                                 ,origin)
             elif (gclass.command == "poly"):  # Polygonal Floorplan
                 start = time.time()
