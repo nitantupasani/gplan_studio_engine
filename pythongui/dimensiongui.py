@@ -3,7 +3,7 @@ from tkinter import font
 from tkinter import messagebox
 
 
-def gui_fnc(old_dims, nodes):
+def gui_fnc(old_dims, nodes, room_name = []):
     min_width = []
     max_width = []
     min_height = []
@@ -86,8 +86,13 @@ def gui_fnc(old_dims, nodes):
             text_max_aspect_ratio[i_value_x].place(relx=0.80 + 0.20 * i_value_x,
                                                    rely=0.2,
                                                    anchor='ne')
-        text_room.append("text_room_" + str(i))
-        text_room[i] = tk.Label(root, text="Room" + str(i), font=("Times New Roman", 8))
+            
+        if len(room_name) > 0:
+            text_room.append("text_room_" + str(room_name[i]))
+            text_room[i] = tk.Label(root, text=str(room_name[i]), font=("Times New Roman", 8))
+        else:
+            text_room.append("text_room_" + str(i))
+            text_room[i] = tk.Label(root, text="Room" + str(i), font=("Times New Roman", 8))
 
         text_room[i].place(relx=0.20 + 0.20 * i_value_x,
                            rely=0.3 + (0.025 * i_value_y),
@@ -223,4 +228,5 @@ def gui_fnc(old_dims, nodes):
 
 
 if __name__ == "__main__":
-    gui_fnc([], 3)
+    gui_fnc([], 3, [])
+    

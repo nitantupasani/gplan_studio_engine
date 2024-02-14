@@ -436,6 +436,10 @@ def generate_catalogue_dimensioned(num_rfp, output_data, dimensional_constraints
     origin_x = 15
     origin_y = 30
 
+    # If room labels have been provided, then the flag is set for labelling catalogue rooms
+    if len(room_name) > 0:
+        is_rb = True
+
     if is_rb == True:
         grid_height = int(pdf_h/2)
         grid_width = int(pdf_w/2)
@@ -476,7 +480,7 @@ def generate_catalogue_dimensioned(num_rfp, output_data, dimensional_constraints
                 rfp_data = output_data[rfp_no]
                 
                 if is_rb == True: 
-                    save_graph(rfp_data['edgeset'])
+                    # save_graph(rfp_data['edgeset'])
                     pdf.image("./latest_adj_graph.png", x = rfp_x, y = rfp_y, w = grid_width/2, h = grid_height/2, type = 'png', link = './latest_adj_graph.png')
                     pdf.set_y(pdf.get_y() + 110)
                     j += 1
