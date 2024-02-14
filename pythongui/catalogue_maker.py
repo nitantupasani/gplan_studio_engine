@@ -227,37 +227,28 @@ def draw_one_rfp(pdf: PDF, x, y, rfp_data, room_name = [], grid_w=100, grid_h=10
                         x_disp = 0.8
                         y_disp = 3*scale/2
                     
-                if is_rb == True:    
-                    x_disp = scale * 2
-                    y_disp = scale * 2
-                    pdf.set_font_size(2*scale)
-                else:
-                    x_disp = 0	
-                    y_disp = scale/2
-                    pdf.set_font_size(0.8*scale)
+                x_disp = 0	
+                y_disp = scale/2
+                pdf.set_font_size(0.8*scale)
                     
                 print(x,y)
                 print(rfp_data['room_x'][each_room], rfp_data['room_y'][each_room])
                 print("X={0}, Y={1}".format(x + scale * int(rfp_data['room_x'][each_room]) + x_disp,
                     y + scale * int(rfp_data['room_y'][each_room]) + y_disp,))
                 
-                if is_rb == True:
-                    pdf.text(
-                        x + scale * int(rfp_data['room_x'][each_room]) + x_disp,
-                        y + scale * int(rfp_data['room_y'][each_room]) + y_disp,
-                        txt = str(room_name[i]))
-                    i += 1
-                    pdf.text(
-                        x + scale * int(rfp_data['room_x'][each_room]) + x_disp,
-                        y + scale * int(rfp_data['room_y'][each_room]) + y_disp + scale,
-                        txt = str(round(rfp_data['area'][each_room], 1)))
-                    
-                else:
-                    pdf.text(	
-                    x + scale * int(rfp_data['room_x'][each_room]) + x_disp,	
-                    y + scale * int(rfp_data['room_y'][each_room]) + y_disp,	
+                # Displays the area covered by each room
+                pdf.text(
+                    x + scale * round(rfp_data['room_x'][each_room], 1) + x_disp,
+                    y + scale * round(rfp_data['room_y'][each_room], 1) + y_disp,
                     txt = str(round(rfp_data['area'][each_room], 1)))
-                    
+                
+                if is_rb == True:
+                    # Displays the room labels if they have been entered
+                    pdf.text(
+                        x + scale * int(rfp_data['room_x'][each_room]) + x_disp + scale,
+                        y + scale * int(rfp_data['room_y'][each_room]) + y_disp + scale,
+                        txt = str(room_name[each_room]))
+                else:
                     # Displays the room number in the floorplans where room names are default, while storing the floorplan catalogue
                     pdf.text(
                         x + scale * int(rfp_data['room_x'][each_room]) + x_disp + scale,
@@ -500,7 +491,7 @@ def generate_catalogue_dimensioned(num_rfp, output_data, dimensional_constraints
     save(pdf)
 
 # Generates the catalogue of floorplans generated with the minimum dimensions constraint
-def generate_mindim_catalogue(num_rfp, output_data, dimensional_constraints, is_rb = False, edges=None, time_taken=None, fpcnt = None, room_name = None):
+def generate_mindim_catalogue(num_rfp, output_data, dimensional_constraints, is_rb = False, edges=None, time_taken=None, fpcnt = None, room_name = []):
     print("[LOG] Downloading Minimum Dimension Catalogue")
     pdf = PDF() 
     add_home_page(pdf, edges, num_rfp, time_taken)
@@ -530,15 +521,10 @@ def generate_mindim_catalogue(num_rfp, output_data, dimensional_constraints, is_
         pdf.cell(40)
         pdf.cell(100, 10, str(rfp_no + 1) + " of " + str(num_rfp) + " Floor Plans",0,1,'C')
 
-        if is_rb == True: 
-            save_graph(rfp_data['edgeset'])
-            pdf.image("./latest_adj_graph.png", x = origin_x, y = origin_y, w = grid_width/2, h = grid_height/2, type = 'png', link = './latest_adj_graph.png')
-            pdf.set_y(pdf.get_y() + 110)
-            j += 1
-            rfp_x = origin_x + j * (grid_width-18)
-            draw_one_rfp(pdf, rfp_x, origin_y, rfp_data, room_name, grid_width*0.9, grid_height*0.9, dimensioned=1, scale_val=grid_scale/2, is_rb=is_rb)
-        else:
-            draw_one_rfp(pdf, origin_x, origin_y, rfp_data, grid_width, grid_height, dimensioned=1, scale_val=grid_scale/2)
+        # If room labels have been entered, the flag is set and the values are passed to be drawn
+        if len(room_name) > 0:
+            is_rb = True
+        draw_one_rfp(pdf, origin_x, origin_y, rfp_data, room_name, grid_width, grid_height, dimensioned=1, scale_val=grid_scale/2, is_rb=is_rb)
         
         display_room_details(pdf, room_details_origin_y, rfp_data, room_name)
         rfp_no += 1

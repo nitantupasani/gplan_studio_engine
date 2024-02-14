@@ -1809,8 +1809,8 @@ class gui_class:
                                                edges = edge_list, time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt)
             # If Minimum Dimension floorplans have been generated
             elif self.value[10] == 1:
-                generate_mindim_catalogue(self.num_rfp, self.output_data, self.dimensional_constraints, 
-                                          edges = edge_list, time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt)
+                generate_mindim_catalogue(self.num_rfp, self.output_data, self.dimensional_constraints, edges = edge_list, 
+                                          time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt, room_name = self.value[5])
             else:
                 generate_catalogue(edge_list, self.num_rfp, self.time_taken, self.output_data,
                                    self.dimensional_constraints)

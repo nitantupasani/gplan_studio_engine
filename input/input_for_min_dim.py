@@ -17,10 +17,9 @@ class floorplan:
         self.boundary_rooms = {}
         
     def fill_nodes(self, id_list, colors, coords, min_width, min_height, room_x, room_y, room_width, room_height):
-        for id in id_list:
-            id = int(id)
+        for id in range(len(id_list)):
             node_obj = nodes()
-            self.nodes.append(node_obj.add_node(id, colors[id], coords[id][0], coords[id][1], min_width[id], min_height[id], room_x=room_x[id], room_y=room_y[id], room_width=room_width[id], room_height=room_height[id]))
+            self.nodes.append(node_obj.add_node(id, colors[id], coords[id][0], coords[id][1], min_width[id], min_height[id], room_x=room_x[id], room_y=room_y[id], room_width=room_width[id], room_height=room_height[id], label=id_list[id]))
             curr = self.nodes[id]
             curr["room_y"] = curr["room_y"] + curr["room_height"]
             self.nodes.pop()

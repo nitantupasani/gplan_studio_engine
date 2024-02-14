@@ -530,12 +530,17 @@ def run():
                         'mergednodes': graph.mergednodes,
                         'irreg_nodes': graph.irreg_nodes1
                     }
+
+                    # If room labels are provided, they are stored else left empty
+                    room_name = []
+                    if len(gclass.value[5]) > 0:
+                        room_name = gclass.value[5]
                     draw.draw_rdg(graph_data
                                   , 1
                                   , gclass.pen
                                   , 1
                                   , gclass.value[6]
-                                  , []
+                                  , room_name
                                   , origin)
                 elif (gclass.value[4] == 1):  # Dimensioned single floorplan
                     old_dims = [[0] * gclass.value[0]
@@ -636,12 +641,20 @@ def run():
                             room_width = [] 
                             room_height = [] 
                             room_area = []
+                            room_name = []
                             for room_detail in json_content["nodes"]:
                                 room_x.append(room_detail["room_x"])
                                 room_y.append(room_detail["room_y"])
                                 room_width.append(room_detail["width"])
                                 room_height.append(room_detail["height"])
                                 room_area.append(room_detail["width"] * room_detail["height"])
+
+                            # Store the room labels if they have been entered
+                            for room_id in range(len(json_content["nodes"])):
+                                if "label" not in json_content["nodes"][room_id]:
+                                    room_name.append(str(room_id))
+                                else:
+                                    room_name.append(json_content["nodes"][room_id]["label"])
                             
                             room_x = np.array(room_x)
                             room_y = np.array(room_y)
@@ -677,7 +690,7 @@ def run():
                                             , gclass.pen
                                             , 1
                                             , gclass.value[6]
-                                            , []
+                                            , room_name
                                             , origin)
                                 break
 
@@ -701,7 +714,7 @@ def run():
                                     , gclass.pen
                                     , 1
                                     , gclass.value[6]
-                                    , []
+                                    , room_name
                                     , origin)
 
                     end = time.time()
