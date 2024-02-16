@@ -1,7 +1,6 @@
 """Main file of the project
 
 """
-# from graphoperations.operations import get_encoded_matrix
 from dataclasses import is_dataclass
 import warnings
 import time
@@ -63,8 +62,6 @@ def run():
     warnings.filterwarnings("ignore")
     gclass = gui.gui_class() 
 
-    dim_circ = False
-
     while (gclass.command!="end"):
         if(gclass.command=="dissection"):
             make_dissection_corridor(gclass)
@@ -77,9 +74,7 @@ def run():
             node_coord = graph.coordinates
 
             origin = 0
-            # print("GUI Return", gclass.__dir__())
             if(gclass.command == "circulation"): # For spanning circulation
-                print("I am here",gclass.value[11],gclass.value[9])
                 is_dimensioned = False
                 remove_corridor = False
                 public_private = False
@@ -90,22 +85,16 @@ def run():
                     end = time.time()
                     print_gui("Time taken: " + str((end-start)*1000) + " ms")
                     print("type of roomx " + str(type(graph.room_x)))
-                    
-                    
-                    # new_graph_data = call_circulation(graph_data, gclass.value[2], gclass.entry_door, gclass.corridor_thickness)
                     (new_graph, success) = call_circulation(graph, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor,public_private)
                     # If there was some error in algorithm execution new_graph_data will be empty
                     # we display the pop-up error message
                     if new_graph == None:
                         tk.messagebox.showerror("Error", "ERROR!! THE INITIAL CHOSEN ENTRY EDGE MUST BE EXTERIOR EDGE")
-                    
                     # If no issues we continue to draw the corridor
                     else :
-                        # draw_circulation(new_graph_data, gclass.ocan.canvas, gclass.value[6], gclass.entry_door)
-                        # draw_circulation(new_graph_data, gclass.pen, gclass.ocan.canvas, gclass.value[6])
                         graph.final_traversal = inputgraph.get_final_traversal(graph)
                         draw.draw_rdg(new_graph, 1, gclass.pen, 1, gclass.value[6], [],origin)
-                        
+                    
                 elif(gclass.value[8] == 1 and gclass.value[9] == 0 and gclass.value[11]==0): #Dimensioned single circulation
                     is_dimensioned = True
                     feasible_dim = 0
@@ -150,13 +139,9 @@ def run():
                     else :
                         if (success == False):
                             continue
-                        # draw_circulation(new_graph_data, gclass.ocan.canvas, gclass.value[6], gclass.entry_door)
-                        # draw_circulation(new_graph_data, gclass.pen, gclass.ocan.canvas, gclass.value[6])
-                        
                         draw.draw_rdg(new_graph, 1, gclass.pen, 1, gclass.value[6], [],origin)
                         feasible_dim = 1
                         break
-                    
                     if(feasible_dim == 0):
                         tk.messagebox.showerror("Error", "ERROR!! NO CIRCULATION POSSIBLE FOR GIVEN DIMENSIONS")
                 
