@@ -767,10 +767,10 @@ class InputGraph:
             min_ar.append(0)
             max_ar.append(10000)
         status_list = []
-        for i in range(len(self.rel_matrix_list)):
-            rel_matrix = self.rel_matrix_list[i]
+        for i in range(len(self.graph_list)):
+            rel_matrix = self.graph_list.rel_matrix_list
             encoded_matrix = opr.get_encoded_matrix(
-                rel_matrix.shape[0] - 4, self.room_x[i], self.room_y[i], self.room_width[i], self.room_height[i])
+                rel_matrix.shape[0] - 4, self.graph_list[i].room_x, self.graph_list[i].room_y, self.graph_list[i].room_width, self.graph_list[i].room_height)
             encoded_matrix_deepcopy = copy.deepcopy(encoded_matrix)
             [boolean, ver_list, hor_list] = bc.block_checker(
                 encoded_matrix_deepcopy, symm_rooms)
@@ -787,32 +787,25 @@ class InputGraph:
                 self.floorplan_exist = True
             width = np.transpose(width)
             height = np.transpose(height)
-            self.room_width[i] = width.flatten()
-            self.room_height[i] = height.flatten()
-            self.room_x[i], self.room_y[i] = dual.get_coordinates(encoded_matrix, rel_matrix.shape[0], 
-                                                                  self.room_width[i], self.room_height[i], hor_dgph)
-            for j in range(0, len(self.room_x[i])):
-                self.room_x[i][j] = round(self.room_x[i][j], 3)
-            for j in range(0, len(self.room_y[i])):
-                self.room_y[i][j] = round(self.room_y[i][j], 3)
-            self.area.append(opr.calculate_area(
-                self.room_x[i].shape[0], self.room_width[i], self.room_height[i], self.extranodes[i],
-                self.mergednodes[i], self.irreg_nodes1[i]))
+            self.graph_list[i].room_width = width.flatten()
+            self.graph_list[i].room_height = height.flatten()
+            self.graph_list[i].room_x, self.graph_list[i].room_y = dual.get_coordinates(encoded_matrix, rel_matrix.shape[0], 
+                                                                  self.graph_list[i].room_width, self.graph_list[i].room_height, hor_dgph)
+            for j in range(0, len(self.graph_list[i].room_x)):
+                self.graph_list[i].room_x[j] = round(self.graph_list[i].room_x[j], 3)
+            for j in range(0, len(self.graph_list[i].room_y)):
+                self.graph_list[i].room_y[j] = round(self.graph_list[i].room_y[j], 3)
+            self.graph_list[i].area=(opr.calculate_area(
+                self.graph_list[i].room_x.shape[0], self.graph_list[i].room_width, self.graph_list[i].room_height, self.graph_list[i].extranodes,
+                self.graph_list[i].mergednodes, self.graph_list[i].irreg_nodes1))
 
-        room_x = []
-        room_y = []
-        room_width = []
-        room_height = []
         for i in range(len(status_list)):
             if status_list[i] == True:
-                room_x.append(self.room_x[i])
-                room_y.append(self.room_y[i])
-                room_width.append(self.room_width[i])
-                room_height.append(self.room_height[i])
-        self.room_x = room_x
-        self.room_y = room_y
-        self.room_width = room_width
-        self.room_height = room_height
+                self.graph_list[i].room_x=(self.graph_list[i].room_x[i])
+                self.graph_list[i].room_y=(self.graph_list[i].room_y[i])
+                self.graph_list[i].room_width=(self.graph_list[i].room_width[i])
+                self.graph_list[i].room_height=(self.graph_list[i].room_height[i])
+
 
     def oneconnected_dual(self, string):
         """Generates oneconnected rectangular duals for a given input graph.
