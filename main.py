@@ -188,7 +188,7 @@ def run():
                     graph.irreg_single_dual()
                     end = time.time()
                     printe("Time taken: " + str((end - start) * 1000) + " ms")
-                    gclass.output_data.append(graph) //TODO: check
+                    gclass.output_data.append(graph) #TODO: check
                     draw.draw_rdg(graph
                                   , 1
                                   , gclass.pen
@@ -623,19 +623,8 @@ def run():
                     gclass.multiple_output_found = 1
 
                     for idx in range(graph.fpcnt):
-                        graph_data = {
-                            'room_x': graph.room_x[idx],
-                            'room_y': graph.room_y[idx],
-                            'room_width': graph.room_width[idx],
-                            'room_height': graph.room_height[idx],
-                            'area': graph.area,
-                            'extranodes': graph.extranodes[idx],
-                            'mergednodes': graph.mergednodes[idx],
-                            'irreg_nodes': graph.irreg_nodes1[idx],
-                            'final_traversal': graph.final_traversal,
-                            'circular_traversal': graph.circular_traversal
-                        }
-                        gclass.output_data.append(graph_data)
+                        graph_new = graph.graph_list[idx]
+                        gclass.output_data.append(graph_new)
                         # draw.draw_rdg(graph_data
                         #     ,idx+1
                         #     ,gclass.pen
