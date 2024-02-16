@@ -16,7 +16,7 @@ from .lettershape.ushape.ushape import *
 from .lettershape.zshape.zshape import *
 from .lettershape.tshape.tshape import *
 from .staircaseshape.staircaseshape import *
-from .lettershape.lshape.Lshaped import *
+
 from .graphoperations import biconnectivity as bcn
 from .graphoperations import oneconnectivity as onc
 from .graphoperations import operations as opr
@@ -1050,6 +1050,7 @@ def generate_multiple_bdy(matrix, nodecnt, edgecnt, bcn_edges, trng_edges, merge
             news.all_boundaries(corner_pts, outer_boundary), outer_boundary)
     return matrix, cip_list, nodecnt, edgecnt, mergednodes, irreg_nodes1, irreg_nodes2
 
+from .lettershape.lshape.Lshaped import *
 def lettershape(graph, node_data, letter):
     if(letter == "L Shape"):
         LShapedFloorplan(graph, node_data)

@@ -340,9 +340,13 @@ def run():
                     end = time.time()
                     print_gui("Average Time taken: " + str(((end - start) * 1000) / graph.fpcnt) + " ms")
                     print_gui("Number of floorplans: " + str(graph.fpcnt))
+
                     for idx in range(graph.fpcnt):
-                        gclass.output_data.append(graph)
-                        draw.draw_rdg(graph
+                        graph_new = graph.graph_list[idx]
+                        gclass.multiple_output_found = 1
+                        graph_new.final_traversal = inputgraph.get_final_traversal(graph_new)
+                        gclass.output_data.append(graph_new)
+                        draw.draw_rdg(graph_new
                             ,idx+1
                             ,gclass.pen
                             ,1
@@ -353,6 +357,7 @@ def run():
                         gclass.ocan.add_tab()
                         gclass.pen = gclass.ocan.getpen()
                         gclass.pen.speed(0)
+                        
                                     
             elif (gclass.command == "staircase_shaped"):
                 start = time.time()
@@ -594,10 +599,10 @@ def run():
                     end = time.time()
                     print_gui("Average Time taken: " + str(((end - start) * 1000) / graph.fpcnt) + " ms")
                     print_gui("Number of floorplans: " + str(graph.fpcnt))
-                    gclass.multiple_output_found = 1
 
                     for idx in range(graph.fpcnt):
                         graph_new = graph.graph_list[idx]
+                        gclass.multiple_output_found = 1
                         gclass.output_data.append(graph_new)
                         # draw.draw_rdg(graph_data
                         #     ,idx+1
@@ -636,19 +641,8 @@ def run():
                     print_gui("Number of floorplans: " + str(len(graph.room_x)))
                     gclass.multiple_output_found = 1
                     for idx in range(len(graph.room_x)):
-                        graph_data = {
-                            'room_x': graph.room_x[idx],
-                            'room_y': graph.room_y[idx],
-                            'room_width': graph.room_width[idx],
-                            'room_height': graph.room_height[idx],
-                            'area': graph.area[idx],
-                            'extranodes': graph.extranodes[idx],
-                            'mergednodes': graph.mergednodes[idx],
-                            'irreg_nodes': graph.irreg_nodes1[idx],
-                            'final_traversal': graph.final_traversal,
-                            'circular_traversal': graph.circular_traversal
-                        }
-                        gclass.output_data.append(graph_data)
+                        graph_new = graph.graph_list[idx]
+                        gclass.output_data.append(graph_new)
                         gclass.dimensional_constraints = dimensional_constraints
                         gclass.ptpg = graph
                         print_all_rfp = False
@@ -727,7 +721,7 @@ def run():
                 #                 , origin)
 
             gclass.time_taken = (end-start)*1000
-            gclass.num_rfp = len(graph.room_x)
+            gclass.num_rfp = len(graph.graph_list)
             gclass.pdf_colors = gclass.value[6][0]
             gclass.output_found = 1
 
