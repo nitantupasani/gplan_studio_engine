@@ -38,7 +38,7 @@ def graph_to_rfp(input_data, normalize_const=40, limit=100000):
     for idx in range(min(graph.fpcnt, limit)):
         output_fp = []
         graph.final_traversal = []
-        graph.final_traversal = inputgraph.get_circular_traversal(graph)
+        graph.final_traversal = inputgraph.get_final_traversal(graph)
         for node in input_data['nodes']:
             output_fp.append({
                 "id": node["id"],

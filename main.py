@@ -48,7 +48,7 @@ def run():
         None
     """
 
-    def printe(string):
+    def print_gui(string):
         """Prints string on GUI console.
 
         Args:
@@ -62,8 +62,6 @@ def run():
 
     warnings.filterwarnings("ignore")
     gclass = gui.gui_class() 
-    for i in range(0,11):
-        print(gclass.value[i])
 
     dim_circ = False
 
@@ -81,19 +79,21 @@ def run():
             origin = 0
             # print("GUI Return", gclass.__dir__())
             if(gclass.command == "circulation"): # For spanning circulation
+                print("I am here",gclass.value[11],gclass.value[9])
                 is_dimensioned = False
                 remove_corridor = False
+                public_private = False
                 dim_constraints = []
-                if (gclass.value[8] == 0 and gclass.value[9] == 0): #Non-dimensioned single circulation
+                if (gclass.value[8] == 0 and gclass.value[9] == 0 and gclass.value[11]==0): #Non-dimensioned single circulation
                     start = time.time()
                     graph.irreg_single_dual()
                     end = time.time()
-                    printe("Time taken: " + str((end-start)*1000) + " ms")
+                    print_gui("Time taken: " + str((end-start)*1000) + " ms")
                     print("type of roomx " + str(type(graph.room_x)))
                     
                     
                     # new_graph_data = call_circulation(graph_data, gclass.value[2], gclass.entry_door, gclass.corridor_thickness)
-                    (new_graph, success) = call_circulation(graph, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor)
+                    (new_graph, success) = call_circulation(graph, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor,public_private)
                     # If there was some error in algorithm execution new_graph_data will be empty
                     # we display the pop-up error message
                     if new_graph == None:
@@ -103,12 +103,10 @@ def run():
                     else :
                         # draw_circulation(new_graph_data, gclass.ocan.canvas, gclass.value[6], gclass.entry_door)
                         # draw_circulation(new_graph_data, gclass.pen, gclass.ocan.canvas, gclass.value[6])
-                        graph.final_traversal = inputgraph.get_circular_traversal(graph)
+                        graph.final_traversal = inputgraph.get_final_traversal(graph)
                         draw.draw_rdg(new_graph, 1, gclass.pen, 1, gclass.value[6], [],origin)
                         
-
-
-                elif(gclass.value[8] == 1 and gclass.value[9] == 0): #Dimensioned single circulation
+                elif(gclass.value[8] == 1 and gclass.value[9] == 0 and gclass.value[11]==0): #Dimensioned single circulation
                     is_dimensioned = True
                     feasible_dim = 0
                     old_dims = [[0] * gclass.value[0]
@@ -136,11 +134,11 @@ def run():
                         graph.irreg_multiple_dual()
                         graph.single_floorplan(min_width,min_height,max_width,max_height,symm_string, min_aspect, max_aspect, plot_width, plot_height)
                     end = time.time()
-                    printe("Time taken: " + str((end-start)*1000) + " ms")
+                    print_gui("Time taken: " + str((end-start)*1000) + " ms")
                     
                         # new_graph_data = call_circulation(graph_data, gclass.value[2], gclass.entry_door, gclass.corridor_thickness)
                     dim_constraints = [min_width, max_width, min_height, max_height, min_aspect, max_aspect]
-                    (new_graph, success) = call_circulation(graph, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor)
+                    (new_graph, success) = call_circulation(graph, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor, public_private)
                     print("Constraints: ", dim_constraints)
                     print("New graph data: ", new_graph)
                     print("success: ", success)                        
@@ -154,6 +152,7 @@ def run():
                             continue
                         # draw_circulation(new_graph_data, gclass.ocan.canvas, gclass.value[6], gclass.entry_door)
                         # draw_circulation(new_graph_data, gclass.pen, gclass.ocan.canvas, gclass.value[6])
+                        
                         draw.draw_rdg(new_graph, 1, gclass.pen, 1, gclass.value[6], [],origin)
                         feasible_dim = 1
                         break
@@ -161,15 +160,15 @@ def run():
                     if(feasible_dim == 0):
                         tk.messagebox.showerror("Error", "ERROR!! NO CIRCULATION POSSIBLE FOR GIVEN DIMENSIONS")
                 
-                elif(gclass.value[8] == 0 and gclass.value[9] == 1): # Add/remove
+                elif(gclass.value[8] == 0 and gclass.value[9] == 1 and gclass.value[11]==0): # Add/remove
                     remove_corridor = True
                     start = time.time()
                     graph.irreg_single_dual()
                     end = time.time()
-                    printe("Time taken: " + str((end-start)*1000) + " ms")
+                    print_gui("Time taken: " + str((end-start)*1000) + " ms")
                     print("type of roomx " + str(type(graph.room_x)))
                     
-                    (new_graph, success) = call_circulation(graph, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor)
+                    (new_graph, success) = call_circulation(graph, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor, public_private)
                     
                     # If there was some error in algorithm execution new_graph_data will be empty
                     # we display the pop-up error message
@@ -181,6 +180,27 @@ def run():
                         # draw_circulation(new_graph_data, gclass.ocan.canvas, gclass.value[6], gclass.entry_door)
                         # draw_circulation(new_graph_data, gclass.pen, gclass.ocan.canvas, gclass.value[6])
                         draw.draw_rdg(new_graph, 1, gclass.pen, 1, gclass.value[6], [],origin)
+
+                elif(gclass.value[8] == 0 and gclass.value[11] == 1):
+                    public_private = True
+                    start = time.time()
+                    graph.irreg_single_dual()
+                    end = time.time()
+                    print_gui("Time taken: " + str((end-start)*1000) + " ms")
+
+                    (new_graph, success) = call_circulation(graph, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor,public_private)
+
+                    # If there was some error in algorithm execution new_graph_data will be empty
+                    # we display the pop-up error message
+                    if new_graph == None:
+                        tk.messagebox.showerror("Error", "ERROR!! THE INITIAL CHOSEN ENTRY EDGE MUST BE EXTERIOR EDGE")
+                    
+                    # If no issues we continue to draw the corridor
+                    else :
+                        # draw_circulation(new_graph_data, gclass.ocan.canvas, gclass.value[6], gclass.entry_door)
+                        # draw_circulation(new_graph_data, gclass.pen, gclass.ocan.canvas, gclass.value[6])
+                        new_graph.final_traversal=inputgraph.get_final_traversal(new_graph)
+                        draw.draw_rdg(new_graph, 1, gclass.pen, 1, gclass.value[6],[],origin-300)
 
             elif (gclass.command == "single"):  # Single Irregular Dual/Floorplan
                 if (gclass.value[4] == 0):  # Non-Dimensioned single dual
@@ -218,7 +238,8 @@ def run():
                         graph.irreg_multiple_dual()
                         graph.single_floorplan(min_width,min_height,max_width,max_height,symm_string, min_aspect, max_aspect, plot_width, plot_height)
                     end = time.time()
-                    printe("Time taken: " + str((end-start)*1000) + " ms")
+                    print_gui("Time taken: " + str((end-start)*1000) + " ms")
+                    graph.final_traversal = inputgraph.get_final_traversal(graph)
                     draw.draw_rdg(graph
                             ,1
                             ,gclass.pen
@@ -240,6 +261,7 @@ def run():
                         Ushaped.UShapedFloorplan(graph)
                     end = time.time()
                     print("REL MATRIX \n", graph.matrix)
+                    graph.final_traversal=inputgraph.get_final_traversal(graph)
                     draw.draw_rdg(graph
                                 , 1
                                 , gclass.pen
@@ -301,7 +323,8 @@ def run():
                     # Add code here in case multiple RELs get generated.
                     
                     end = time.time()
-                    printe("Time taken: " + str((end - start) * 1000) + " ms") 
+                    print_gui("Time taken: " + str((end - start) * 1000) + " ms") 
+                    graph.final_traversal=inputgraph.get_final_traversal(graph)
                     draw.draw_rdg(graph
                                 , 1
                                 , gclass.pen
@@ -315,27 +338,11 @@ def run():
                     start = time.time()
                     Lshaped.multipleLshapedFloorplans(graph, gclass.app.nodes_data)
                     end = time.time()
-                    printe("Average Time taken: " + str(((end - start) * 1000) / graph.fpcnt) + " ms")
-                    printe("Number of floorplans: " + str(graph.fpcnt))
+                    print_gui("Average Time taken: " + str(((end - start) * 1000) / graph.fpcnt) + " ms")
+                    print_gui("Number of floorplans: " + str(graph.fpcnt))
                     for idx in range(graph.fpcnt):
-                        graph.final_traversal = []
-                        graph.circular_traversal = []
-                        graph_data = {
-                            'room_x': graph.room_x[idx],
-                            'room_y': graph.room_y[idx],
-                            'room_width': graph.room_width[idx],
-                            'room_height': graph.room_height[idx],
-                            'area': graph.area,
-                            'extranodes': graph.extranodes[idx],
-                            'mergednodes': graph.mergednodes[idx],
-                            'irreg_nodes': graph.irreg_nodes1[idx],
-                            'final_traversal': graph.final_traversal,
-                            'circular_traversal': graph.circular_traversal
-                        }
-                        gclass.multiple_output_found = 1
-
-                        gclass.output_data.append(graph_data)
-                        draw.draw_rdg(graph_data
+                        gclass.output_data.append(graph)
+                        draw.draw_rdg(graph
                             ,idx+1
                             ,gclass.pen
                             ,1
@@ -351,19 +358,8 @@ def run():
                 start = time.time()
                 inputgraph.staircaseshaped(graph)
                 end = time.time()
-                graph_data = {
-                    'room_x': graph.room_x,
-                    'room_y': graph.room_y,
-                    'room_width': graph.room_width,
-                    'room_height': graph.room_height,
-                    'area': graph.area,
-                    'extranodes': graph.extranodes,
-                    'mergednodes': graph.mergednodes,
-                    'irreg_nodes': graph.irreg_nodes1,
-                    'final_traversal': graph.final_traversal,
-                    'circular_traversal': graph.circular_traversal
-                }
-                draw.draw_rdg(graph_data
+                graph.final_traversal=inputgraph.get_final_traversal(graph)
+                draw.draw_rdg(graph
                               , 1
                               , gclass.pen
                               , 1
@@ -376,8 +372,8 @@ def run():
                     start = time.time()
                     graph.irreg_multiple_dual()
                     end = time.time()
-                    printe("Average Time taken: " + str(((end - start) * 1000) / graph.fpcnt) + " ms")
-                    printe("Number of floorplans: " + str(graph.fpcnt))
+                    print_gui("Average Time taken: " + str(((end - start) * 1000) / graph.fpcnt) + " ms")
+                    print_gui("Number of floorplans: " + str(graph.fpcnt))
                     for idx in range(graph.fpcnt):
                         graph.final_traversal = []
                         graph.circular_traversal = []
@@ -420,8 +416,8 @@ def run():
                     graph.irreg_multiple_dual()
                     graph.multiple_floorplan(min_width,min_height,max_width,max_height,symm_string, min_aspect, max_aspect, plot_width, plot_height)
                     end = time.time()
-                    printe("Time taken: " + str((end-start)*1000) + " ms")
-                    printe("Number of floorplans: " +  str(len(graph.room_x)))
+                    print_gui("Time taken: " + str((end-start)*1000) + " ms")
+                    print_gui("Number of floorplans: " +  str(len(graph.room_x)))
                     for idx in range(len(graph.room_x)):
                         graph_data = {
                             'room_x': graph.room_x[idx],
@@ -464,21 +460,10 @@ def run():
                     except inputgraph.BCNError:
                         graph.irreg_single_dual()
                     end = time.time()
-                    printe("Time taken: " + str((end - start) * 1000) + " ms")
-                    graph_data = {
-                        'room_x': graph.room_x,
-                        'room_y': graph.room_y,
-                        'room_width': graph.room_width,
-                        'room_height': graph.room_height,
-                        'area': graph.area,
-                        'extranodes': graph.extranodes,
-                        'mergednodes': graph.mergednodes,
-                        'irreg_nodes': graph.irreg_nodes1,
-                        'final_traversal': graph.final_traversal,
-                        'circular_traversal': graph.circular_traversal
-                    }
-
-                    draw.draw_rdg(graph_data
+                    print_gui("Time taken: " + str((end - start) * 1000) + " ms")
+                    
+                    graph.final_traversal=inputgraph.get_final_traversal(graph)
+                    draw.draw_rdg(graph
                                   , 1
                                   , gclass.pen
                                   , 1
@@ -513,7 +498,7 @@ def run():
                         graph.single_floorplan(min_width, min_height, max_width, max_height, symm_string, min_aspect,
                                                max_aspect, plot_width, plot_height)
                     end = time.time()
-                    printe("Time taken: " + str((end - start) * 1000) + " ms")
+                    print_gui("Time taken: " + str((end - start) * 1000) + " ms")
                     graph_data = {
                         'room_x': graph.room_x,
                         'room_y': graph.room_y,
@@ -566,7 +551,7 @@ def run():
                         json_content = json.load(file)
                     
                     end = time.time()
-                    printe("Time taken: " + str((end - start) * 1000) + " ms")
+                    print_gui("Time taken: " + str((end - start) * 1000) + " ms")
                     room_x = [] 
                     room_y = [] 
                     room_width = [] 
@@ -584,19 +569,8 @@ def run():
                     room_width = np.array(room_width)
                     room_height = np.array(room_height)
                     
-                    graph_data = {
-                        'room_x': room_x,
-                        'room_y': room_y,
-                        'room_width': room_width,
-                        'room_height': room_height,
-                        'area': room_area,
-                        'extranodes': graph.extranodes,
-                        'mergednodes': graph.mergednodes,
-                        'irreg_nodes': graph.irreg_nodes1,
-                        'final_traversal': graph.final_traversal,
-                        'circular_traversal': graph.circular_traversal
-                    }
-                    draw.draw_rdg(graph_data
+                    graph.final_traversal=inputgraph.get_final_traversal(graph)
+                    draw.draw_rdg(graph
                                   , 1
                                   , gclass.pen
                                   , 1
@@ -618,8 +592,8 @@ def run():
                     except inputgraph.BCNError:
                         graph.irreg_multiple_dual()
                     end = time.time()
-                    printe("Average Time taken: " + str(((end - start) * 1000) / graph.fpcnt) + " ms")
-                    printe("Number of floorplans: " + str(graph.fpcnt))
+                    print_gui("Average Time taken: " + str(((end - start) * 1000) / graph.fpcnt) + " ms")
+                    print_gui("Number of floorplans: " + str(graph.fpcnt))
                     gclass.multiple_output_found = 1
 
                     for idx in range(graph.fpcnt):
@@ -658,8 +632,8 @@ def run():
                     graph.multiple_floorplan(min_width, min_height, max_width, max_height, symm_string, min_aspect,
                                             max_aspect, plot_width, plot_height)
                     end = time.time()
-                    printe("Time taken: " + str((end - start) * 1000) + " ms")
-                    printe("Number of floorplans: " + str(len(graph.room_x)))
+                    print_gui("Time taken: " + str((end - start) * 1000) + " ms")
+                    print_gui("Number of floorplans: " + str(len(graph.room_x)))
                     gclass.multiple_output_found = 1
                     for idx in range(len(graph.room_x)):
                         graph_data = {
@@ -697,7 +671,7 @@ def run():
                                     gclass.debugcano)
                 end = time.time()
 
-                # printe("Time taken: " + str((end-start)*1000) + " ms")
+                # print_gui("Time taken: " + str((end-start)*1000) + " ms")
                 # graph_data = {
                 #         'room_x': graph.room_x,
                 #         'room_y': graph.room_y,
@@ -718,30 +692,34 @@ def run():
                 
             elif (gclass.command == "door_connectivity"):  # Door Connectivity Floorplan
                 start = time.time()
+                graph2 = inputgraph.InputGraph(gclass.value[0]
+                                          , gclass.value[1]
+                                          , gclass.value[2]
+                                          , gclass.value[7])
                 graph.door_connectivity()
                 end = time.time()
-                printe("Time taken: " + str((end - start) * 1000) + " ms")
-                graph_data = {
-                    'room_x': graph.room_x,
-                    'room_y': graph.room_y,
-                    'room_width': graph.room_width,
-                    'room_height': graph.room_height,
-                    'area': graph.area,
-                    'extranodes': graph.extranodes,
-                    'mergednodes': graph.mergednodes,
-                    'irreg_nodes': graph.irreg_nodes1,
-                    'final_traversal': graph.final_traversal,
-                    'circular_traversal': graph.circular_traversal
-                }
-                gclass.output_data.append(graph_data)
-                draw.draw_rdg(graph_data
+                print_gui("Time taken: " + str((end - start) * 1000) + " ms")
+                gclass.output_data.append(graph)
+                graph.final_traversal=inputgraph.get_final_traversal(graph)
+                draw.draw_rdg(graph
                                 , 1
                                 , gclass.pen
                                 , 1
                                 , gclass.value[6]
                                 ,[]
                                 , origin)
-                # draw.draw_new(graph_data
+                
+
+                graph2.door_connectivity2()
+                graph2.final_traversal=inputgraph.get_final_traversal(graph2)
+                draw.draw_rdg(graph2
+                                , 1
+                                , gclass.pen
+                                , 1
+                                , gclass.value[6]
+                                ,[]
+                                , origin- 300)
+                               # draw.draw_new(graph_data
                 #                 , 1
                 #                 , gclass.pen
                 #                 , 1
@@ -784,7 +762,7 @@ def make_dissection_corridor(gclass):
     gclass.dclass.add_cir()
 
 # def call_circulation(graph_data, edge_set, entry):
-def call_circulation(graph, gclass, coord, is_dimensioned, dim_constraints, remove_corridor):
+def call_circulation(graph, gclass, coord, is_dimensioned, dim_constraints, remove_corridor,public_private):
 
     g = nx.Graph()
     edge_set = gclass.value[2]
@@ -815,6 +793,46 @@ def call_circulation(graph, gclass, coord, is_dimensioned, dim_constraints, remo
     cir.plot(circulation_obj.circulation_graph, len(circulation_obj.circulation_graph))
     if circulation_result == 0:
         return None
+    if public_private == True:
+        circ = copy.deepcopy(circulation_obj)
+        circ.adjust_RFP_to_circulation()
+
+        # Printing how much shift was done for each room
+        for room in circ.RFP.rooms:
+            print("Room ",room.id, ":")
+            print("Push top edge by: ", room.rel_push_T)
+            print("Push bottom edge by: ", room.rel_push_B)
+            print("Push left edge by: ", room.rel_push_L)
+            print("Push right edge by: ", room.rel_push_R)
+            print(room.target)
+            print('\n')
+
+        room_x1 = []
+        room_y1 = []
+        room_height1 = []
+        room_width1 = []
+
+        # Getting the required values
+        for room in circ.RFP.rooms:
+            room_x1.append(room.top_left_x)
+            room_y1.append(room.bottom_right_y)
+            room_height1.append(abs(room.top_left_y - room.bottom_right_y))
+            room_width1.append(abs(room.top_left_x - room.bottom_right_x))
+
+        new_graph=copy.deepcopy(graph)
+        new_graph.room_x=room_x1
+        new_graph.room_y=room_y1
+        new_graph.room_height=room_height1
+        new_graph.room_width=room_width1
+        new_graph.final_traversal=inputgraph.get_final_traversal(new_graph)
+        draw.draw_rdg(new_graph, 1, gclass.pen, 1, gclass.value[6], [], origin)
+
+        # Now going back to flow of removing circulation
+        corridors = circulation_obj.adjacency
+        rem_edges = gclass.public_rooms(corridors)
+
+        for x in rem_edges:
+            circulation_obj.remove_corridor(circulation_obj.circulation_graph,x[0],x[1])
     
     if remove_corridor == True:
         # Created a deepcopy of object to display circulation before
@@ -979,3 +997,4 @@ def draw_circulation(graph_data, pen, canvas, color_list):
 
 if __name__ == "__main__":
     run()
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           

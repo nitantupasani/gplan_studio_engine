@@ -264,7 +264,7 @@ class InputGraph:
             self.room_width = np.array([1.0, 1.0])
             self.room_height = np.array([1.0, 1.0])
             return
-        one_connected=  copy.deepcopy(self.matrix)
+        one_connected=  copy.deepcopy(self.matrix)          
             # Biconnectivity Augmentation
         bcn_edges = []
         if (not bcn.is_biconnected(self.matrix)):
@@ -371,7 +371,136 @@ class InputGraph:
         [self.room_x, self.room_y, self.room_width, self.room_height] = rdg.construct_dual(self.matrix, self.nodecnt,
                                                                                            self.mergednodes,
                                                                                            self.irreg_nodes1)
+
+    def door_connectivity2(self):
+        """Generates an single dual for a door connectivity input graph.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+
+
+
+        if (self.nodecnt == 2 and self.edgecnt == 1):
+            self.room_x = np.array([0.0, 1.0])
+            self.room_y = np.array([0.0, 0.0])
+            self.room_width = np.array([1.0, 1.0])
+            self.room_height = np.array([1.0, 1.0])
+            return
+        one_connected=  copy.deepcopy(self.matrix)
         
+            # Biconnectivity Augmentation
+        bcn_edges = []
+        if (not bcn.is_biconnected(self.matrix)):
+            bcn_edges = bcn.biconnect(self.matrix)
+        for edge in bcn_edges:
+            self.matrix[edge[0]][edge[1]] = 1
+            self.matrix[edge[1]][edge[0]] = 1
+            self.edgecnt += 1  # Extra edge added
+        bcn_edges_added = len(bcn_edges) > 0
+
+        # Triangularity
+        trng_edges, positions, tri_faces = trng.triangulate(self.matrix
+                                                            , bcn_edges_added
+                                                            , self.coordinates)
+
+        for edge in trng_edges:
+            self.matrix[edge[0]][edge[1]] = 1
+            self.matrix[edge[1]][edge[0]] = 1
+            self.edgecnt += 1  # Extra edge added
+
+
+        if (len(bcn_edges) != 0 or len(trng_edges) != 0):
+            self.nonrect = True
+
+        # Edge to vertex transformation
+        # for edge in bcn_edges:
+        #     # self.extranodes.append(self.nodecnt)
+        #     self.matrix, tri_faces, positions, extra_edges_cnt = transform.transform_edges(
+        #         self.matrix, edge, tri_faces, positions)
+        #     self.nodecnt += 1  # Extra node added
+        #     self.edgecnt += extra_edges_cnt
+
+        # for edge in trng_edges:
+        #     self.extranodes.append(self.nodecnt)
+        #     self.matrix, tri_faces, positions, extra_edges_cnt = transform.transform_edges(
+        #         self.matrix, edge, tri_faces, positions)
+        #     self.nodecnt += 1  # Extra node added
+        #     self.edgecnt += extra_edges_cnt
+
+        # Separating Triangle Elimination
+        if (self.nodecnt - self.edgecnt + len(opr.get_trngls(self.matrix)) != 1):
+            
+            # ptpg_matrices, extra_nodes = st.handle_STs_with_edge_selection(one_connected, self.matrix, positions, 1)
+            
+            ptpg_matrices, extra_nodes = st.handle_STs(
+                self.matrix, positions, 1)
+            
+
+            self.matrix = ptpg_matrices[0]
+            self.nodecnt = self.matrix.shape[0]
+            self.edgecnt = int(np.count_nonzero(self.matrix == 1) / 2)
+            if(len(extra_nodes)):
+                for key in extra_nodes[0]:
+                    self.mergednodes.append(key)
+                    self.irreg_nodes1.append(extra_nodes[0][key][0])
+                    self.irreg_nodes2.append(extra_nodes[0][key][1])
+
+        # Boundary Identification
+        triangular_cycles = opr.get_trngls(self.matrix)
+        digraph = opr.get_directed(self.matrix)
+        self.bdy_nodes, self.bdy_edges = opr.get_bdy(
+            triangular_cycles, digraph)
+        shortcuts = sr.get_shortcut(
+            self.matrix, self.bdy_nodes, self.bdy_edges)
+        bdys = []
+        if (self.edgecnt == 3 and self.nodecnt == 3):
+            bdys = [[0], [0, 1], [1, 2], [2, 0]]
+        else:
+            bdy_ordered = opr.ordered_bdy(self.bdy_nodes, self.bdy_edges)
+            cips = cip.find_cip(bdy_ordered, shortcuts)
+            if (len(cips) <= 4):
+                bdys = news.bdy_path(news.find_bdy(cips), bdy_ordered)
+            else:
+                while (len(shortcuts) > 4):
+                    index = randint(0, len(shortcuts) - 1)
+                    self.matrix = sr.remove_shortcut(
+                        shortcuts[index], triangular_cycles, self.matrix)
+                    self.irreg_nodes1.append(shortcuts[index][0])
+                    self.irreg_nodes2.append(shortcuts[index][1])
+                    self.mergednodes.append(self.nodecnt)
+                    self.nodecnt += 1  # Extra vertex added to remove shortcut
+                    self.edgecnt += 3  # Extra edges added to remove shortcut
+                    shortcuts.pop(index)
+                    triangular_cycles = opr.get_trngls(self.matrix)
+                bdy_ordered = opr.ordered_bdy(self.bdy_nodes, self.bdy_edges)
+                cips = cip.find_cip(bdy_ordered, shortcuts)
+                bdys = news.bdy_path(news.find_bdy(cips), bdy_ordered)
+
+        # 4-completion
+        self.matrix, self.edgecnt = news.add_news(
+            bdys, self.matrix, self.nodecnt, self.edgecnt)
+        self.nodecnt += 4
+
+        # Contraction
+        self.degrees = cntr.degrees(self.matrix)
+        goodnodes = cntr.goodnodes(self.matrix, self.degrees)
+        self.matrix, self.degrees, goodnodes, cntrs = cntr.contract(
+            self.matrix, goodnodes, self.degrees)
+
+        # Expansion
+        self.matrix = exp.basecase(self.matrix, self.nodecnt)
+        while len(cntrs) != 0:
+            self.matrix = exp.expand(self.matrix, self.nodecnt, cntrs)
+        [self.room_x, self.room_y, self.room_width, self.room_height] = rdg.construct_dual(self.matrix, self.nodecnt,
+                                                                                           self.mergednodes,
+                                                                                           self.irreg_nodes1)
+ 
+
+
     def single_floorplan(self, min_width, min_height, max_width, max_height, symm_rooms, min_ar, max_ar, plot_width,
                          plot_height):
         """Generates a single floorplan for a given input graph.
@@ -454,6 +583,7 @@ class InputGraph:
         Returns:
             None
         """
+        graph_list=[]
         # Biconnectivity Augmentation
         if (self.nodecnt == 2 and self.edgecnt == 1):
             self.fpcnt = 1
@@ -982,7 +1112,7 @@ def merge_traversal(list1, list2, index):
 
     return newList
 
-def get_circular_traversal(graph):
+def get_final_traversal(graph):
 
     
     # print("irreg_nodes: " ,graph.irreg_nodes1, "merged_nodes: ", graph.mergednodes)
@@ -1005,8 +1135,7 @@ def get_circular_traversal(graph):
             edge = (node1[k], node1[(k+1)%len(node1)])
             x = -1
             x = check_overlap(node2, edge)
-            print("node2 rect: ", node2, "\n edge: ", edge, "\n node1: ", node1)
-            print("overlapping node index: ", x)
+
 
             if(x!=-1):
                 node2 = node2[x:] + node2[:x]
@@ -1014,7 +1143,7 @@ def get_circular_traversal(graph):
                 traversal = merge_traversal(node1, node2, k)
                 # print("k: ", k)
                 traversal = remove_dups(traversal)
-                print("first overlap " ,traversal)
+                # print("first overlap " ,traversal)
                 y = -1
                 y = check_overlap( [node1[k], node1[(k+1)%len(node1)]], [node2[0], node2[1]])
                 if(y!=-1):
@@ -1022,7 +1151,7 @@ def get_circular_traversal(graph):
                     traversal = merge_traversal(node1, node2, k)
                     # print("partial_ k: ", k)
                     traversal = remove_dups(traversal)
-                    print("partially overlapped : " ,traversal)
+                    # print("partially overlapped : " ,traversal)
                 node1 = traversal
                 graph.circular_traversal[i] = traversal
                 break
