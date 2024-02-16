@@ -195,7 +195,7 @@ def get_separating_edge_cover(edge_cover, separating_triangles, separating_edges
     # get_separating_edge_cover(edge_cover, separating_triangles, separating_edges, separating_edge_to_triangles)
 
 def get_multiple_separating_edge_covers(expected_count, separating_triangles, separating_edges, separating_edge_to_triangles):
-    """Returns multiple eparating edge cover of the input graph.
+    """Returns multiple separating edge cover of the input graph.
 
     Args:
         expected_count: An integer indicating the expected number of solutions.

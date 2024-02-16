@@ -119,6 +119,7 @@ class InputGraph:
         self.coordinates = [np.array(x) for x in node_coordinates]
         self.circular_traversal = []
         self.final_traversal=[]
+        self.graph_list =[]
 
         # Check if input has crossings
         x_coord = [x[0] for x in node_coordinates]
@@ -587,14 +588,14 @@ class InputGraph:
         if (self.nodecnt == 2 and self.edgecnt == 1):
             self.fpcnt = 1
             self.room_x = np.array([0.0, 1.0])
-            self.room_y = np.array([[0.0, 0.0]])
-            self.room_width = np.array([[1.0, 1.0]])
-            self.room_height = np.array([[1.0, 1.0]])
-            self.area = [[1.0, 1.0]]
-            self.mergednodes = [[]]
-            self.irreg_nodes1 = [[]]
-            self.irreg_nodes2 = [[]]
-            self.extranodes = [[]]
+            self.room_y = np.array([0.0, 0.0])
+            self.room_width = np.array([1.0, 1.0])
+            self.room_height = np.array([1.0, 1.0])
+            self.area =[1.0, 1.0]
+            self.mergednodes = []
+            self.irreg_nodes1 = []
+            self.irreg_nodes2 = []
+            self.extranodes = []
             self.rel_matrix_list = [np.array(
                 [[0, 3, 2, 0, 0, 0], [0, 0, 2, 3, 0, 0], [0, 0, 0, 1, 0, 1], [0, 0, 1, 0, 1, 0], [2, 2, 0, 1, 0, 1],
                  [3, 0, 1, 0, 1, 0]])]
@@ -637,6 +638,13 @@ class InputGraph:
             ptpg_matrices, extra_nodes = st.handle_STs(self.matrix, positions, 20)
 
             for cnt in range(len(ptpg_matrices)):
+                # nodecnt = ptpg_matrices[cnt].shape[0]
+                # edgecnt = int(np.count_nonzero(ptpg_matrices[cnt] == 1) / 2)
+                # g = nx.from_numpy_matrix(ptpg_matrices[cnt], create_using=nx.DiGraph)
+                # edgeset = g.edges()
+                
+                # new_graph = InputGraph(nodecnt, edgecnt, edgeset) 
+
                 self.matrix = ptpg_matrices[cnt]
                 self.nodecnt = self.matrix.shape[0]
                 self.edgecnt = int(np.count_nonzero(self.matrix == 1) / 2)
@@ -654,14 +662,24 @@ class InputGraph:
                     matrix = copy.deepcopy(self.matrix)
                     rel_matrices = generate_multiple_rel(
                         bdys, matrix, self.nodecnt, self.edgecnt)
+                    
+
+                    g = nx.from_numpy_array(self.matrix, create_using=nx.DiGraph)
+                    edgeset = g.edges()
+                    
+                    new_graph = InputGraph(self.nodecnt, self.edgecnt, edgeset, self.coordinates)
+
                     for i in rel_matrices:
                         self.fpcnt += 1
+                        new_graph.rel_matrix_list = i
                         self.rel_matrix_list.append(i)
-                        self.mergednodes.append(mergednodes)
-                        self.irreg_nodes1.append(irreg_nodes1)
-                        self.irreg_nodes2.append(irreg_nodes2)
-                        self.extranodes.append(extranodes)
-                        self.nodecnt_list.append(self.nodecnt)
+                        new_graph.mergednodes= mergednodes
+                        new_graph.irreg_nodes1= irreg_nodes1
+                        new_graph.irreg_nodes2= irreg_nodes2
+                        new_graph.extranodes= extranodes
+                        new_graph.nodecnt_list= self.nodecnt
+                        self.graph_list.append(new_graph)
+
         else:
             mergednodes = []
             irreg_nodes1 = []
@@ -685,30 +703,36 @@ class InputGraph:
                 matrix = copy.deepcopy(self.matrix)
                 rel_matrices = generate_multiple_rel(
                     bdys, matrix, self.nodecnt, self.edgecnt)
+                
+                g = nx.from_numpy_array(self.matrix, create_using=nx.DiGraph)
+                edgeset = g.edges()
+                
+                new_graph = InputGraph(self.nodecnt, self.edgecnt, edgeset, self.coordinates)
+                
                 for i in rel_matrices:
                     self.fpcnt += 1
+                    new_graph.rel_matrix_list = i
                     self.rel_matrix_list.append(i)
-                    self.mergednodes.append([])
-                    self.irreg_nodes1.append([])
-                    self.irreg_nodes2.append([])
-                    self.extranodes.append(extranodes)
-                    self.nodecnt_list.append(self.nodecnt)
+                    new_graph.mergednodes = []
+                    new_graph.irreg_nodes1 = []
+                    new_graph.irreg_nodes2 = []
+                    new_graph.extranodes = extranodes
+                    new_graph.nodecnt_list = self.nodecnt
+                    self.graph_list.append(new_graph)
 
-        self.room_x = []
-        self.room_y = []
-        self.room_width = []
-        self.room_height = []
-        self.area = []
+
+        # self.room_x = []
+        # self.room_y = []
+        # self.room_width = []
+        # self.room_height = []
+        # self.area = []
+                    
         for cnt in range(self.fpcnt):
-            [room_x, room_y, room_width, room_height] = rdg.construct_dual(self.rel_matrix_list[cnt],
-                                                                           self.nodecnt_list[cnt] + 4,
-                                                                           self.mergednodes[cnt],
-                                                                           self.irreg_nodes1[cnt])
-            self.room_x.append(room_x)
-            self.room_y.append(room_y)
-            self.room_width.append(room_width)
-            self.room_height.append(room_height)
-        
+            [self.graph_list[cnt].room_x, self.graph_list[cnt].room_y, self.graph_list[cnt].room_width, self.graph_list[cnt].room_height] = rdg.construct_dual(self.graph_list[cnt].rel_matrix_list,
+                                                                           self.graph_list[cnt].nodecnt_list + 4,
+                                                                           self.graph_list[cnt].mergednodes,
+                                                                           self.graph_list[cnt].irreg_nodes1)
+            
 
     def multiple_floorplan(self, min_width, min_height, max_width, max_height, symm_rooms, min_ar, max_ar, plot_width,
                            plot_height):
