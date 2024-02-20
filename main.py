@@ -185,13 +185,14 @@ def run():
                         new_graph.final_traversal=inputgraph.get_final_traversal(new_graph)
                         draw.draw_rdg(new_graph, 1, gclass.pen, 1, gclass.value[6],[],origin-300)
 
+                
             elif (gclass.command == "single"):  # Single Irregular Dual/Floorplan
                 if (gclass.value[4] == 0):  # Non-Dimensioned single dual
                     start = time.time()
                     graph.irreg_single_dual()
                     end = time.time()
                     print_gui("Time taken: " + str((end - start) * 1000) + " ms")
-                    gclass.output_data.append(graph) #TODO: check
+                    gclass.output_data.append(graph) 
                     graph.final_traversal=inputgraph.get_final_traversal(graph)
                     draw.draw_rdg(graph
                                   , 1
@@ -231,6 +232,8 @@ def run():
                             ,gclass.value[6]
                             ,[]
                             ,origin)
+                    
+                
                             
             elif gclass.command == "letter_shape":
                 if(gclass.value[4] == 0): #Non-Dimensioned Letter Shape
@@ -317,6 +320,8 @@ def run():
                                 , []
                                 , origin)
                     
+                
+                    
             elif(gclass.command == "multiple_l"):#Multiple L-shaped Floorplan
                 if(gclass.value[4] == 0):#Non-Dimensioned multiple dual
                     start = time.time()
@@ -330,18 +335,19 @@ def run():
                         gclass.multiple_output_found = 1
                         graph_new.final_traversal = inputgraph.get_final_traversal(graph_new)
                         gclass.output_data.append(graph_new)
-                        draw.draw_rdg(graph_new
-                            ,idx+1
-                            ,gclass.pen
-                            ,1
-                            ,gclass.value[6]
-                            ,[]
-                            ,origin)
-                        # origin += 1000
-                        gclass.ocan.add_tab()
-                        gclass.pen = gclass.ocan.getpen()
-                        gclass.pen.speed(0)
+                        # draw.draw_rdg(graph_new
+                        #     ,idx+1
+                        #     ,gclass.pen
+                        #     ,1
+                        #     ,gclass.value[6]
+                        #     ,[]
+                        #     ,origin)
+                        # # origin += 1000
+                        # gclass.ocan.add_tab()
+                        # gclass.pen = gclass.ocan.getpen()
+                        # gclass.pen.speed(0)
                         
+                
                                     
             elif (gclass.command == "staircase_shaped"):
                 start = time.time()
@@ -355,6 +361,7 @@ def run():
                               , gclass.value[6]
                               , []
                               , origin)
+                
 
             elif(gclass.command == "multiple"):#Multiple Irregular Dual/Floorplan
                 if(gclass.value[4] == 0):#Non-Dimensioned multiple dual
@@ -507,6 +514,10 @@ def run():
                     
                     delete_file(input_path)
                     delete_file(output_path)
+
+                    gclass.output_data = []
+                    gclass.multiple_output_found = 0
+                    
                             
             elif (gclass.command == "multiple_oc"):
                 if (gclass.value[4] == 0):  # Non-Dimensioned multiple dual
@@ -570,6 +581,7 @@ def run():
                                 ,gclass.value[6]
                                 ,[]
                                 ,origin)
+                
             
             elif (gclass.command == "poly"):  # Polygonal Floorplan
                 start = time.time()
@@ -583,6 +595,8 @@ def run():
                         ,gclass.value[6]
                         ,[]
                         ,origin,gclass.outer_boundary, gclass.shape)
+                
+                
                 
             elif (gclass.command == "door_connectivity"):  # Door Connectivity Floorplan
                 start = time.time()
@@ -613,18 +627,23 @@ def run():
                                 , gclass.value[6]
                                 ,[]
                                 , origin- 300)
+                
 
             gclass.time_taken = (end-start)*1000
             gclass.num_rfp = len(graph.graph_list)
             gclass.pdf_colors = gclass.value[6][0]
             gclass.output_found = 1
-
+        
+        
         gclass.root.wait_variable(gclass.end)
         gclass.graph_ret()
         gclass.ocan.add_tab()
         gclass.pen = gclass.ocan.getpen()
         gclass.pen.speed(0)
+        # gclass.multiple_output_found = 0
+        # gclass.output_data = []
 
+        
         # gclass.ocan.tscreen.resetscreen()
 
 
