@@ -391,6 +391,7 @@ def generate_catalogue(edges, num_rfp, time_taken, output_data, dimensional_cons
                 j += 1
     # pdf.output('latest_catalogue.pdf','F')
     save(pdf)
+    
 
 def generate_catalogue_dimensioned(num_rfp, output_data, dimensional_constraints, is_rb = False, edges=None, time_taken=None, fpcnt = None, room_name = None):
     print("[LOG] Downloading Dimensioned Catalogue")

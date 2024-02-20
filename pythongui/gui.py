@@ -1935,7 +1935,7 @@ class gui_class:
             self.canvasForOuterBoundary.create_line([(0, i), (w, i)], tag='grid_line')
 
     def cano_out_bdry(self):
-        self.shapes.set("Custom");
+        self.shapes.set("Custom")
         self.top = tk.Toplevel(self.root, width=300, height=300)
         root = self.top
         root.title('Boundary of Outer Structure')
