@@ -63,6 +63,7 @@ def run():
     gclass = gui.gui_class() 
 
     while (gclass.command!="end"):
+        gclass.output_data=[]
         if(gclass.command=="dissection"):
             make_dissection_corridor(gclass)
         else:
@@ -449,13 +450,13 @@ def run():
                 elif(gclass.value[10] == 1):
                     old_dims = [[3] * gclass.value[0]
                         , [3] * gclass.value[0]]
-                    min_width, min_height = mindimgui.gui_fnc(old_dims, gclass.value[0])
+                    min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(old_dims, gclass.value[0])
                     start = time.time()
                     try:
-                        graph.oneconnected_dual("single")
+                        graph.oneconnected_dual("multiple")
                     except inputgraph.OCError:
                         gclass.show_warning("Can not generate rectangular floorplan.")
-                        graph.irreg_single_dual()
+                        graph.irreg_multiple_dual()
                     except inputgraph.BCNError:
                         graph.irreg_single_dual()
                     

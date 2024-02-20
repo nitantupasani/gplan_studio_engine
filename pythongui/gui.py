@@ -19,6 +19,8 @@ import matplotlib.pyplot as plt
 import networkx as nx
 from PIL import Image, ImageTk
 import sys
+
+from networkx import edges
 sys.path.append("..")
 from GPLAN.pythongui import tablenoscroll as tablenoscroll
 from GPLAN.pythongui import final as final
@@ -26,7 +28,7 @@ import numpy as np
 import datetime
 from fpdf import FPDF
 
-from .catalogue_maker import generate_catalogue, generate_catalogue_dimensioned
+from .catalogue_maker import generate_catalogue, generate_catalogue_dimensioned, generate_mindim_catalogue
 from source.polygonal import canonical as cano
 
 
@@ -399,16 +401,25 @@ class gui_class:
                     return
                 self.connection.append(value)
 
+            # changes
             if len(self.connection) > 1:
                 node1 = self.connection[0]
                 node2 = self.connection[1]
+            
 
                 if node2 not in self.nodes_data[node1].adj_list:
                     self.nodes_data[node1].adj_list.append(node2)
                 if node1 not in self.nodes_data[node2].adj_list:
                     self.nodes_data[node2].adj_list.append(node1)
                     self.edge_count += 1
-                self.edges.append(self.connection)
+
+                #changes
+                self.connection.append("black")
+                #print("after appending black color",self.connection , self.edges)
+                self.edges.append(self.connection.copy())
+                self.connection.pop()
+                #print("AFTER adding copy of connection to edges", self.connection,self.edges)
+
                 self.connect_circles(self.connection)
 
         def connect_circles(self, connections):
@@ -421,6 +432,7 @@ class gui_class:
             edge = self.canvas.create_line(node1_x, node1_y, node2_x, node2_y, width=3)
             self.elines.append([edge, connections])
 
+        #changes
         def toggle_edge_connectivity(self, evalue):
             for node1_id, node2_id in evalue:
                 for eid, connection in self.elines:
@@ -428,15 +440,31 @@ class gui_class:
                             connection[0] == node2_id and connection[1] == node1_id):
                         if self.canvas.itemcget(eid, "fill") == 'black':
                             self.canvas.itemconfig(eid, fill='red')
+                            #print("to check whether we ad",connection)
+
+                            for edge in self.edges:
+                                if (edge[0] == node1_id and edge[1] == node2_id) or (edge[0] == node2_id and edge[1] == node1_id):
+                                    edge[2] = "red"
+
                             self.connectivity.append(connection)
                         else:
                             self.canvas.itemconfig(eid, fill='black')
+                            #print("changes",connection)
+                            #print(self.edges)
+
+
+                            for edge in self.edges:
+                                if (edge[0] == node1_id and edge[1] == node2_id) or (edge[0] == node2_id and edge[1] == node1_id):
+                                    edge[2] = "black"
                             try:
                                 self.connectivity.remove(connection)
                             except:
                                 pass
-                        return
 
+                        #print("changes",self.edges)
+
+                        return
+            
         def create_new_node(self, x, y, id_node):
             self.random_list.append(0)
             hex_number = self.colors[0]
@@ -1616,7 +1644,7 @@ class gui_class:
             self.textbox.insert('insert', "\t         Output\n")
 
     def graph_ret(self):
-
+        # value is set here 
         self.value = self.app.return_everything()
         self.textbox = self.tbox.gettext()
 
@@ -1781,11 +1809,14 @@ class gui_class:
     def download_catalogue(self):
         if not self.multiple_output_found:
             tk.messagebox.showinfo("error", "Output not yet found")
-        else:
-            if self.value[4] == 0:
-                generate_catalogue(self.app.edges, self.num_rfp, self.time_taken, self.output_data,
+        if self.value[4] == 0:
+            generate_catalogue(self.app.edges, self.num_rfp, self.time_taken, self.output_data,
                                    self.dimensional_constraints)
-            else:
+        else:
+            edge_list=self.app.edges.copy()
+            edge_list=[[x for x in elem[:-1]] for elem in edge_list]
+            # If Dimensioned floorplans have been generated
+            if self.value[4] == 1:
                 generate_catalogue_dimensioned(self.num_rfp, self.output_data, self.dimensional_constraints, 
                                                edges = self.app.edges, time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt)
                 
@@ -2097,7 +2128,7 @@ class gui_class:
         l_val.grid(row  = 3, column = 0)
         r_val = tk.Entry(root, textvariable = self.r)
         r_val.grid(row = 3, column = 2)
-        opti_btn = tk.Radiobutton(root, text="Remove redundant corridors", padx=20, variable=self.opti, value=1, command=lambda: self.radio_sel("redundant"))
+        opti_btn = tk.Radiobutton(root, text="Get minimal circulation", padx=20, variable=self.opti, value=1, command=lambda: self.radio_sel("redundant"))
         opti_btn.grid(row = 7, column = 0)
         clear_button = tk.Button(root, text="Clear Selection", command=lambda: self.radio_desel("redundant"))
         clear_button.grid(row = 7, column = 2, pady=10)

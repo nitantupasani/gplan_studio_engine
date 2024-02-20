@@ -22,6 +22,8 @@ rooms = 0  # the total number of rooms
 num_sx, num_tx, num_sy, num_ty = 0, 0, 0, 0
 sx_adj = []
 sy_adj = []
+tx_adj=[]
+ty_adj=[]
 
 adjacent_pairs = 0
 adj = defaultdict(list)  # contains the adjacency of all the rooms
@@ -31,7 +33,7 @@ edgesX = []
 edgesY = []
 edges_setx = []
 edges_sety = []
-small_positive = 2
+
 NEG_INF = -1e8
 POS_INF = 1e8
 
@@ -39,9 +41,16 @@ lb_len = []
 ub_len = []
 lb_width = []
 ub_width = []
+plot_width = 0
+plot_height = 0
 
 placementx = []
 placementy = []
+
+rotx1=[]
+rotx2=[]
+roty1=[]
+roty2=[]
 """
 LEFT WALL - 1
 TOP WALL - 2
@@ -92,7 +101,7 @@ def input_adjacency():
 
 # helper function to extract the the useful information from the json objects read
 def  tblr_rooms(): 
-    global num_sx, num_sy, sx_adj, sy_adj, edges_setx, edges_sety
+    global num_sx, num_sy, sx_adj, sy_adj, edges_setx, edges_sety,num_tx,tx_adj,num_ty,ty_adj
 
     # print("Please enter the number of rooms that are to be connected to sx:")
     num_sx = len(data['boundary_rooms']['west'])
@@ -114,6 +123,22 @@ def  tblr_rooms():
         edges_sety.append((0, 2 * a))
         edgesY[0][2 * a] = 0
 
+    num_tx = len(data['boundary_rooms']['east'])
+
+    for i in range(num_tx):
+        a = data['boundary_rooms']['east'][i]
+        tx_adj.append(a)
+        edges_setx.append((2 * a, 2*len(data['nodes'])+1))
+        edgesX[2 * a][2*len(data['nodes'])+1] = 0    
+
+    num_ty = len(data['boundary_rooms']['north'])    
+
+    for i in range(num_ty):
+        a = data['boundary_rooms']['north'][i]
+        ty_adj.append(a)
+        edges_sety.append((2 * a - 1, 2*len(data['nodes'])+1))
+        edgesY[2 * a - 1][2*len(data['nodes'])+1] = 0
+
 
 # populates the structures with the user constraints to be further used in the longest path caculations
 def input_constraints():
@@ -132,12 +157,12 @@ def input_constraints():
         # print("Lower Length:")
         low_len = float(data['nodes'][i-1]['min_height'])
         # print("Upper Length:")
-        up_len = 2*float(data['nodes'][i-1]['min_height'])
+        up_len = float(2*data['nodes'][i-1]['min_height'])
 
         # print("Lower Width:")
         low_width = float(data['nodes'][i-1]['min_width'])
         # print("Upper Width:")
-        up_width = 2*float(data['nodes'][i-1]['min_width'])
+        up_width = float(2*data['nodes'][i-1]['min_width'])
 
         lb_len.append(low_len)
         ub_len.append(up_len)
@@ -164,8 +189,13 @@ def input_data():
 
 
 #  adding necessary edges pertaining to the adjacency and constraints to the constraint graphs
-def construct_constraintgraphX():
+def construct_constraintgraphX(small_positive = 0.5):
     global edgesX, edgesY, edges_setx, edges_sety
+
+    # Add limiter of plot width if provided
+    if plot_width > 0:
+        edgesX[2 * rooms + 1][0] = -1 * plot_width
+        edges_setx.append((2 * rooms + 1, 0)) 
 
     # Add edges for widths of each single room - the user constraints
     for i in range(1, rooms + 1):
@@ -184,6 +214,12 @@ def construct_constraintgraphX():
         bottom_wall_i = 2 * i
 
         for x in adj[i]:
+            for j in range(len(data['edges'])):
+                if (data['edges'][j]['source'] == x and data['edges'][j]['target'] == i) or (data['edges'][j]['source'] == i and data['edges'][j]['target'] == x) :
+                    if(data ['edges'][j]['color'] == 'red') :
+                        small_positive = 3
+
+
             left_wall_x = 2 * x - 1
             right_wall_x = 2 * x
             top_wall_x = 2 * x - 1
@@ -228,8 +264,13 @@ def construct_constraintgraphX():
 
 
 # same as above in Y direction
-def construct_constraintgraphY():
+def construct_constraintgraphY(small_positive = 0.5):
     global edgesX, edgesY, edges_setx, edges_sety
+
+    # Add limiter of plot height if provided
+    if plot_height > 0:
+        edgesY[2 * rooms + 1][0] = -1 * plot_height
+        edges_sety.append((2 * rooms + 1, 0)) 
 
     # Add edges for the same room
     for i in range(1, rooms + 1):
@@ -247,6 +288,11 @@ def construct_constraintgraphY():
         bottom_wall_i = 2 * i
         
         for x in adj[i]:
+            for j in range(len(data['edges'])):
+                if (data['edges'][j]['source'] == x and data['edges'][j]['target'] == i) or (data['edges'][j]['source'] == i and data['edges'][j]['target'] == x) :
+                    if(data ['edges'][j]['color'] == 'red') :
+                        small_positive = 3
+
             left_wall_x = 2 * x - 1
             right_wall_x = 2 * x
             top_wall_x = 2 * x - 1
@@ -308,6 +354,7 @@ def pos_longest_path(placement, edge_set, edge_weights):
             if edge_weights[a][b] >= 0:
                 if placement[b] - placement[a] < edge_weights[a][b]:
                     placement[b] = placement[a] + edge_weights[a][b]
+                    stack.append(b)
 
             for j in range(1, 2 * rooms + 1):
                 all_vis = True
@@ -344,6 +391,13 @@ def longest_path(placement, edge_set, edge_weights):
     done = False
     total_neg = sum(1 for a, b in edge_set if edge_weights[a][b] < 0)
 
+    # Collects the rooms that are initially adjacent to s
+    adj_s = []
+    for i in range(len(edge_set)):
+        a, b = edge_set[i]
+        if a == 0:
+            adj_s.append(b)
+
     while not done and ctr <= total_neg:
         if not pos_longest_path(placement, edge_set, edge_weights):
             return False
@@ -351,11 +405,48 @@ def longest_path(placement, edge_set, edge_weights):
         ctr += 1
         done = True
         
+        # Verifies that at least one room is adjacent to s else no legal placement
+        first_room = False
+        for x in adj_s:
+            if placement[x] == 0:
+                first_room = True
+        if not first_room:
+            done = False
+            break
+
+        # Verifies that the plot is not out of bounds
+        if (2 * rooms + 1, 0) in edge_set and placement[2 * rooms + 1] > abs(edge_weights[2 * rooms + 1][0]):
+            done = False
+            break
+
         for i in range(len(edge_set)):
             a, b = edge_set[i]
             if edge_weights[a][b] < 0:
                 if placement[b] - placement[a] < edge_weights[a][b]:
                     placement[b] = placement[a] + edge_weights[a][b]
+
+                    # Checks whether the placements of the walls adjacent to b are also satisfied.
+                    stack = [0]
+                    stack.append(b)
+                    while stack:
+                        v = stack.pop()
+                        for i in range(len(edge_set)):
+                            a, b = edge_set[i]
+                            if a != v:
+                                continue
+                            if edge_weights[a][b] >= 0 and placement[b] - placement[a] < edge_weights[a][b]:
+                                '''
+                                If b is vertex s, then the lower bound for distance between wall a and s is increased.
+                                If all walls initially adjacent to s have their placements changed, then no legal placement exists.
+                                '''
+                                if b == 0:
+                                    edge_weights[a][b] = -1 * placement[a]
+                                    continue
+
+                                # Update placements and check if adjacent walls are also satisfied.
+                                placement[b] = placement[a] + edge_weights[a][b]
+                                stack.append(b)
+
                     done = False
 
     if not done:
@@ -383,14 +474,20 @@ def compute_placement():
         placementx.append(-1)
         placementy.append(-1)
 
+    placementx.append(-1) #tx
+    placementy.append(-1) #ty    
+
     if not longest_path(placementx, edges_setx, edgesX):
         print("Not able to assign placement in horizontal constraint graph")
+        return False
     
     if not longest_path(placementy, edges_sety, edgesY):
         print("Not able to assign placement in vertical constraint graph")
+        return False
+    
+    return True
         
-        
-# debuggin functions
+# debugging functions
 def print_edges():
     print("printing horizontal_edges")
     for i in range(len(edges_setx)):
@@ -400,6 +497,108 @@ def print_edges():
     for i in range(len(edges_sety)):
         print(edges_sety[i][0], edges_sety[i][1], edgesY[edges_sety[i][0]][edges_sety[i][1]])
  
+#for computing range of tolerance of each node
+def compute_rot(small_positive = 0.5):
+    for i in range(2*rooms):
+        rotx1.append(0)#rotx1 represents lower bound of each wall
+        rotx2.append(placementx[2*rooms+1])
+        roty1.append(0)#represents lower bound of each wall
+        roty2.append(placementy[2*rooms+1])
+
+    for i in range(1,rooms+1):
+        rotx2[2*i-2]=min(rotx2[2*i-2],placementx[2*i]-data['nodes'][i-1]['min_width'])
+        rotx1[2*i-1]=max(rotx1[2*i-1],placementx[2*i-1]+data['nodes'][i-1]['min_width'])
+        roty1[2*i-2]=max(roty1[2*i-2],placementy[2*i]+data['nodes'][i-1]['min_height'])
+        roty2[2*i-1]=min(roty2[2*i-1],placementy[2*i-1]-data['nodes'][i-1]['min_height'])
+
+    for i in range(1,rooms+1):
+        for x in adj[i]:
+            type_val = adj_type[(i, x)]
+            if type_val==1:#1st wall of ith room will be 
+                b=data['nodes'][x-1]['min_width']+placementx[2*x-1]
+                rotx1[2*i-2]=max(rotx1[2*i-2],b)
+
+            elif type_val==2:
+                a=placementx[2*x]-data['nodes'][x-1]['min_width']
+                rotx2[2*i-1]=min(rotx2[2*i-1],a)
+
+            elif type_val==3:
+                a=placementy[2*x-1]-data['nodes'][x-1]['min_height']
+                roty2[2*i-2]=min(roty2[2*i-2],a)
+
+            elif type_val==4:
+                a=placementy[2*x]+data['nodes'][x-1]['min_height']
+                roty1[2*i-1]=max(roty1[2*i-1],a)   
+
+    for i in range(1,rooms+1):#to handle the small positive 
+
+        for x in adj[i]:
+             for j in range(len(data['edges'])):
+                if (data['edges'][j]['source'] == x and data['edges'][j]['target'] == i) or (data['edges'][j]['source'] == i and data['edges'][j]['target'] == x) :
+                    if(data ['edges'][j]['color'] == 'red') :
+                        small_positive = 3
+             #print("Change to be noted",small_positive)
+             type_val = adj_type[(i, x)]
+             if type_val==1 or type_val==2:
+                 a=placementy[2*x]+small_positive
+                 b=placementy[2*x-1]-small_positive
+                 if roty1[2*i-2]<a:
+                    roty1[2*i-2]=a
+                 if roty2[2*i-1]>b:
+                    roty2[2*i-1]=b 
+             if type_val==3 or type_val==4:
+                 a=placementx[2*x-1]+small_positive
+                 b=placementx[2*x]-small_positive
+                 if rotx1[2*i-1]<a:
+                    rotx1[2*i-1]=a
+                 if rotx2[2*i-2]>b:
+                    rotx2[2*i-2]=b 
+
+    for i in range(1,rooms+1):#to make sure that same walls have same range of tolerance
+        for x in adj[i]:
+            type_val=adj_type[(i,x)]
+            if type_val==1:
+                a=max(rotx1[2*i-2],rotx1[2*x-1])
+                b=min(rotx2[2*i-2],rotx2[2*x-1])
+                rotx1[2*i-2]=a
+                rotx1[2*x-1]=a
+                rotx2[2*i-2]=b
+                rotx2[2*x-1]=b     
+            elif type_val==2:
+                a=max(rotx1[2*i-1],rotx1[2*x-2])
+                b=min(rotx2[2*i-1],rotx2[2*x-2])
+                rotx1[2*i-1]=a
+                rotx1[2*x-2]=a
+                rotx2[2*i-1]=b
+                rotx2[2*x-2]=b                           
+            elif type_val==3:
+                a=max(roty1[2*i-2],roty1[2*x-1])
+                b=min(roty2[2*i-2],roty2[2*x-1])
+                roty1[2*i-2]=a
+                roty1[2*x-1]=a
+                roty2[2*i-2]=b
+                roty2[2*x-1]=b 
+            elif type_val==4:
+                a=max(roty1[2*i-1],roty1[2*x-2])
+                b=min(roty2[2*i-1],roty2[2*x-2])
+                roty1[2*i-1]=a
+                roty1[2*x-2]=a
+                roty2[2*i-1]=b
+                roty2[2*x-2]=b      
+
+                
+
+
+                
+
+# function for printing range of tolerance
+def print_rot():
+    print("Range of tolerance in x direction")
+    for i in range (2*rooms):
+        print(i+1,rotx1[i],rotx2[i])
+    print("Range of tolerance in y direction")  
+    for i in range (2*rooms):
+        print(i+1,roty1[i],roty2[i])
 
 # debugging function
 def print_input():
@@ -430,11 +629,13 @@ def create_json():
  
 
 def reinitialize():
-    global rooms,num_sx,num_tx,num_sy,num_ty,sx_adj,sy_adj,adjacent_pairs,adj,adj_type,edgesX,edgesY,edges_setx,edges_sety,lb_len,ub_len,lb_width,ub_width,placementx,placementy
+    global rooms,num_sx,num_tx,num_sy,num_ty,sx_adj,sy_adj,adjacent_pairs,adj,adj_type,edgesX,edgesY,edges_setx,edges_sety,lb_len,ub_len,lb_width,ub_width,placementx,placementy,tx_adj,ty_adj,plot_width,plot_height,rotx1,rotx2,roty1,roty2
     rooms = 0
     num_sx, num_tx, num_sy, num_ty = 0, 0, 0, 0
     sx_adj = []
     sy_adj = []
+    tx_adj=[]
+    ty_adj=[]
 
     adjacent_pairs = 0
     adj = defaultdict(list)  # contains the adjacency of all the rooms
@@ -449,12 +650,23 @@ def reinitialize():
     ub_len = []
     lb_width = []
     ub_width = []
+    plot_width = 0
+    plot_height = 0
 
     placementx = []
     placementy = []
 
+    rotx1=[]
+    rotx2=[]
+    roty1=[]
+    roty2=[]
+
+
+
+
+
 # main wrapper
-def main(file_path):
+def main(file_path, plot_width, plot_height):
     global data
     reinitialize()
     f = open(file_path)
@@ -470,16 +682,22 @@ def main(file_path):
         data['boundary_rooms']['east'][i]= data['boundary_rooms']['east'][i]+1
     for i in range(len(data['boundary_rooms']['west'])):
         data['boundary_rooms']['west'][i]= data['boundary_rooms']['west'][i]+1
+    globals()['plot_width'] = plot_width
+    globals()['plot_height'] = plot_height
         
     input_data()  # Take all the necessary inputs
     print_input()
     construct_constraintgraphX()  # Using the inputs, construct X constraint graph
     construct_constraintgraphY()  # Construct Y constraint graph
     print_edges()  # Print edges for X and Y constraints
-    compute_placement()  # Compute placements using longest path algorithm
+    if not compute_placement():  # Compute placements using longest path algorithm and return false if no legal placement found
+        print_placements()
+        return False
     print_placements()  # Print computed placements
     create_json()
-
+    compute_rot()
+    print_rot()
+    return True
 
 # Main execution
 # main(file_path)
