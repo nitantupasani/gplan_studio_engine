@@ -447,7 +447,7 @@ def handle_STs_with_edge_selection(one_connected, adjacency, positions, num_expe
 
     #printing the graph 
     pos=nx.spring_layout(graph) # positions for all nodes
-    nx.draw_planar(graph, label=None,node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+    nx.draw_networkx(graph,pos, label=None,node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
     
     
 
@@ -501,7 +501,7 @@ def handle_STs_with_edge_selection(one_connected, adjacency, positions, num_expe
                         print("edge-removed1:",tuple([edge[0], edge[1]])," from triangle:",triangle )
                         for i in  st_with_internal_node.keys():
                             for trngl in st_with_internal_node[i]:
-                                if(tuple([edge[0], edge[1]]) in get_edges(trngl)):
+                                if(tuple([edge[0], edge[1]]) in get_edges(trngl+(i,))):
                                     st_with_internal_node[i].remove(trngl)
                                     if(list(trngl) in all_triangles):
                                             all_triangles.remove(list(trngl))
@@ -534,7 +534,7 @@ def handle_STs_with_edge_selection(one_connected, adjacency, positions, num_expe
 
                             for i in  st_with_internal_node.keys():
                                 for trngl in st_with_internal_node[i]:
-                                    if(tuple([edge[0], edge[1]]) in get_edges(trngl)):
+                                    if((tuple([edge[0], edge[1]]) in get_edges(trngl+(i,))) or (tuple([edge[1], edge[0]]) in get_edges(trngl+(i,))) ):
                                         st_with_internal_node[i].remove(trngl)
                                         if(list(trngl) in all_triangles):
                                             all_triangles.remove(list(trngl))
