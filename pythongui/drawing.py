@@ -105,6 +105,9 @@ def draw_rdg2(graph_data,count,pen,mode,color_list,room_names,origin):
         data.append([(graph_data['room_x'][i],graph_data['room_y'][i] + graph_data['room_height'][i]),
                         (graph_data['room_x'][i],graph_data['room_y'][i])])
         coordinates[i] = data
+        print(data)
+        #find_limits(self.adj_mat,self.rooms)     #temporary, to be erased, as it will run everytime
+                                                 #button for finding limits needs to be made
     
     for i in range(len(graph_data['mergednodes'])):
         node_1 = graph_data['mergednodes'][i]
@@ -220,7 +223,7 @@ def draw_rdg2(graph_data,count,pen,mode,color_list,room_names,origin):
             pen.penup()
             value+=1
 
-def draw_poly(graph_data,count,pen,mode,color_list,room_names,origin,outer_boundary,shape):
+def draw_poly(graph_data,count,pen,mode,color_list,room_names,origin,outer_boundary,shape,adj_mat):
     innerBoundary = []
     if(outer_boundary!=[]): #To take active front as input first in the drawing
         temp = outer_boundary[0]
@@ -238,6 +241,6 @@ def draw_poly(graph_data,count,pen,mode,color_list,room_names,origin,outer_bound
         corner1.append(outer_boundary[0][1])    
         innerBoundary.append(corner1)
     
-    db = poly.dissected(graph_data,pen,color_list,shape,innerBoundary)
+    db = poly.dissected(graph_data,pen,color_list,shape,adj_mat,innerBoundary)
     # obj = DrawOuterBoundary(graph_data,pen,color_list)
     

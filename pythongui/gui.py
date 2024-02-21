@@ -100,6 +100,17 @@ class gui_class:
         self.root =tk.Tk()
         # For entry to start circulation
         self.entry_door = []
+        self.f = tk.IntVar(None)
+        self.f.set(0) 
+        self.left_entry = tk.DoubleVar(None)
+        self.left_entry.set(0.0)
+        self.right_entry = tk.DoubleVar(None)
+        self.right_entry.set(0.0)
+        self.top_entry = tk.DoubleVar(None)
+        self.top_entry.set(0.0)
+        self.bottom_entry = tk.DoubleVar(None)
+        self.bottom_entry.set(0.0)
+        self.room_limits = 0
         self.l = tk.IntVar(None)
         self.l.set(0)
         self.r = tk.IntVar(None)
@@ -115,7 +126,21 @@ class gui_class:
 
         # Remove redundant rooms
         self.opti = tk.IntVar(None)
+        self.side = 0
         self.rem = 0
+        self.left_dropdown = tk.StringVar(None)
+        self.right_dropdown= tk.StringVar(None)
+        self.top_dropdown= tk.StringVar(None)
+        self.bottom_dropdown= tk.StringVar(None)
+        self.left_dropdown_value  = ""
+        self.right_dropdown_value = ""
+        self.top_dropdown_value = ""
+        self.bottom_dropdown_value = ""
+        
+        self.left_shift_value = 0
+        self.right_shift_value = 0
+        self.top_shift_value = 0
+        self.bottom_shift_value = 0
 
         # To get user input for corridor thickness
         self.ct = tk.DoubleVar(None)
@@ -1434,6 +1459,10 @@ class gui_class:
                            command=master.circ_menu)
             b6.grid(row=6, column=0, padx=5, pady=5)
 
+            b12 = tk.Button(master.frame1, width=10, text='Modify Room', relief='flat', **button_details,
+                           command=master.change_limits)                 #variable name to be checked when integrating
+            b12.grid(row=6, column=1, padx=5, pady=5)   
+
             # c1 = tk.Checkbutton(master.frame1, text = "Dimensioned Circulation",relief='flat',**button_details,selectcolor='#4A4E69',width=13 ,variable = master.checkvar2,onvalue = 1, offvalue = 0)
             # c1.grid(row=7,column=0,padx=5,pady=5)
 
@@ -1492,7 +1521,7 @@ class gui_class:
             b13.grid(row=7, column=1, padx=5, pady=5)
 
             b5 = tk.Button(master.frame1,width=10, text='EXIT',relief='flat', **button_details,command=master.exit)
-            b5.grid(row=6,column=1,padx=5,pady=5)
+            b5.grid(row=7,column=0,padx=5,pady=5)
             
             b14 = tk.Checkbutton(master.frame1, text="Min Dim", relief='flat', **button_details,
                                 selectcolor='#4A4E69', width=7, variable=master.checkvar4, onvalue=1, offvalue=0)
@@ -2065,7 +2094,126 @@ class gui_class:
             self.opti.set(0)
             self.rem = self.opti.get()
             print("The whole spanning circulation will be displayed")
+    
+    def change_limits(self):
+        # self.top1 = tk.Toplevel(self.root, width=1000, height=1000)
+        # root = self.top1
+        # root.geometry("500x300")
+        # root.title('Finding Limits')
+        # main_text = tk.Label(root, text="Enter the room to be adjusted")
+        # main_text.grid(row= 1, column= 0, padx = 20, ipady = 10)
+        # room_input = tk.Entry(root, textvariable = self.f)
+        # room_input.grid(row  = 3, column = 0)
+        # main_text = tk.Label(root, text="Choose the wall to be moved")
+        # main_text.grid(row= 7, column= 0, padx = 20, ipady = 10)
+        # opti_btn1 = tk.Radiobutton(root, text="Left", padx=20, variable=self.opti, value=0, command=lambda: self.radio_sel())
+        # opti_btn1.grid(row = 8, column = 0)
+        # opti_btn2 = tk.Radiobutton(root, text="Right", padx=20, variable=self.opti, value=1, command=lambda: self.radio_sel())
+        # opti_btn2.grid(row = 9, column = 0)
+        # opti_btn3 = tk.Radiobutton(root, text="Top", padx=20, variable=self.opti, value=2, command=lambda: self.radio_sel())
+        # opti_btn3.grid(row = 10, column = 0)
+        # opti_btn4 = tk.Radiobutton(root, text="Bottom", padx=20, variable=self.opti, value=3, command=lambda: self.radio_sel())
+        # opti_btn4.grid(row = 11, column = 0)
+        # clear_button = tk.Button(root, text="Clear Selection", command=lambda: self.radio_desel())
+        # clear_button.grid(row = 12, column = 0, pady=10)
+        # ex = tk.Button(root,text = "Submit",command = self.change_limits_ender, justify=tk.CENTER)
+        # ex.grid(padx=100, pady=20)
+        self.top1 = tk.Toplevel(self.root, width=1000, height=1000)
+        root = self.top1
+        root.geometry("800x300")
+        root.title('Finding Limits')
+
+        main_text = tk.Label(root, text="Enter the room to be adjusted")
+        main_text.grid(row=1, column=0, padx=20, ipady=10)
+
+        room_input = tk.Entry(root, textvariable=self.f)
+        room_input.grid(row=3, column=0)
+
+        main_text = tk.Label(root, text="Choose the wall to be moved")
+        main_text.grid(row=7, column=0, padx=20, ipady=10)
+
+        options = ["Left", "Right"]  # Options for the dropdowns
+
+        # Left Radiobutton with Dropdown and Numeric Entry
+        opti_btn1 = tk.Radiobutton(root, text="Left", padx=20, variable=self.opti, value=0, command=lambda: self.radio_sel())
+        opti_btn1.grid(row=8, column=0)
+
+        left_dropdown = ttk.Combobox(root, values=options, textvariable=self.left_dropdown)
+        left_dropdown.grid(row=8, column=1)
+
+        left_numeric_entry = tk.Entry(root, textvariable=self.left_entry )
+        left_numeric_entry.grid(row=8, column=2)
+
+        # Right Radiobutton with Dropdown and Numeric Entry
+        opti_btn2 = tk.Radiobutton(root, text="Right", padx=20, variable=self.opti, value=1, command=lambda: self.radio_sel())
+        opti_btn2.grid(row=9, column=0)
+
+        right_dropdown = ttk.Combobox(root, values=options, textvariable=self.right_dropdown )
+        right_dropdown.grid(row=9, column=1)
+
+        right_numeric_entry = tk.Entry(root, textvariable = self.right_entry)
+        right_numeric_entry.grid(row=9, column=2)
+
+        # Top Radiobutton with Dropdown and Numeric Entry
+        opti_btn3 = tk.Radiobutton(root, text="Top", padx=20, variable=self.opti, value=2, command=lambda: self.radio_sel())
+        opti_btn3.grid(row=10, column=0)
+
+        top_dropdown = ttk.Combobox(root, values=["Up", "Down"], textvariable=self.top_dropdown)
+        top_dropdown.grid(row=10, column=1) 
+
+        top_numeric_entry = tk.Entry(root, textvariable = self.top_entry)
+        top_numeric_entry.grid(row=10, column=2)
+
+        # Bottom Radiobutton with Dropdown and Numeric Entry
+        opti_btn4 = tk.Radiobutton(root, text="Bottom", padx=20, variable=self.opti, value=3, command=lambda: self.radio_sel())
+        opti_btn4.grid(row=11, column=0)
+
+        bottom_dropdown = ttk.Combobox(root, values=["Up", "Down"], textvariable=self.bottom_dropdown)
+        bottom_dropdown.grid(row=11, column=1)
+
+        bottom_numeric_entry = tk.Entry(root, textvariable = self.bottom_entry)
+        bottom_numeric_entry.grid(row=11, column=2)
+
+        clear_button = tk.Button(root, text="Clear Selection", command=lambda: self.radio_desel())
+        clear_button.grid(row=12, column=0, pady=10)
+
+        ex = tk.Button(root, text="Submit", command=self.change_limits_ender, justify=tk.CENTER)
+        ex.grid(padx=100, pady=20)
+
+    def change_limits_ender(self):
+        # self.room_limits = self.f.get()
+        # self.side = self.opti.get()
+        # self.end.set(self.end.get()+1)
+        # self.top1.destroy()
         
+        # self.app.command="limits"
+        # self.command = "limits"
+        # self.end.set(self.end.get()+1)
+        self.room_limits = self.f.get()
+        self.side = self.opti.get()
+
+
+
+        self.left_shift_value = self.left_entry.get()
+        self.right_shift_value = self.right_entry.get()
+        self.top_shift_value = self.top_entry.get()
+        self.bottom_shift_value = self.bottom_entry.get()
+
+        self.left_dropdown_value = self.left_dropdown.get()
+        self.right_dropdown_value = self.right_dropdown.get()
+        self.top_dropdown_value = self.top_dropdown.get()
+        self.bottom_dropdown_value = self.bottom_dropdown.get()
+
+
+        # Assign the appropriate shift value based on the selected side
+
+        # Continue with the rest of your code...
+        self.end.set(self.end.get() + 1)
+        self.top1.destroy()
+        self.app.command = "limits"
+        self.command = "limits"
+        self.end.set(self.end.get() + 1)
+                
     def circ_menu(self):
         """Choose which type of circulation you want
         """
