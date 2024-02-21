@@ -673,6 +673,8 @@ def main(file_path, plot_width, plot_height):
     reinitialize()
     f = open(file_path)
     data = json.load(f)
+    # print(data)
+    # print(data['edges'][0])
     for a in data['edges']:
         a['source']=a['source']+1
         a['target']=a['target']+1
@@ -689,6 +691,7 @@ def main(file_path, plot_width, plot_height):
         
     input_data()  # Take all the necessary inputs
     print_input()
+
     construct_constraintgraphX()  # Using the inputs, construct X constraint graph
     construct_constraintgraphY()  # Construct Y constraint graph
     print_edges()  # Print edges for X and Y constraints

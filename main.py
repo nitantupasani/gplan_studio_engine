@@ -477,7 +477,7 @@ def run():
 
                     # Variables for storing the data of the floorplan with minimal area
                     min_area = -1
-                    min_graph_data = None
+                    min_graph = None
                     areas = []
                     
                     # Iterate through all possible floorplans to find one which satisfies the given conditions
@@ -485,13 +485,15 @@ def run():
                         print("Trying floorplan number", i + 1, "to see if minimum dimension floorplan can be constructed.")
                         floorplan_obj = input_for_min_dim.floorplan(gclass.value[3], gclass.value[4],
                                                             gclass.value[8], gclass.value[9], gclass.corridor_thickness)
-                        enc_mat = get_encoded_matrix(gclass.value[0], graph.room_x[i], graph.room_y[i], graph.room_width[i], graph.room_height[i])
+                        enc_mat = get_encoded_matrix(gclass.value[0], graph.graph_list[i].room_x, graph.graph_list[i].room_y, graph.graph_list[i].room_width, graph.graph_list[i].room_height)
                         floorplan_data = floorplan_obj.get_floorplan_details(
-                            gclass.value[5], gclass.value[6], gclass.value[7], min_width, min_height, graph.room_x[i], graph.room_y[i], graph.room_width[i], graph.room_height[i],
+                            gclass.value[5], gclass.value[6], gclass.value[7], min_width, min_height, graph.graph_list[i].room_x, graph.graph_list[i].room_y, graph.graph_list[i].room_width, graph.graph_list[i].room_height,
                             gclass.value[2], enc_mat
                         )
+
                         input_path = "input_to_min_dim.json"
                         json_data = json.dumps(floorplan_data, indent=2)
+                        
                         with open(input_path, 'w') as json_file:
                             json_file.write(json_data)
                         print(f"JSON data has been written to {input_path}")
@@ -527,22 +529,19 @@ def run():
                             room_width = np.array(room_width)
                             room_height = np.array(room_height)
                             
-                            graph_data = {
-                                'room_x': room_x,
-                                'room_y': room_y,
-                                'room_width': room_width,
-                                'room_height': room_height,
-                                'area': room_area,
-                                'extranodes': graph.extranodes,
-                                'mergednodes': graph.mergednodes,
-                                'irreg_nodes': graph.irreg_nodes1
-                            }
+                            graph.graph_list[i].room_x = room_x
+                            graph.graph_list[i].room_y = room_y
+                            graph.graph_list[i].room_width =  room_width,
+                            graph.graph_list[i].room_height = room_height,
+                            graph.graph_list[i].area = room_area
+                            
+                           
                             
                             '''
                             Adds the graph data to output_data for downloading the catalogue and 
                             multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
                             '''
-                            gclass.output_data.append(graph_data)
+                            gclass.output_data.append(graph.graph_list[i])
                             gclass.multiple_output_found = 1
                             
                             delete_file(input_path)
@@ -551,7 +550,7 @@ def run():
 
                             # If optimal area not required, display floorplan
                             if optimal_floorplan == 0:
-                                draw.draw_rdg(graph_data
+                                draw.draw_rdg(graph.graph_list[i]
                                             , 1
                                             , gclass.pen
                                             , 1
@@ -565,7 +564,7 @@ def run():
                             areas.append(area_sum)
                             if min_area < 0 or area_sum < min_area:
                                 min_area = area_sum
-                                min_graph_data = graph_data
+                                min_graph = graph.graph_list[i]
                             
                         else:
                             delete_file(input_path)
@@ -575,7 +574,7 @@ def run():
                     # Display floorplan with optimal area if required
                     elif optimal_floorplan == 1:
                         print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
-                        draw.draw_rdg(min_graph_data
+                        draw.draw_rdg(min_graph
                                     , 1
                                     , gclass.pen
                                     , 1
@@ -584,7 +583,7 @@ def run():
                                     , origin)
 
                     end = time.time()
-                    printe("Time taken: " + str((end - start) * 1000) + " ms")
+                    print_gui("Time taken: " + str((end - start) * 1000) + " ms")
 
                     # Sets the ptpg object to the current graph to use for download catalogue and also stores the dimensional constraints of the graph
                     gclass.ptpg = graph
