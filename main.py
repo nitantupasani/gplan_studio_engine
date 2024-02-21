@@ -490,7 +490,7 @@ def run():
                             gclass.value[5], gclass.value[6], gclass.value[7], min_width, min_height, graph.graph_list[i].room_x, graph.graph_list[i].room_y, graph.graph_list[i].room_width, graph.graph_list[i].room_height,
                             gclass.value[2], enc_mat
                         )
-
+                        print(floorplan_data)
                         input_path = "input_to_min_dim.json"
                         json_data = json.dumps(floorplan_data, indent=2)
                         
@@ -524,15 +524,15 @@ def run():
                                 else:
                                     room_name.append(json_content["nodes"][room_id]["label"])
                             
-                            room_x = np.array(room_x)
-                            room_y = np.array(room_y)
-                            room_width = np.array(room_width)
-                            room_height = np.array(room_height)
+                            # room_x = np.array(room_x)
+                            # room_y = np.array(room_y)
+                            # room_width = np.array(room_width)
+                            # room_height = np.array(room_height)
                             
                             graph.graph_list[i].room_x = room_x
                             graph.graph_list[i].room_y = room_y
-                            graph.graph_list[i].room_width =  room_width,
-                            graph.graph_list[i].room_height = room_height,
+                            graph.graph_list[i].room_width =  room_width
+                            graph.graph_list[i].room_height = room_height
                             graph.graph_list[i].area = room_area
                             
                            
@@ -550,6 +550,7 @@ def run():
 
                             # If optimal area not required, display floorplan
                             if optimal_floorplan == 0:
+                                graph.graph_list[i].final_traversal=inputgraph.get_final_traversal(graph.graph_list[i])
                                 draw.draw_rdg(graph.graph_list[i]
                                             , 1
                                             , gclass.pen

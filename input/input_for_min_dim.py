@@ -25,7 +25,7 @@ class floorplan:
     def fill_edges(self, edge_list):
         for edge in edge_list:
             edge_obj = edges()
-            self.edges.append(edge_obj.add_edge(edge[0], edge[1]))
+            self.edges.append(edge_obj.add_edge(edge[0], edge[1],edge[2]))
             
     def fill_boundary_rooms(self, enc_mat, room_x, room_y):
         boundary_room_obj = boundary_rooms()
