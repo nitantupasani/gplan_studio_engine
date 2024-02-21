@@ -2,9 +2,6 @@ from input.input_template import nodes
 from input.input_template import edges
 from input.input_template import boundary_rooms
 
-# floorplan obj - > NO edges
-# when get_floorplan_details call edge_list pass and then fill edges -> edges list
-
 class floorplan:
     def __init__(self, fp_type, dim_set, dim_circ_set, add_del_corr_set, corr_thick):
         self.nodes = []
@@ -28,9 +25,7 @@ class floorplan:
     def fill_edges(self, edge_list):
         for edge in edge_list:
             edge_obj = edges()
-            #changes here we append the color of the edge to edges 
-            self.edges.append(edge_obj.add_edge(edge[0], edge[1],edge[2]))
-            #print("changes",self.edges[-1])#-1 is the last element added in the last edges
+            self.edges.append(edge_obj.add_edge(edge[0], edge[1]))
             
     def fill_boundary_rooms(self, enc_mat, room_x, room_y):
         boundary_room_obj = boundary_rooms()

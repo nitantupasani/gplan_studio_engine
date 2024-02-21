@@ -16,9 +16,11 @@ import pythongui.mindimensiongui as mindimgui
 import circulation as cir
 import matplotlib.pyplot as plt
 import copy
+import source.polygonal.poly as poly
 import input.input_for_min_dim as input_for_min_dim
-from source.graphoperations.operations import get_encoded_matrix
 import json
+# from system_functions.os_functions import delete_fileimport input.input_for_min_dim as input_for_min_dim
+from source.graphoperations.operations import get_encoded_matrix
 from system_functions.os_functions import delete_file
 import source.dimensioning.minimum_dimensioning as min_dim
 
@@ -26,7 +28,8 @@ import source.lettershape.lshape.Lshaped as Lshaped
 import source.lettershape.tshape.tshape as Tshaped
 import source.lettershape.ushape.ushape as Ushaped
 import source.lettershape.zshape.zshape as Zshaped
-
+import source.polygonal.limits as lim
+import source.polygonal.newcoord as nc
 # import checker
 # from tkinter import messagebox
 # import dimension_gui as dimgui
@@ -184,8 +187,7 @@ def run():
                     else :
                         new_graph.final_traversal=inputgraph.get_final_traversal(new_graph)
                         draw.draw_rdg(new_graph, 1, gclass.pen, 1, gclass.value[6],[],origin-300)
-
-                
+  
             elif (gclass.command == "single"):  # Single Irregular Dual/Floorplan
                 if (gclass.value[4] == 0):  # Non-Dimensioned single dual
                     start = time.time()
@@ -232,9 +234,7 @@ def run():
                             ,gclass.value[6]
                             ,[]
                             ,origin)
-                    
-                
-                            
+                                
             elif gclass.command == "letter_shape":
                 if(gclass.value[4] == 0): #Non-Dimensioned Letter Shape
                     start = time.time()
@@ -319,9 +319,7 @@ def run():
                                 , gclass.value[6]
                                 , []
                                 , origin)
-                    
-                
-                    
+                                
             elif(gclass.command == "multiple_l"):#Multiple L-shaped Floorplan
                 if(gclass.value[4] == 0):#Non-Dimensioned multiple dual
                     start = time.time()
@@ -346,9 +344,7 @@ def run():
                         # gclass.ocan.add_tab()
                         # gclass.pen = gclass.ocan.getpen()
                         # gclass.pen.speed(0)
-                        
-                
-                                    
+                                               
             elif (gclass.command == "staircase_shaped"):
                 start = time.time()
                 inputgraph.staircaseshaped(graph)
@@ -362,7 +358,6 @@ def run():
                               , []
                               , origin)
                 
-
             elif(gclass.command == "multiple"):#Multiple Irregular Dual/Floorplan
                 if(gclass.value[4] == 0):#Non-Dimensioned multiple dual
                     start = time.time()
@@ -404,6 +399,8 @@ def run():
                         graph.irreg_single_dual()
                     except inputgraph.BCNError:
                         graph.irreg_single_dual()
+                    
+                    #min_dim.main(input_path)
                     end = time.time()
                     print_gui("Time taken: " + str((end - start) * 1000) + " ms")
                     room_name = []
@@ -661,7 +658,6 @@ def run():
                                 ,room_name
                                 ,origin)
                 
-            
             elif (gclass.command == "poly"):  # Polygonal Floorplan
                 start = time.time()
                 # graph.irreg_single_dual()
@@ -673,10 +669,190 @@ def run():
                         ,1
                         ,gclass.value[6]
                         ,[]
-                        ,origin,gclass.outer_boundary, gclass.shape)
+                        ,origin,gclass.outer_boundary, gclass.shape,graph.matrix)
+            
+            elif (gclass.command == "limits"):
+                input_json = {}
+                graph_data = {}
+                start = time.time()
+                input_path = "./saved_files/input_to_limits.json"
+
+                try:
+                    with open(input_path, 'r') as file:
+                        input_json = json.load(file)
+                except:
+                    gclass.show_warning("Draw a floorplan before applying Limits algorithm.")
+                    continue
+                    
+                    
+                for key, value in input_json.items():
+                    if isinstance(value, list):
+                        graph_data[key] = np.array(value)
+                    else:
+                        graph_data[key] = value
+
+                # delete_file(input_path)
                 
+                end = time.time()
+
+
+                # graph1 = deepcopy(self.graph)
+
+                # graph1 = nx.Graph(edgeset)
+                nodecnt = graph_data['nodecnt']
+                edgecnt = graph_data['edgecnt']
+                edgeset = graph_data['edgeset']
+                node_coordinate = graph_data['node_coordinate']
+
+                adj_matrix = np.zeros((nodecnt,nodecnt), int)
+                for edges in (edgeset):
+                    adj_matrix[edges[0]][edges[1]] = 1
+                    adj_matrix[edges[1]][edges[0]] = 1
+
+
+                graph_data = {
+                            'room_x': graph_data["room_x"],
+                            'room_y': graph_data["room_y"],
+                            'room_width': graph_data["room_width"],
+                            'room_height': graph_data["room_height"],
+                            'area': graph_data["area"],
+                            'extranodes': graph_data["extranodes"],
+                            'mergednodes': graph_data["mergednodes"],
+                            'irreg_nodes': graph_data["irreg_nodes"]
+                        }
+                cr_data = []
+                rooms = []
+                coordinates = {}
+                print()
+                for i in range(graph_data['room_x'].shape[0]):
+                    temp=[]
+                    data = []
+                    data.append([(graph_data['room_x'][i],graph_data['room_y'][i]),
+                                    (graph_data['room_x'][i] + graph_data['room_width'][i],graph_data['room_y'][i])])
+                    data.append([(graph_data['room_x'][i] + graph_data['room_width'][i],graph_data['room_y'][i]),
+                                    (graph_data['room_x'][i] + graph_data['room_width'][i],graph_data['room_y'][i] + graph_data['room_height'][i])])
+                    data.append([(graph_data['room_x'][i] + graph_data['room_width'][i],graph_data['room_y'][i] + graph_data['room_height'][i]),
+                                    (graph_data['room_x'][i],graph_data['room_y'][i] + graph_data['room_height'][i])])
+                    data.append([(graph_data['room_x'][i],graph_data['room_y'][i] + graph_data['room_height'][i]),
+                                    (graph_data['room_x'][i],graph_data['room_y'][i])])
+                    coordinates[i] = data
+                    # print(data)
+                    Room_i = poly.Room()
+                    for i in data:
+                        temp.append(i[0])
+
+                    temp2 = [temp[0]] + temp[1:][::-1]
+        
+                    print(temp2)
+                    for i in temp2:
+                        Room_i.coords.append(i)
+                    rooms.append(Room_i)
                 
+                s_dir = ""
+                dist = 0
+                if(gclass.side == 0):
+                    s_dir = gclass.left_dropdown_value
+                    dist = gclass.left_shift_value
+                elif(gclass.side == 1):
+                    s_dir = gclass.right_dropdown_value
+                    dist = gclass.right_shift_value
+                elif(gclass.side == 2):
+                    s_dir = gclass.top_dropdown_value
+                    dist = gclass.top_shift_value
+                elif(gclass.side == 3):
+                    s_dir = gclass.bottom_dropdown_value
+                    dist = gclass.bottom_shift_value
                 
+                print("YO")
+                print(s_dir)
+                print(dist)
+
+                limits_instance = lim.LimitsAlgorithm(gclass.side,gclass.room_limits,rooms,adj_matrix,s_dir,dist)
+                old_unchanged_coordinates = []
+                if(limits_instance.proceed==1):
+                    newRoomSet = []
+                    for i in range(len(adj_matrix[gclass.room_limits])):
+                        if adj_matrix[gclass.room_limits][i]==1:
+                            newRoomSet.append(rooms[i])
+                            old_unchanged_coordinates.append(False)
+                        else:
+                            old_unchanged_coordinates.append(True)
+                    newCoordsInstance = nc.NewCoordinateAlgorithm(newRoomSet,s_dir,dist,limits_instance.coords_input1,limits_instance.coords_input2, gclass.side,rooms[gclass.room_limits])
+                    k=0
+                    new_graph_data = {
+                                'room_x': [],
+                                'room_y': [],
+                                'room_width': [],
+                                'room_height': [],
+                                'area': [],
+                                'extranodes': [],
+                                'mergednodes': [],
+                                'irreg_nodes': []
+                    }
+                    for i in range(len(old_unchanged_coordinates)):
+                        if(i==gclass.room_limits):
+                            new_graph_data['room_x'].append(newCoordsInstance.converterForMain(-1,'room_x'))
+                            new_graph_data['room_y'].append(newCoordsInstance.converterForMain(-1,'room_y'))
+                            new_graph_data['room_width'].append(newCoordsInstance.converterForMain(-1,'room_width'))
+                            new_graph_data['room_height'].append(newCoordsInstance.converterForMain(-1,'room_height'))
+                        elif(old_unchanged_coordinates[i]==True):
+                            new_graph_data['room_x'].append(graph_data['room_x'][i])
+                            new_graph_data['room_y'].append(graph_data['room_y'][i])
+                            new_graph_data['room_width'].append(graph_data['room_width'][i])
+                            new_graph_data['room_height'].append(graph_data['room_height'][i])
+                        else:
+                            new_graph_data['room_x'].append(newCoordsInstance.converterForMain(k,'room_x'))
+                            new_graph_data['room_y'].append(newCoordsInstance.converterForMain(k,'room_y'))
+                            new_graph_data['room_width'].append(newCoordsInstance.converterForMain(k,'room_width'))
+                            new_graph_data['room_height'].append(newCoordsInstance.converterForMain(k,'room_height'))
+                            k = k + 1
+
+                    graph_data = {
+                                'room_x': new_graph_data["room_x"],
+                                'room_y': new_graph_data["room_y"],
+                                'room_width': new_graph_data["room_width"],
+                                'room_height': new_graph_data["room_height"],
+                                'area': [],
+                                'extranodes': [],
+                                'mergednodes': [],
+                                'irreg_nodes': []
+                            }
+                    
+                    temp_graph_data = {}
+                    temp_graph_data["nodecnt"] = gclass.value[0]
+                    temp_graph_data["edgecnt"] = gclass.value[1]
+                    temp_graph_data["edgeset"] = gclass.value[2]
+                    temp_graph_data["node_coordinate"] = gclass.value[7]
+
+                    for key, value in graph_data.items():
+                        if isinstance(value, np.ndarray):
+                            temp_graph_data[key] = value.tolist()
+                        else:
+                            temp_graph_data[key] = value
+
+                    input_path = "./saved_files/input_to_limits.json"
+                    with open(input_path, 'w') as json_file:
+                        json_data = json.dump(temp_graph_data,json_file, indent=2)
+                    print(f"JSON data has been written to {input_path}")
+
+                    for key, value in new_graph_data.items():
+                        if isinstance(value, list):
+                            new_graph_data[key] = np.array(value)
+                        else:
+                            new_graph_data[key] = value
+
+
+                    draw.draw_rdg(new_graph_data
+                                  , 1
+                                  , gclass.pen
+                                  , 1
+                                  , gclass.value[6]
+                                  , []
+                                  , origin)
+                else:
+                    print("Limit Exceeded")
+                    # gclass.show_warning(newCoordsInstance.error_message)
+      
             elif (gclass.command == "door_connectivity"):  # Door Connectivity Floorplan
                 start = time.time()
                 graph2 = inputgraph.InputGraph(gclass.value[0]
