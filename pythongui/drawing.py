@@ -43,7 +43,7 @@ def find_points(x1, y1, x2, y2,
 
 # Draw rectangular dual of graph
 # import turtle as pen
-def draw_rdg(graph,count,pen,mode,color_list,room_names_unused,origin):
+def draw_rdg(graph,count,pen,mode,color_list,room_names,origin):
 
     pen.width(1.5)
     pen.color('black')
@@ -53,8 +53,13 @@ def draw_rdg(graph,count,pen,mode,color_list,room_names_unused,origin):
     width= np.amax(graph.room_width)
     scale = 100*(math.exp(-0.30*width+math.log(0.8)) + 0.1)
     shapes=graph.final_traversal
+    dim=[0,0]
     origin = {'x': origin - 100, 'y': -100}
     for i, shape_coords in enumerate(shapes):
+        if(graph.room_x[i] + graph.room_width[i]> dim[0] ):
+            dim[0] = graph.room_x[i] + graph.room_width[i]
+        if(graph.room_y[i] + graph.room_height[i]> dim[1] ):
+            dim[1] = graph.room_y[i] + graph.room_height[i]
         if ((len(shape_coords) == 0) or (i in graph.extranodes)):
             continue
 
@@ -91,7 +96,20 @@ def draw_rdg(graph,count,pen,mode,color_list,room_names_unused,origin):
                             ((2 * graph.room_y[i] + graph.room_height[i]) * scale / 2) + origin['y'])
             pen.write(i)
             pen.penup()    
-
+    value = 1
+    if(len(graph.area) != 0):
+        pen.setposition(dim[0]* scale + origin['x']+50, dim[1]* scale + origin['y']-30)
+        pen.write('Area of Each Room' ,font=("Arial", 20, "normal"))
+        for i in range(0,len(graph.area)):
+            if i in graph.extranodes:
+                continue
+            pen.setposition(dim[0]* scale + origin['x']+50, dim[1]* scale + origin['y']-30-value*30)
+            if not room_names:
+                pen.write('Room ' + str(i)+ ': ' + 'W:' + str(graph.room_width[i])+ '  H:' + str(graph.room_height[i]),font=("Arial", 15, "normal"))
+            else:
+                pen.write(str(room_names[i]) + ': ' + 'W:' + str(graph.room_width[i])+ '  H:' + str(graph.room_height[i]),font=("Arial", 15, "normal"))
+            pen.penup()
+            value+=1
 def draw_rdg2(graph_data,count,pen,mode,color_list,room_names,origin):
     coordinates = {}
     for i in range(graph_data['room_x'].shape[0]):
