@@ -4,7 +4,7 @@ def gui_fnc(old_dims, nodes, room_name = []):
     """Creates the GUI to accept minimun dimensions for room width and height and returns the read values. 
 
     Args:
-        old_dims: A list containing the initial values for minimun width and height for each room.
+        old_dims: A list containing the initial values for minimun width and height for each room. They may also include the initial values for the plot width and height.
         nodes: Number of nodes in the graph.
         room_name: A list of the room labels for each room.
 
@@ -103,6 +103,10 @@ def gui_fnc(old_dims, nodes, room_name = []):
 
     plot_height_tbox = tk.Entry(root, textvariable=plot_height)
     plot_height_tbox.place(relx=0.98, rely=0.34, anchor='ne')
+
+    if len(old_dims) == 4:
+        plot_width.set(old_dims[2])
+        plot_height.set(old_dims[3])
 
     # Placing checkbox for generating floorplan with least area
     optimal_floorplan_checkbox = tk.Checkbutton(root, text="Generate Optimal Floorplan", variable=optimal_floorplan, onvalue=1, offvalue=0)
