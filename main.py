@@ -774,7 +774,7 @@ def run():
                         , [0] * gclass.value[0]
                         , [0] * gclass.value[0]]
                     min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(
-                        old_dims, gclass.value[0])
+                        old_dims, gclass.value[0], gclass.value[5])
                     dimensional_constraints = [min_width, max_width, min_height, max_height, symm_string, min_aspect,
                                             max_aspect, plot_width, plot_height]
                     start = time.time()
