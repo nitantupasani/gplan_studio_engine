@@ -771,13 +771,15 @@ def run():
                 old_unchanged_coordinates = []
                 if(limits_instance.proceed==1):
                     newRoomSet = []
+                    exact_RoomSet = []
                     for i in range(len(adj_matrix[gclass.room_limits])):
                         if adj_matrix[gclass.room_limits][i]==1:
                             newRoomSet.append(rooms[i])
+                            exact_RoomSet.append(i)
                             old_unchanged_coordinates.append(False)
                         else:
                             old_unchanged_coordinates.append(True)
-                    newCoordsInstance = nc.NewCoordinateAlgorithm(newRoomSet,s_dir,dist,limits_instance.coords_input1,limits_instance.coords_input2, gclass.side,rooms[gclass.room_limits])
+                    newCoordsInstance = nc.NewCoordinateAlgorithm(exact_RoomSet,newRoomSet,s_dir,dist,limits_instance.coords_input1,limits_instance.coords_input2, gclass.side,rooms[gclass.room_limits])
                     k=0
                     new_graph_data = {
                                 'room_x': [],

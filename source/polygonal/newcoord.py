@@ -6,7 +6,8 @@ import re
 import copy
 
 class NewCoordinateAlgorithm:
-    def __init__(self, adjrooms, s_dir, shift_value, x, y, opti,originalRoom):
+    def __init__(self, exact_RoomSet, adjrooms, s_dir, shift_value, x, y, opti,originalRoom):
+        self.exact_RoomSet = exact_RoomSet
         self.s_dir = s_dir
         self.shift_value = shift_value
         self.adjrooms = adjrooms
@@ -47,7 +48,7 @@ class NewCoordinateAlgorithm:
         for j in range(len(a)):
             if j != len(a) - 1:
                 if (a[j][0] == x[0] and a[j + 1][0] == y[0] and self.opti == 1):
-                    return a[j][1] <= x[1] and a[j + 1][1] >= y[1]
+                    return a[j][1] <= x[1] and a[j + 1][1] >= y[1]                 
                 elif (a[j][1] == x[1] and a[j + 1][1] == y[1] and self.opti == 2):
                     return a[j][0] <= x[0] and a[j + 1][0] >= y[0]
                 if (a[j][0] == x[0] and a[j + 1][0] == y[0] and self.opti == 0):
@@ -151,14 +152,14 @@ class NewCoordinateAlgorithm:
                             self.moveCoordinate(a[j], k, s, shift)
         return a
 
-    def shiftAndUpdateCoordinates(self, adjrooms, x, y, s, shift):
+    def shiftAndUpdateCoordinates(self, adjrooms, x, y, s, shift,exact_RoomSet):
         self.adjrooms = self.updateAdjacentRoomCoordinates(self.adjrooms, x, y, s, shift)
         x = self.shift_coordinate(x, s, shift)
         y = self.shift_coordinate(y, s, shift)
         print("OLD")
-        self.printAllRooms(adjrooms)
+        self.printAllRooms(self.exact_RoomSet,self.adjrooms)
         print("NEW")
-        self.printAllRooms(self.adjrooms)
+        self.printAllRooms(self.exact_RoomSet, self.adjrooms)
         return x, y
 
     def run(self, adjrooms, x, y):
@@ -171,7 +172,7 @@ class NewCoordinateAlgorithm:
             s = "up"
         else: 
             s = "down"  
-        (X,Y) = self.shiftAndUpdateCoordinates(self.adjrooms,x,y,s,self.shift_value)
+        (X,Y) = self.shiftAndUpdateCoordinates(self.adjrooms,x,y,s,self.shift_value,self.exact_RoomSet)
         self.chosenRoomNewCoords(x,y,X,Y)
         print("Wall moved from: (x=",x,",y=",y,") to (X=",X,"Y=",Y,")")
 
@@ -182,10 +183,13 @@ class NewCoordinateAlgorithm:
             elif(self.originalRoom.coords[i][0]==y[0] and self.originalRoom.coords[i][1]==y[1]):
                 self.originalRoom.coords[i] = (Y[0],Y[1])
                 
-    def printAllRooms(self, rooms):
+    def printAllRooms(self, rooms, room_list):
         i = 0
+        room_coordsDic = {}
         for room in rooms:
-            print("Room: ",i)
+            room_coordsDic[room] = (room_list[i]).coords
+            #print("Room:%d",i)
             i+=1
-            print(room.coords)
-            print()
+            #print(room.coords)
+            #print()
+        print(room_coordsDic)
