@@ -374,6 +374,11 @@ def check_edge_in_graph(one_connected, triangle):
     
     return True
 
+def calc_all_triangles(graph):
+    all_cliques = list(nx.enumerate_all_cliques(graph))
+    all_triangles = [sorted(i) for i in all_cliques if len(i) == 3]
+    all_triangles = [list(triangle) for triangle in np.unique(all_triangles, axis=0)]
+    return all_triangles
 
 def get_sep_triangles_and_edges(all_triangles, num_nodes, origin_pos, adjacency):
     triangular_faces = []
@@ -454,9 +459,7 @@ def handle_STs_with_edge_selection(one_connected, adjacency, positions, num_expe
     
 
     ## Get all cycles of length 3
-    all_cliques = list(nx.enumerate_all_cliques(graph))
-    all_triangles = [sorted(i) for i in all_cliques if len(i) == 3]
-    all_triangles = [list(triangle) for triangle in np.unique(all_triangles, axis=0)]
+    all_triangles = calc_all_triangles(graph)
     st_with_internal_node = dict()
 
     for face in all_triangles:
@@ -520,9 +523,7 @@ def handle_STs_with_edge_selection(one_connected, adjacency, positions, num_expe
                             print("edge-removed2:",tuple([edge[0], edge[1]])," from triangle:",triangle )
 
                             # add edge to all triangles list
-                            all_cliques = list(nx.enumerate_all_cliques(graph))
-                            all_triangles = [sorted(i) for i in all_cliques if len(i) == 3]
-                            all_triangles = [list(triangle) for triangle in np.unique(all_triangles, axis=0)]
+                            all_triangles = calc_all_triangles(graph)
 
                             origin_pos = nx.planar_layout(graph)
                             adjacency=nx.adjacency_matrix(graph).toarray()
@@ -531,9 +532,7 @@ def handle_STs_with_edge_selection(one_connected, adjacency, positions, num_expe
                             # if(not planar):
                                 graph.remove_edge(nbr, i)
                                 graph.add_edge(edge[0], edge[1])
-                                all_cliques = list(nx.enumerate_all_cliques(graph))
-                                all_triangles = [sorted(i) for i in all_cliques if len(i) == 3]
-                                all_triangles = [list(triangle) for triangle in np.unique(all_triangles, axis=0)]
+                                all_triangles = calc_all_triangles(graph)
 
                                 print("changes revoked")
                                 continue
