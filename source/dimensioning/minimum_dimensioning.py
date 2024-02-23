@@ -607,6 +607,20 @@ def print_input():
     print(ub_len)
     print(lb_width)
     print(ub_width)
+
+#updating placement of west and south boundary rooms based on range of tolerance to minimize area
+def edit_placements():
+    for i in range(len(data['boundary_rooms']['west'])):
+        j = data['boundary_rooms']['west'][i]
+        if rotx2[2*j-2] > placementx[2*j-1]:
+            placementx[2*j-1] = rotx2[2*j-2]
+            print('changing x position of wall', j*2-1, 'to ', placementx[2*j-1])
+    
+    for i in range(len(data['boundary_rooms']['south'])):
+        j = data['boundary_rooms']['south'][i]
+        if roty2[2*j-1] > placementy[2*j]:
+            placementy[2*j] = roty2[2*j-1]
+            print('changing y position of wall ', j*2, 'to ', placementy[2*j])
     
     
 # the final file to be given to gplan to show in UI
@@ -697,6 +711,8 @@ def main(file_path, plot_width, plot_height):
     create_json()
     compute_rot()
     print_rot()
+    edit_placements()
+    create_json()
     return True
 
 # Main execution
