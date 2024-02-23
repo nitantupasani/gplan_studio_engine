@@ -157,7 +157,7 @@ class NewCoordinateAlgorithm:
         x = self.shift_coordinate(x, s, shift)
         y = self.shift_coordinate(y, s, shift)
         print("OLD")
-        self.printAllRooms(self.exact_RoomSet,self.adjrooms)
+        self.printAllRooms(exact_RoomSet,adjrooms)
         print("NEW")
         self.printAllRooms(self.exact_RoomSet, self.adjrooms)
         return x, y
