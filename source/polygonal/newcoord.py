@@ -174,7 +174,7 @@ class NewCoordinateAlgorithm:
             s = "down"  
         (X,Y) = self.shiftAndUpdateCoordinates(self.adjrooms,x,y,s,self.shift_value,self.exact_RoomSet)
         self.chosenRoomNewCoords(x,y,X,Y)
-        print("Wall moved from: (x=%d,y=%d) to (X=%d,Y=%d)",x,y,X,Y)
+        print("Wall moved from: (x=",x,",y=",y,") to (X=",X,"Y=",Y,")")
 
     def chosenRoomNewCoords(self,x,y,X,Y):
         for i in range(0,len(self.originalRoom.coords)):
