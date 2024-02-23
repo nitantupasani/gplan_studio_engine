@@ -630,6 +630,8 @@ def create_json():
     for i in range(rooms):
         dic={}
         dic.update({'id':data['nodes'][i]['id']})
+        if 'label' in data['nodes'][i]:
+            dic.update({'label':data['nodes'][i]['label']})
         dic.update({'room_x':float(round(placementx[2*i+1],4))})
         dic.update({'room_y':float(round(placementy[2*i+2],4))})
         dic.update({'width':float(round(placementx[2*i+2],4)-round(placementx[2*i+1],4))})

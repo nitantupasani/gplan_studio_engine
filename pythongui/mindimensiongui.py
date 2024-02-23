@@ -1,11 +1,12 @@
 import tkinter as tk
 
-def gui_fnc(old_dims, nodes):
+def gui_fnc(old_dims, nodes, room_name = []):
     """Creates the GUI to accept minimun dimensions for room width and height and returns the read values. 
 
     Args:
         old_dims: A list containing the initial values for minimun width and height for each room.
         nodes: Number of nodes in the graph.
+        room_name: A list of the room labels for each room.
 
     Returns:
         min_width: A list containing minimum width for each room in the floorplan.
@@ -62,11 +63,18 @@ def gui_fnc(old_dims, nodes):
                                             anchor='ne')
             
         # Placing headers for Rooms
-        text_room.append("text_room_" + str(i))
-        text_room[i] = tk.Label(root, text="Room" + str(i), font=("Times New Roman", 10))
-        text_room[i].place(relx=0.20 + 0.30 * i_value_x,
-                           rely=0.3 + (0.04 * i_value_y),
-                           anchor='ne')
+        if len(room_name) > 0:
+            text_room.append("text_room_" + str(room_name[i]))
+            text_room[i] = tk.Label(root, text=str(room_name[i]), font=("Times New Roman", 10))
+            text_room[i].place(relx=0.20 + 0.30 * i_value_x,
+                            rely=0.3 + (0.04 * i_value_y),
+                            anchor='ne')
+        else:
+            text_room.append("text_room_" + str(i))
+            text_room[i] = tk.Label(root, text="Room" + str(i), font=("Times New Roman", 10))
+            text_room[i].place(relx=0.20 + 0.30 * i_value_x,
+                            rely=0.3 + (0.04 * i_value_y),
+                            anchor='ne')
         
         # Placing text holders for Minimum Width and Height input
         width_textbox.append("width_textbox" + str(i))
@@ -135,4 +143,5 @@ def gui_fnc(old_dims, nodes):
 
 if __name__ == "__main__":
     # main function to test GUI creation
-    gui_fnc([], 3)
+    gui_fnc([], 3, [])
+    
