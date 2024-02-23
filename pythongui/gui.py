@@ -2091,7 +2091,7 @@ class gui_class:
         clear_button = tk.Button(root, text="Clear Selection", command=lambda: self.radio_desel())
         clear_button.grid(row=12, column=0, pady=10)
 
-        ex = tk.Button(root, text="Submit", command=self.change_limits_ender, justify=tk.CENTER)
+        ex = tk.Button(root, text="Apply", command=self.change_limits_ender, justify=tk.CENTER)
         ex.grid(padx=100, pady=20)
 
     def change_limits_ender(self):
