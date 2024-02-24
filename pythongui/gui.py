@@ -434,32 +434,53 @@ class gui_class:
                 for eid, connection in self.elines:
                     if (connection[0] == node1_id and connection[1] == node2_id) or (
                             connection[0] == node2_id and connection[1] == node1_id):
-                        if self.canvas.itemcget(eid, "fill") == 'black':
-                            self.canvas.itemconfig(eid, fill='red')
-                            #print("to check whether we ad",connection)
-
+                        # print (self.canvas.itemcget(eid,"fill"))
+                        # if self.canvas.itemcget(eid, "fill") == '#000000':
                             for edge in self.edges:
-                                if (edge[0] == node1_id and edge[1] == node2_id) or (edge[0] == node2_id and edge[1] == node1_id):
+                                if ((edge[0] == node1_id and edge[1] == node2_id) or (edge[0] == node2_id and edge[1] == node1_id)) and edge[2]=="black":
                                     edge[2] = "red"
+                                    self.canvas.itemconfig(eid, fill='red')
+                                    self.connectivity.append(connection)
+                                elif ((edge[0] == node1_id and edge[1] == node2_id) or (edge[0] == node2_id and edge[1] == node1_id)) and edge[2]=="red":
+                                    self.canvas.delete(eid)
+                                    self.elines.remove([eid,connection])
+                                    self.edges.remove(edge)
+                                    self.connectivity.remove(connection)
+                            #print("to check whether we ad",connection)
+                            # print("whether this is executing")
 
-                            self.connectivity.append(connection)
-                        else:
-                            self.canvas.itemconfig(eid, fill='black')
-                            #print("changes",connection)
-                            #print(self.edges)
+                            # for edge in self.edges:
+                            #     if (edge[0] == node1_id and edge[1] == node2_id) or (edge[0] == node2_id and edge[1] == node1_id):
+                            #         edge[2] = "red"
+
+                            # self.connectivity.append(connection)
+
+                        # else:
+                        #     print (self.canvas.itemcget(eid,"fill"))
+                        #     self.canvas.delete(eid)
+                        #     self.elines.remove([eid,connection])
+                        #     # self.canvas.itemconfig(eid, fill='black')
+                            
+                        
+                        #     # self.canvas.itemconfig(eid, fill='black')
+                        #     #print("changes",connection)
+                        #     print("before removing",self.edges)
 
 
-                            for edge in self.edges:
-                                if (edge[0] == node1_id and edge[1] == node2_id) or (edge[0] == node2_id and edge[1] == node1_id):
-                                    edge[2] = "black"
-                            try:
-                                self.connectivity.remove(connection)
-                            except:
-                                pass
+                        #     for edge in self.edges:
+                        #         if ((edge[0] == node1_id and edge[1] == node2_id) or (edge[0] == node2_id and edge[1] == node1_id)) and edge[2]=="red":
+                        #             print(edge[2])
+                        #             self.edges.remove(edge)
+                        #             # edge[2]="black"
+                        #     try:
+                        #         self.connectivity.remove(connection)
+                        #     except:
+                        #         pass
 
-                        #print("changes",self.edges)
+                            print("changes",self.edges)
+                            print("changes in eline",self.elines)
 
-                        return
+            return
             
         def create_new_node(self, x, y, id_node):
             self.random_list.append(0)
