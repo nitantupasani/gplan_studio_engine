@@ -49,6 +49,9 @@ def draw_rdg(graph,count,pen,mode,color_list,room_names,origin,scale=True):
     pen.color('black')
     pen.hideturtle()
     pen.penup()
+    #TODO Find area
+    #TODO Use this area in scale in a logical manner
+
     width= np.amax(graph.room_width)
     scale = 100*(math.exp(-0.30*width+math.log(0.8)) + 0.1)
     shapes=graph.final_traversal
@@ -81,6 +84,7 @@ def draw_rdg(graph,count,pen,mode,color_list,room_names,origin,scale=True):
 
         pen.end_fill()
 
+#TODO Find and print writing part from traversal
     for i in range(len(graph.room_x)):
         if i in graph.extranodes:
             continue
@@ -95,7 +99,9 @@ def draw_rdg(graph,count,pen,mode,color_list,room_names,origin,scale=True):
                             ((2 * graph.room_y[i] + graph.room_height[i]) * scale / 2) + origin['y'])
             pen.write(i)
             pen.penup()    
-    value = 1
+    value = 1    
+    
+    #TODO Find and print area from traversal
     if(len(graph.area) != 0):
         pen.setposition(dim[0]* scale + origin['x']+50, dim[1]* scale + origin['y']-30)
         pen.write('Area of Each Room' ,font=("Arial", 20, "normal"))
