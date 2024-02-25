@@ -15,6 +15,28 @@ class NewCoordinateAlgorithm:
         self.originalRoom = originalRoom
         self.run(adjrooms, x, y)    
 
+    def circularTraversalForMain(self,index):
+        graph = {
+            'room_x': [],
+            'room_y': [],
+            'room_width': [],
+            'room_height': [],
+            'area': [],
+            'extranodes': [],
+            'mergednodes': [],
+            'irreg_nodes': []}
+        graph['room_x'].append(self.converterForMain(index,'room_x'))
+        graph['room_y'].append(self.converterForMain(index,'room_y'))
+        graph['room_width'].append(self.converterForMain(index,'room_width'))
+        graph['room_height'].append(self.converterForMain(index,'room_height'))
+        
+        for i in range(len(graph['room_x'])):
+            list_ = []
+            list_.append(tuple([graph['room_x'][i], graph['room_y'][i]]))
+            list_.append (tuple([graph['room_x'][i], graph['room_y'][i] + graph['room_height'][i]]))
+            list_.append(tuple([graph['room_x'][i] + graph['room_width'][i], graph['room_y'][i]+graph['room_height'][i]]))
+            list_.append(tuple([graph['room_x'][i] + graph['room_width'][i], graph['room_y'][i]]))
+        return list_
 
     def converterForMain(self, index, key):
         if key == "room_x":

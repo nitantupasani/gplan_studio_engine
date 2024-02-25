@@ -400,6 +400,33 @@ def run():
                     except inputgraph.BCNError:
                         graph.irreg_single_dual()
                     
+                    temp_graph_data = {}
+                    temp_graph_data["nodecnt"] = gclass.value[0]
+                    temp_graph_data["edgecnt"] = gclass.value[1]
+                    temp_graph_data["edgeset"] = gclass.value[2]
+                    temp_graph_data["node_coordinate"] = gclass.value[7]
+                    graph_data = {
+                        'room_x': graph.room_x,
+                        'room_y': graph.room_y,
+                        'room_width': graph.room_width,
+                        'room_height': graph.room_height,
+                        'area': graph.area,
+                        'extranodes': graph.extranodes,
+                        'mergednodes': graph.mergednodes,
+                        'irreg_nodes': graph.irreg_nodes1
+                    }
+
+                    for key, value in graph_data.items():
+                        if isinstance(value, np.ndarray):
+                            temp_graph_data[key] = value.tolist()
+                        else:
+                            temp_graph_data[key] = value
+
+                    input_path = "./saved_files/input_to_limits.json"
+                    with open(input_path, 'w') as json_file:
+                        json_data = json.dump(temp_graph_data,json_file, indent=2)
+                    print(f"JSON data has been written to {input_path}")
+
                     #min_dim.main(input_path)
                     end = time.time()
                     print_gui("Time taken: " + str((end - start) * 1000) + " ms")
@@ -705,9 +732,12 @@ def run():
                 node_coordinate = graph_data['node_coordinate']
 
                 adj_matrix = np.zeros((nodecnt,nodecnt), int)
+
                 for edges in (edgeset):
-                    adj_matrix[edges[0]][edges[1]] = 1
-                    adj_matrix[edges[1]][edges[0]] = 1
+                    x = (int)(edges[0])
+                    y = (int)(edges[1])
+                    adj_matrix[x][y] = 1
+                    adj_matrix[y][x] = 1
 
 
                 graph_data = {
@@ -763,10 +793,6 @@ def run():
                     s_dir = gclass.bottom_dropdown_value
                     dist = gclass.bottom_shift_value
                 
-                print("YO")
-                print(s_dir)
-                print(dist)
-
                 limits_instance = lim.LimitsAlgorithm(gclass.side,gclass.room_limits,rooms,adj_matrix,s_dir,dist)
                 old_unchanged_coordinates = []
                 if(limits_instance.proceed==1):
@@ -781,70 +807,69 @@ def run():
                             old_unchanged_coordinates.append(True)
                     newCoordsInstance = nc.NewCoordinateAlgorithm(exact_RoomSet,newRoomSet,s_dir,dist,limits_instance.coords_input1,limits_instance.coords_input2, gclass.side,rooms[gclass.room_limits])
                     k=0
-                    new_graph_data = {
-                                'room_x': [],
-                                'room_y': [],
-                                'room_width': [],
-                                'room_height': [],
-                                'area': [],
-                                'extranodes': [],
-                                'mergednodes': [],
-                                'irreg_nodes': []
-                    }
+                    _circular_traversal = []
+                    new_graph  = inputgraph.InputGraph(gclass.value[0]
+                        , gclass.value[1]
+                        , gclass.value[2]
+                        , gclass.value[7])
+
                     for i in range(len(old_unchanged_coordinates)):
                         if(i==gclass.room_limits):
-                            new_graph_data['room_x'].append(newCoordsInstance.converterForMain(-1,'room_x'))
-                            new_graph_data['room_y'].append(newCoordsInstance.converterForMain(-1,'room_y'))
-                            new_graph_data['room_width'].append(newCoordsInstance.converterForMain(-1,'room_width'))
-                            new_graph_data['room_height'].append(newCoordsInstance.converterForMain(-1,'room_height'))
+                            _circular_traversal.append(newCoordsInstance.circularTraversalForMain(-1))
+                            
                         elif(old_unchanged_coordinates[i]==True):
-                            new_graph_data['room_x'].append(graph_data['room_x'][i])
-                            new_graph_data['room_y'].append(graph_data['room_y'][i])
-                            new_graph_data['room_width'].append(graph_data['room_width'][i])
-                            new_graph_data['room_height'].append(graph_data['room_height'][i])
+                            _circular_traversal.append(newCoordsInstance.circularTraversalForMain(i))
                         else:
-                            new_graph_data['room_x'].append(newCoordsInstance.converterForMain(k,'room_x'))
-                            new_graph_data['room_y'].append(newCoordsInstance.converterForMain(k,'room_y'))
-                            new_graph_data['room_width'].append(newCoordsInstance.converterForMain(k,'room_width'))
-                            new_graph_data['room_height'].append(newCoordsInstance.converterForMain(k,'room_height'))
+                            _circular_traversal.append(newCoordsInstance.adjrooms[k].coord())
                             k = k + 1
-
-                    graph_data = {
-                                'room_x': new_graph_data["room_x"],
-                                'room_y': new_graph_data["room_y"],
-                                'room_width': new_graph_data["room_width"],
-                                'room_height': new_graph_data["room_height"],
-                                'area': [],
-                                'extranodes': [],
-                                'mergednodes': [],
-                                'irreg_nodes': []
-                            }
+                        new_graph.final_traversal.append(_circular_traversal[i])
+                        
+                    # graph_data = {
+                    #             'room_x': new_graph_data["room_x"],
+                    #             'room_y': new_graph_data["room_y"],
+                    #             'room_width': new_graph_data["room_width"],
+                    #             'room_height': new_graph_data["room_height"],
+                    #             'area': [],
+                    #             'extranodes': [],
+                    #             'mergednodes': [],
+                    #             'irreg_nodes': []
+                    #         }
                     
-                    temp_graph_data = {}
-                    temp_graph_data["nodecnt"] = gclass.value[0]
-                    temp_graph_data["edgecnt"] = gclass.value[1]
-                    temp_graph_data["edgeset"] = gclass.value[2]
-                    temp_graph_data["node_coordinate"] = gclass.value[7]
+                    # temp_graph_data = {}
+                    # temp_graph_data["nodecnt"] = gclass.value[0]
+                    # temp_graph_data["edgecnt"] = gclass.value[1]
+                    # temp_graph_data["edgeset"] = gclass.value[2]
+                    # temp_graph_data["node_coordinate"] = gclass.value[7]
 
-                    for key, value in graph_data.items():
-                        if isinstance(value, np.ndarray):
-                            temp_graph_data[key] = value.tolist()
-                        else:
-                            temp_graph_data[key] = value
+                    # for key, value in graph_data.items():
+                    #     if isinstance(value, np.ndarray):
+                    #         temp_graph_data[key] = value.tolist()
+                    #     else:
+                    #         temp_graph_data[key] = value
 
-                    input_path = "./saved_files/input_to_limits.json"
-                    with open(input_path, 'w') as json_file:
-                        json_data = json.dump(temp_graph_data,json_file, indent=2)
-                    print(f"JSON data has been written to {input_path}")
+                    # input_path = "./saved_files/input_to_limits.json"
+                    # with open(input_path, 'w') as json_file:
+                    #     json_data = json.dump(temp_graph_data,json_file, indent=2)
+                    # print(f"JSON data has been written to {input_path}")
 
-                    for key, value in new_graph_data.items():
-                        if isinstance(value, list):
-                            new_graph_data[key] = np.array(value)
-                        else:
-                            new_graph_data[key] = value
+                    # for key, value in new_graph_data.items():
+                    #     if isinstance(value, list):
+                    #         new_graph_data[key] = np.array(value)
+                    #     else:
+                    #         new_graph_data[key] = value
 
+                    # new_graph.circular_traversal = 
+                    print("circular traversal for all rooms: ", new_graph.final_traversal)
+                    # new_graph.room_x = new_graph_data['room_x']
+                    # new_graph.room_y = new_graph_data['room_y']
+                    # new_graph.room_width = new_graph_data['room_width']
+                    # new_graph.room_height = new_graph_data['room_height']
+                    # new_graph.area = new_graph_data['area']
+                    # new_graph.extranodes = new_graph_data['extranodes']
+                    # new_graph.mergednodes = new_graph_data['mergednodes']
+                    # new_graph.irreg_nodes1 = new_graph_data['irreg_nodes']
 
-                    draw.draw_rdg(new_graph_data
+                    draw.draw_rdg(new_graph
                                   , 1
                                   , gclass.pen
                                   , 1

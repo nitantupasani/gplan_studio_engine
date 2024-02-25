@@ -43,13 +43,12 @@ def find_points(x1, y1, x2, y2,
 
 # Draw rectangular dual of graph
 # import turtle as pen
-def draw_rdg(graph,count,pen,mode,color_list,room_names,origin):
+def draw_rdg(graph,count,pen,mode,color_list,room_names,origin,scale=True):
 
     pen.width(1.5)
     pen.color('black')
     pen.hideturtle()
     pen.penup()
-
     width= np.amax(graph.room_width)
     scale = 100*(math.exp(-0.30*width+math.log(0.8)) + 0.1)
     shapes=graph.final_traversal
