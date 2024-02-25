@@ -3,15 +3,15 @@ from random import randint
 #from networkx.algorithms.centrality.betweenness_subset import betweenness_centrality_source
 from networkx.algorithms.core import core_number
 from networkx.classes import graph
-from source.floorplangen import rdg as rdg
-import source.boundary.cip as cip
-import source.graphoperations.operations as opr
+
+from ...floorplangen import rdg 
+from ...boundary import cip  
+from ...graphoperations import operations as opr
 import numpy as np
-import source.boundary.news as news
-import source.irregular.shortcutresolver as sr 
-import source.floorplangen.contraction as cntr
-import source.floorplangen.expansion as exp
-import pythongui.drawing as draw
+from ...boundary import news as news
+from ...irregular import shortcutresolver as sr 
+from ...floorplangen import contraction as cntr
+from ...floorplangen import expansion as exp
 import copy
 
 

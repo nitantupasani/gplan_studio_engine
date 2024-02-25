@@ -41,9 +41,9 @@ def construct_dual(matrix, nodecnt, mergednodes, irreg_nodes):
         room_y_right_top: A list representing the y coordinate of the middle top of right edge of the room.
     """
     t1_matrix = dual.populate_t1_matrix(matrix, nodecnt)
-    print("check 1")
+    # print("check 1")
     t2_matrix = dual.populate_t2_matrix(matrix, nodecnt)
-    print("check 2")
+    # print("check 2")
     room_x, room_y, room_width, room_height = get_dimensions(matrix, nodecnt, t1_matrix, t2_matrix)
     return [room_x
         , room_y

@@ -9,7 +9,7 @@ import warnings
 from functools import partial
 from pprint import pprint
 # from tkinter import *
-import main
+# import main
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np

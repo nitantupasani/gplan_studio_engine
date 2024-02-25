@@ -18,13 +18,17 @@ from tkinter import ALL, EventType, Label, Menu, filedialog, messagebox
 import matplotlib.pyplot as plt
 import networkx as nx
 from PIL import Image, ImageTk
-import pythongui.tablenoscroll as tablenoscroll
-import pythongui.final as final
+import sys
+
+from networkx import edges
+sys.path.append("..")
+from GPLAN.pythongui import tablenoscroll as tablenoscroll
+from GPLAN.pythongui import final as final
 import numpy as np
 import datetime
 from fpdf import FPDF
 
-from .catalogue_maker import generate_catalogue, generate_catalogue_dimensioned
+from .catalogue_maker import generate_catalogue, generate_catalogue_dimensioned, generate_mindim_catalogue
 from source.polygonal import canonical as cano
 
 
@@ -116,6 +120,10 @@ class gui_class:
         self.entry_door.append(self.l)
         self.entry_door.append(self.r)
 
+        # Circ_gui
+        self.circ_choice = tk.IntVar(None)
+        self.circ_choice.set(0)
+
         # Remove redundant rooms
         self.opti = tk.IntVar(None)
         self.side = 0
@@ -140,6 +148,8 @@ class gui_class:
         self.corridor_thickness=0.1
         self.remove_or_not = []
         self.remove_edges = []
+        self.rem_edges=[]
+        self.removed_rooms=[]
         self.adjacency = {}
         # self.entry_door.append(self.l)
         # self.entry_door.append(self.r)
@@ -200,8 +210,13 @@ class gui_class:
         self.app = self.PlotApp(self.frame2, self)
         self.root.title('Input Graph')
         self.checkvar1 = tk.IntVar()
-        self.checkvar2 = tk.IntVar() # For dimensioned circ
-        self.checkvar3 = tk.IntVar() # For remove/add circulation
+        self.checkvar2 = tk.IntVar(None) # For dimensioned circ
+        self.checkvar2.set(0)
+        self.checkvar3 = tk.IntVar(None) # For remove/add circulation
+        self.checkvar3.set(0)
+        self.checkvar5 = tk.IntVar(None) # For remove/add circulation
+        self.checkvar5.set(0)
+        self.checkvar4 = tk.IntVar()
 
         self.e1 = tk.IntVar()
         self.e2 = tk.IntVar()
@@ -317,7 +332,7 @@ class gui_class:
                 temp_node_data.append(i.pos_y)
                 node_coordinate.append(temp_node_data)
             return [len(self.nodes_data), self.edge_count, self.edges, self.command, self.master.checkvar1.get(),
-                    list(filter(None, [row[1].get() for row in self.table._data_vars])), self.hex_list, node_coordinate, self.master.checkvar2.get(), self.master.checkvar3.get()]
+                    list(filter(None, [row[1].get() for row in self.table._data_vars])), self.hex_list, node_coordinate, self.master.checkvar2.get(), self.master.checkvar3.get(), self.master.checkvar4.get(),self.master.checkvar5.get()]
 
         def createCanvas(self):
             self.id_circle.clear()
@@ -411,16 +426,25 @@ class gui_class:
                     return
                 self.connection.append(value)
 
+            # changes
             if len(self.connection) > 1:
                 node1 = self.connection[0]
                 node2 = self.connection[1]
+            
 
                 if node2 not in self.nodes_data[node1].adj_list:
                     self.nodes_data[node1].adj_list.append(node2)
                 if node1 not in self.nodes_data[node2].adj_list:
                     self.nodes_data[node2].adj_list.append(node1)
                     self.edge_count += 1
-                self.edges.append(self.connection)
+
+                #changes
+                self.connection.append("black")
+                #print("after appending black color",self.connection , self.edges)
+                self.edges.append(self.connection.copy())
+                self.connection.pop()
+                #print("AFTER adding copy of connection to edges", self.connection,self.edges)
+
                 self.connect_circles(self.connection)
 
         def connect_circles(self, connections):
@@ -433,6 +457,7 @@ class gui_class:
             edge = self.canvas.create_line(node1_x, node1_y, node2_x, node2_y, width=3)
             self.elines.append([edge, connections])
 
+        #changes
         def toggle_edge_connectivity(self, evalue):
             for node1_id, node2_id in evalue:
                 for eid, connection in self.elines:
@@ -440,15 +465,31 @@ class gui_class:
                             connection[0] == node2_id and connection[1] == node1_id):
                         if self.canvas.itemcget(eid, "fill") == 'black':
                             self.canvas.itemconfig(eid, fill='red')
+                            #print("to check whether we ad",connection)
+
+                            for edge in self.edges:
+                                if (edge[0] == node1_id and edge[1] == node2_id) or (edge[0] == node2_id and edge[1] == node1_id):
+                                    edge[2] = "red"
+
                             self.connectivity.append(connection)
                         else:
                             self.canvas.itemconfig(eid, fill='black')
+                            #print("changes",connection)
+                            #print(self.edges)
+
+
+                            for edge in self.edges:
+                                if (edge[0] == node1_id and edge[1] == node2_id) or (edge[0] == node2_id and edge[1] == node1_id):
+                                    edge[2] = "black"
                             try:
                                 self.connectivity.remove(connection)
                             except:
                                 pass
-                        return
 
+                        #print("changes",self.edges)
+
+                        return
+            
         def create_new_node(self, x, y, id_node):
             self.random_list.append(0)
             hex_number = self.colors[0]
@@ -469,7 +510,7 @@ class gui_class:
                                         y + self.radius_circle, width=3, fill=hex_number, tag=str(id_node)))
             self.rcanframe.append(self.canvas.create_window(x, y - self.radius_circle - 12, window=self.rframe))
             self.entry = tk.Entry(self.rframe, textvariable=self.table._data_vars[self.id_circle[0] - 1][1],
-                                  relief='flat', justify='c', width=3, bg='white')
+                                  relief='flat', justify='c', width=7, bg='white')
             self.entry.grid()
 
         def retreive_graph(self, node_data, edge_data, con_data):
@@ -1403,7 +1444,8 @@ class gui_class:
 
             c1 = tk.Checkbutton(master.frame1, text="Dimensioned", relief='flat', **button_details,
                                 selectcolor='#4A4E69', width=7, variable=master.checkvar1, onvalue=1, offvalue=0)
-            c1.grid(row=5, column=0, padx=5, pady=5)
+            c1.grid(row=4, column=1, padx=5, pady=5)
+
 
             b3 = tk.Button(master.frame1, width=10, text='Rectangular Floor Plan', relief='flat', **button_details,
                            command=master.single_oc_floorplan)
@@ -1414,7 +1456,7 @@ class gui_class:
             b4.grid(row=4, column=0, padx=5, pady=5)
 
             b6 = tk.Button(master.frame1, width=10, text='Circulation', relief='flat', **button_details,
-                           command=master.change_entry_gui)
+                           command=master.circ_menu)
             b6.grid(row=6, column=0, padx=5, pady=5)
 
             b12 = tk.Button(master.frame1, width=10, text='Modify Room', relief='flat', **button_details,
@@ -1464,14 +1506,30 @@ class gui_class:
 
             # b6 = tk.Button(master.frame1,width=10, text='Restart',relief='flat', **button_details,command=master.restart)
             # b6.grid(row=6,column=0,padx=5,pady=5)
-            c1 = tk.Checkbutton(master.frame1, text = "Dimensioned Circulation",relief='flat',**button_details,selectcolor='#4A4E69',width=7 ,variable = master.checkvar2,onvalue = 1, offvalue = 0)
-            c1.grid(row=4,column=1,padx=5,pady=5)
+            # c1 = tk.Checkbutton(master.frame1, text = "Dimensioned Circulation",relief='flat',**button_details,selectcolor='#4A4E69',width=7 ,variable = master.checkvar2,onvalue = 1, offvalue = 0)
+            # c1.grid(row=4,column=1,padx=5,pady=5)
 
-            c2 = tk.Checkbutton(master.frame1, text = "Remove Circulation",relief='flat',**button_details,selectcolor='#4A4E69',width=7 ,variable = master.checkvar3,onvalue = 1, offvalue = 0)
-            c2.grid(row=5,column=1,padx=5,pady=5)
+            # c2 = tk.Checkbutton(master.frame1, text = "Remove Circulation",relief='flat',**button_details,selectcolor='#4A4E69',width=7 ,variable = master.checkvar3,onvalue = 1, offvalue = 0)
+            # c2.grid(row=5,column=1,padx=5,pady=5)
+
+            b12 = tk.Button(master.frame1, width=10, text='Door Connectivity', relief='flat',
+                            **button_details, command=master.door_connectivity)
+            b12.grid(row=7, column=0, padx=5, pady=5)
+
+            b13 = tk.Button(master.frame1, width=10, text='Multiple L-shaped floorplans', relief='flat',
+                            **button_details, command=master.multiple_l_floorplan)
+            b13.grid(row=7, column=1, padx=5, pady=5)
 
             b5 = tk.Button(master.frame1,width=10, text='EXIT',relief='flat', **button_details,command=master.exit)
             b5.grid(row=7,column=0,padx=5,pady=5)
+            
+            b14 = tk.Checkbutton(master.frame1, text="Min Dim", relief='flat', **button_details,
+                                selectcolor='#4A4E69', width=7, variable=master.checkvar4, onvalue=1, offvalue=0)
+            b14.grid(row=8, column=0, padx=5, pady=5)
+
+            c2 = tk.Checkbutton(master.frame1, text="Public/", relief='flat', **button_details,
+                                selectcolor='#4A4E69', width=7, variable=master.checkvar5, onvalue=1, offvalue=0)
+            c2.grid(row=8, column=1, padx=5, pady=5)
 
     class menu:
         def __init__(self, master):
@@ -1615,13 +1673,20 @@ class gui_class:
             self.textbox.insert('insert', "\t         Output\n")
 
     def graph_ret(self):
-
+        # value is set here 
         self.value = self.app.return_everything()
         self.textbox = self.tbox.gettext()
 
     def single_floorplan(self):
         self.app.command = "single"
         self.command = "single"
+        self.end.set(self.end.get() + 1)
+        # self.root.state('zoomed')
+        # root.destroy()
+
+    def door_connectivity(self):
+        self.app.command = "door_connectivity"
+        self.command = "door_connectivity"
         self.end.set(self.end.get() + 1)
         # self.root.state('zoomed')
         # root.destroy()
@@ -1644,6 +1709,12 @@ class gui_class:
         self.command = "multiple_oc"
         self.end.set(self.end.get() + 1)
         # self.root.state('zoomed')
+        # root.destroy()
+
+    def multiple_l_floorplan(self):
+        self.app.command = "multiple_l"
+        self.command = "multiple_l"
+        self.end.set(self.end.get() + 1)
         # root.destroy()
 
     def circulation(self):
@@ -1767,14 +1838,23 @@ class gui_class:
     def download_catalogue(self):
         if not self.multiple_output_found:
             tk.messagebox.showinfo("error", "Output not yet found")
-        else:
-            if self.value[4] == 0:
-                generate_catalogue(self.app.edges, self.num_rfp, self.time_taken, self.output_data,
+        if self.value[4] == 0:
+            generate_catalogue(self.app.edges, self.num_rfp, self.time_taken, self.output_data,
                                    self.dimensional_constraints)
+        else:
+            edge_list=self.app.edges.copy()
+            edge_list=[[x for x in elem[:-1]] for elem in edge_list]
+            # If Dimensioned floorplans have been generated
+            if self.value[4] == 1:
+                generate_catalogue_dimensioned(self.num_rfp, self.output_data, self.dimensional_constraints, edges = edge_list, 
+                                               time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt, room_name = self.value[5])
+            # If Minimum Dimension floorplans have been generated
+            elif self.value[10] == 1:
+                generate_mindim_catalogue(self.num_rfp, self.output_data, self.dimensional_constraints, edges = edge_list, 
+                                          time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt, room_name = self.value[5])
             else:
-                generate_catalogue_dimensioned(self.num_rfp, self.output_data, self.dimensional_constraints, 
-                                               edges = self.app.edges, time_taken = self.time_taken, fpcnt = self.ptpg.fpcnt)
-                
+                generate_catalogue(edge_list, self.num_rfp, self.time_taken, self.output_data,
+                                   self.dimensional_constraints)
 
     def polygonal_inputbox(self):
         """This function takes user input for starting edge/door for the corridor
@@ -1871,7 +1951,6 @@ class gui_class:
         ex = tk.Button(root, text="Submit", command=self.letterChoiceFunction)
         ex.grid(row=6)
 
-
     def letterChoiceFunction(self):
         self.top.destroy()
         if(self.choice.get() == 1):
@@ -1923,7 +2002,7 @@ class gui_class:
             self.canvasForOuterBoundary.create_line([(0, i), (w, i)], tag='grid_line')
 
     def cano_out_bdry(self):
-        self.shapes.set("Custom");
+        self.shapes.set("Custom")
         self.top = tk.Toplevel(self.root, width=300, height=300)
         root = self.top
         root.title('Boundary of Outer Structure')
@@ -2000,14 +2079,28 @@ class gui_class:
 
         # poly.dissected(self.graph_data,self.pen,self.color_list,self.outer_boundary)
 
-    def radio_sel(self):
-        self.rem = self.opti.get()
-        print("The redundant corridors will be removed")
+    def radio_sel(self,mode):
+        if mode=="menu":
+            # Set mode
+            if(self.circ_choice.get() == 2):
+                self.checkvar2.set(1)
+                self.checkvar3.set(0)
+            elif(self.circ_choice.get() == 3):
+                self.checkvar2.set(0)
+                self.checkvar3.set(1)
+        elif mode=="redundant":
+            self.rem = self.opti.get()
+            print("The redundant corridors will be removed")
 
-    def radio_desel(self):
-        self.opti.set(0)
-        self.rem = self.opti.get()
-        print("The whole spanning circulation will be displayed")
+    def radio_desel(self,mode):
+        if mode=="menu":
+            self.circ_choice.set(0)
+            self.checkvar2.set(0)
+            self.checkvar3.set(0)
+        elif mode=="redundant":
+            self.opti.set(0)
+            self.rem = self.opti.get()
+            print("The whole spanning circulation will be displayed")
     
     def change_limits(self):
         # self.top1 = tk.Toplevel(self.root, width=1000, height=1000)
@@ -2127,10 +2220,59 @@ class gui_class:
         self.app.command = "limits"
         self.command = "limits"
         self.end.set(self.end.get() + 1)
+                
+    def circ_menu(self):
+        """Choose which type of circulation you want
+        """
+        # c1 = tk.Checkbutton(master.frame1, text = "Dimensioned Circulation",relief='flat',**button_details,selectcolor='#4A4E69',width=7 ,variable = master.checkvar2,onvalue = 1, offvalue = 0)
+        # c1.grid(row=4,column=1,padx=5,pady=5)
+
+        # c2 = tk.Checkbutton(master.frame1, text = "Remove Circulation",relief='flat',**button_details,selectcolor='#4A4E69',width=7 ,variable = master.checkvar3,onvalue = 1, offvalue = 0)
+        # c2.grid(row=5,column=1,padx=5,pady=5)
+
+        self.top = tk.Toplevel(self.root, width=300, height=300)
+        root = self.top
+        root.geometry("600x100")
+        sub_text = tk.Label(root, text="""Choose the circulation choice:""", justify=tk.LEFT, padx=20)
+        sub_text.grid(row=3)
+
+        btn1 = tk.Radiobutton(root, text="Normal", padx=20, variable=self.circ_choice, value=1, command=lambda: self.radio_sel("menu"))
+        btn1.grid(row=4, column=0)
         
+        btn2 = tk.Radiobutton(root, text="Dimensioned circulation", padx=20, variable=self.circ_choice, value=2, command=lambda: self.radio_sel("menu"))
+        btn2.grid(row=4, column=1)
+
+        btn3 = tk.Radiobutton(root, text="Remove corridors", padx=20, variable=self.circ_choice, value=3, command=lambda: self.radio_sel("menu"))
+        btn3.grid(row=4, column=2)
+
+        clear_button = tk.Button(root, text="Clear Selection", command=lambda: self.radio_desel("menu"))
+        clear_button.grid(row = 7, column = 2, pady=10)
+
+        ex = tk.Button(root,text = "Submit",command = self.change_entry_gui, justify=tk.CENTER)
+        ex.grid(row = 7, column = 0, pady=10)
+
+        
+        # self.top1 = tk.Toplevel(self.root, width=1000, height=1000)
+        # root = self.top1
+        # root.geometry("500x200")
+        # root.title('Circulation Entry Changer')
+        # main_text = tk.Label(root, text="Enter the two rooms adjacent to the new entry door")
+        # main_text.grid(row= 1, column= 0, padx = 20, ipady = 10)
+        # l_val = tk.Entry(root, textvariable = self.l)
+        # l_val.grid(row  = 3, column = 0)
+        # r_val = tk.Entry(root, textvariable = self.r)
+        # r_val.grid(row = 3, column = 2)
+        # opti_btn = tk.Radiobutton(root, text="Remove redundant corridors", padx=20, variable=self.opti, value=1, command=lambda: self.radio_sel())
+        # opti_btn.grid(row = 7, column = 0)
+        # clear_button = tk.Button(root, text="Clear Selection", command=lambda: self.radio_desel())
+        # clear_button.grid(row = 7, column = 2, pady=10)
+        # ex = tk.Button(root,text = "Submit",command = self.corridor_thickness_gui, justify=tk.CENTER)
+        # ex.grid(padx=100, pady=20)
+
     def change_entry_gui(self):
         """This function takes user input for starting edge/door for the corridor
         """
+        self.top.destroy()
         self.top1 = tk.Toplevel(self.root, width=1000, height=1000)
         root = self.top1
         root.geometry("500x200")
@@ -2141,14 +2283,13 @@ class gui_class:
         l_val.grid(row  = 3, column = 0)
         r_val = tk.Entry(root, textvariable = self.r)
         r_val.grid(row = 3, column = 2)
-        opti_btn = tk.Radiobutton(root, text="Remove redundant corridors", padx=20, variable=self.opti, value=1, command=lambda: self.radio_sel())
+        opti_btn = tk.Radiobutton(root, text="Get minimal circulation", padx=20, variable=self.opti, value=1, command=lambda: self.radio_sel("redundant"))
         opti_btn.grid(row = 7, column = 0)
-        clear_button = tk.Button(root, text="Clear Selection", command=lambda: self.radio_desel())
+        clear_button = tk.Button(root, text="Clear Selection", command=lambda: self.radio_desel("redundant"))
         clear_button.grid(row = 7, column = 2, pady=10)
         ex = tk.Button(root,text = "Submit",command = self.corridor_thickness_gui, justify=tk.CENTER)
         ex.grid(padx=100, pady=20)
     
-
     def corridor_thickness_gui(self):
 
         """This function takes user input for starting edge/door for the corridor
@@ -2229,9 +2370,9 @@ class gui_class:
         
         # For getting user input for which corridors to remove
         for i in range(1,len(adjacency)):
-            text = tk.Label(root, text = str(adj_list[i][0]) + "           " + str(adj_list[i][1]))
+            text = tk.Label(second_frame, text = str(adj_list[i][0]) + "           " + str(adj_list[i][1]))
             text.grid(row=i+30,column=8)
-            rem_val = tk.Entry(root, textvariable=rem_or_not[i])
+            rem_val = tk.Entry(second_frame, textvariable=rem_or_not[i])
             rem_val.grid(row=i+30,column=10)
 
             # rem_corr_btn = tk.Radiobutton(root, text=str(adj_list[i][0]) + "           " + str(adj_list[i][1]), padx=20, variable=self.opti, value=1, command=lambda: self.radio_sel())
@@ -2256,11 +2397,12 @@ class gui_class:
             for i in range(len(rem_or_not)):
                 rem_or_not[i].set(1)
         
-        done_btn = tk.Button(root, text='Submit', padx=5, command=rem_corr_submit)
-        done_btn.place(relx=0.4, rely=0.9, anchor='ne')
+        done_btn = tk.Button(second_frame, text='Submit', padx=5, command=rem_corr_submit)
+        # done_btn.place(relx=0.4, rely=0.9, anchor='ne')
+        done_btn.grid(row=len(adjacency)+30,column=8)
 
-        rem_all_btn = tk.Button(root, text="Remove all", padx=5, command=rem_all)
-        rem_all_btn.place(relx=0.8, rely=0.9, anchor='ne')
+        rem_all_btn = tk.Button(second_frame, text="Remove all", padx=5, command=rem_all)
+        rem_all_btn.grid(row=len(adjacency)+30,column=16)
 
         root.wait_window(root)
         print("rem_corr_gui")
@@ -2308,7 +2450,65 @@ class gui_class:
 
     def show_warning(self, str):
         tk.messagebox.showinfo("Warning", str)
+    
+    def remove_selected_rooms (self):
+        for i, room_var in enumerate(self.room_vars):
+            print(room_var) 
+            if(room_var==1):
+                self.removed_rooms.append(i)
+        self.remove_related_corridors()
+        self.root.destroy()
+    
+    def remove_related_corridors(self):
+# Logic to remove the corridors connected to the selected rooms
+        self.removed_rooms=[2,4,7]
+        for room_num in self.removed_rooms:
+            for corridor, rooms in self.new_adj_list.items():
+                print(corridor)
+                print (rooms)
+                if room_num in rooms:
+                    if (self.new_adj_list[corridor] not in self.rem_edges):
+                        self.rem_edges.append(self.new_adj_list[corridor])
+        print("Removed rooms:", self.removed_rooms)
+        print("Removed corridors:", self.rem_edges)
+    
+    def public_rooms(self,adjacency):
+        adj_list = list(adjacency.values())
+        self.new_adj_list=adjacency
+        print(adj_list)
+        self.root=tk.Tk()
+        self.root.title("Remove Rooms and their connected corridors")
+        self.root.geometry('400x400')
 
+        self.main_frame = tk.Frame(self.root)
+        self.main_frame.pack(fill=tk.BOTH, expand=1)
+
+        self.my_canvas = tk.Canvas (self.main_frame)
+        self.my_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=1)
+
+        self.my_scrollbar = ttk.Scrollbar(self.main_frame, orient=tk.VERTICAL,command=self.my_canvas.yview)
+        self.my_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.my_canvas.configure(yscrollcommand=self.my_scrollbar.set)
+        self.my_canvas.bind('<Configure>', lambda e:
+self.my_canvas.configure(scrollregion=self.my_canvas.bbox('all')))
+        self.second_frame = tk.Frame(self.my_canvas)
+        self.my_canvas.create_window((0, 0), window=self.second_frame,anchor="nw")
+        self.room_label = tk.Label(self.second_frame, text="Select rooms to remove:")
+        self.room_label.grid(row=3, column=10, ipadx=5, ipady=20)
+        def create_room_checkboxes (self):
+            self.room_vars=[1,1,1,1,1]
+            # for i in range(1, list(adjacency.keys())[0]):
+            #     room_var = tk.IntVar()
+            #     room_checkbox = tk.Checkbutton(self.second_frame, text=f"Room{i}", variable=room_var,onvalue=1, offvalue=0)
+            #     room_checkbox.grid(row=i + 30, column=10) 
+            #     self.room_vars.append(room_var)
+            # self.submit_button = tk.Button(self.second_frame, text="Submit&quit", command=self.remove_selected_rooms)
+            # self.submit_button.grid(row=len(adj_list) + 30, column=10)
+        self.remove_related_corridors()
+        create_room_checkboxes(self)
+        
+        print(self.rem_edges)
+        return self.rem_edges
 
 if __name__ == '__main__':
     value = gui_class()

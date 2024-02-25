@@ -3,18 +3,23 @@ from random import randint, triangular
 #from networkx.algorithms.centrality.betweenness_subset import betweenness_centrality_source
 from networkx.algorithms.core import core_number
 from networkx.classes import graph
+import networkx as nx
 
-from source.floorplangen import rdg
-from source.lettershape.lshape.modifiedCanonical import canonical
-import source.boundary.cip as cip
-import source.graphoperations.operations as opr
+
+from .modifiedCanonical import canonical
+from ..lshape import canonicalTransition as Canonical_LShaped
+
+from ...inputgraph import InputGraph as inputgraph
+from ...floorplangen import rdg 
+from ...boundary import cip  
+from ...graphoperations import operations as opr
 import numpy as np
-import source.boundary.news as news
-import source.irregular.shortcutresolver as sr
-import source.floorplangen.contraction as cntr
-import source.floorplangen.expansion as exp
-import source.lettershape.lshape.canonicalTransition as Canonical_LShaped
-import pythongui.drawing as draw
+from ...boundary import news as news
+from ...irregular import shortcutresolver as sr 
+from ...floorplangen import contraction as cntr
+from ...floorplangen import expansion as exp
+from ...irregular import septri as st
+
 
 
 # import ptpg
@@ -30,34 +35,198 @@ import pythongui.drawing as draw
 # Draw
 
 def LShapedFloorplan(graph, nodes_data):
+    # Separating Triangle Elimination
+    if (graph.nodecnt - graph.edgecnt + len(opr.get_trngls(graph.matrix)) != 1):
+        ptpg_matrices, extra_nodes = st.handle_STs(
+            graph.matrix, graph.coordinates, 1)
+        graph.matrix = ptpg_matrices[0]
+        graph.nodecnt = graph.matrix.shape[0]
+        graph.edgecnt = int(np.count_nonzero(graph.matrix == 1) / 2)
+        for key in extra_nodes[0]:
+            graph.mergednodes.append(key)
+            graph.irreg_nodes1.append(extra_nodes[0][key][0])
+            graph.irreg_nodes2.append(extra_nodes[0][key][1])
+
     cip = find_cips(graph)
     if len(cip) > 5:
         return "cips greater than 5"
     print("len of cip {}".format(len(cip)))
     triplet = find_triplet(graph)
-    path1 = find_paths(graph, triplet, cip)
-    print("checking path1", path1)
-    new_adjacency_mat = connect_northeast(graph, path1)
-    print("checking new_adjacency_matrix", new_adjacency_mat)
+    if(triplet==-1):
+        trivialL(graph)
+    else:
+        path1 = find_paths(graph, triplet, cip)
+        print("checking path1", path1)
+        new_adjacency_mat = connect_northeast(graph, path1)
+        print("checking new_adjacency_matrix", new_adjacency_mat)
+        graph.user_matrix = new_adjacency_mat
+        graph.cip = find_cips(graph)
+        print("len of cip {}".format(len(graph.cip)))
+        new_adjacency_mat = add_NESW(graph, new_adjacency_mat, path1)
+        graph.matrix = new_adjacency_mat
+        graph.matrix[graph.north][graph.south] = 1
+        graph.matrix[graph.south][graph.north] = 1
+        print("checking final graph.matrix ", graph.matrix)
+
+        can = canonical()
+        can.displayInputGraph(graph.nodecnt, graph.matrix, nodes_data)
+        can.runWithArguments(graph.nodecnt, graph.west, graph.south, graph.north, triplet, graph, graph.matrix,cip)
+        graph.matrix[graph.north][graph.south] = 0
+        graph.matrix[graph.south][graph.north] = 0
+        print(can.graph_data['indexToCanOrd'])
+        my_rel = Canonical_LShaped.Canonical_L_Shaped(can.graph_data['indexToCanOrd'], graph)
+        graph.matrix = my_rel
+        get_floorplan(graph, triplet)
+
+def trivialL(graph):
+    graph.cip = find_cips(graph)
+    print(graph.cip)
+    if(len(graph.cip)>0):
+        cip = randint(0, len(graph.cip)-1)
+        path1 = graph.cip[cip][0:randint(2, max(2, len(graph.cip[cip])-2))]
+        new_adjacency_mat = connect_northeast(graph, path1)
+    else:
+        triangular_cycles = opr.get_trngls(graph.matrix)
+        digraph = opr.get_directed(graph.matrix)
+        graph.bdy_nodes, graph.bdy_edges = opr.get_bdy(triangular_cycles, digraph)
+        ordered_boundary = opr.ordered_bdy(graph.bdy_nodes, graph.bdy_edges)
+        path1 = ordered_boundary[0: randint(2, len(ordered_boundary)-1)]
+        new_adjacency_mat = connect_northeast(graph, path1)
+    
     graph.user_matrix = new_adjacency_mat
+    graph.matrix = new_adjacency_mat
     graph.cip = find_cips(graph)
     print("len of cip {}".format(len(graph.cip)))
     new_adjacency_mat = add_NESW(graph, new_adjacency_mat, path1)
     graph.matrix = new_adjacency_mat
-    graph.matrix[graph.north][graph.south] = 1
-    graph.matrix[graph.south][graph.north] = 1
-    print("checking final graph.matrix ", graph.matrix)
+    # Contraction
+    degrees = cntr.degrees(graph.matrix)
+    goodnodes = cntr.goodnodes(graph.matrix, degrees)
+    graph.matrix, degrees, goodnodes, cntrs = cntr.contract(
+        graph.matrix, goodnodes, degrees)
 
-    can = canonical()
-    can.displayInputGraph(graph.nodecnt, graph.matrix, nodes_data)
-    can.runWithArguments(graph.nodecnt, graph.west, graph.south, graph.north, triplet, graph, graph.matrix,cip)
-    graph.matrix[graph.north][graph.south] = 0
-    graph.matrix[graph.south][graph.north] = 0
-    print(can.graph_data['indexToCanOrd'])
-    my_rel = Canonical_LShaped.Canonical_L_Shaped(can.graph_data['indexToCanOrd'], graph, nodes_data, triplet)
-    graph.matrix = my_rel
-    get_floorplan(graph, triplet)
+    # Expansion
+    graph.matrix = exp.basecase(graph.matrix, graph.nodecnt)
+    while len(cntrs) != 0:
+        graph.matrix = exp.expand(graph.matrix, graph.nodecnt, cntrs)
+    
+    get_floorplan(graph, -1)
 
+def multipleLshapedFloorplans(graph, nodes_data):
+    # Separating Triangle Elimination
+    if (graph.nodecnt - graph.edgecnt + len(opr.get_trngls(graph.matrix)) != 1):
+        ptpg_matrices, extra_nodes = st.handle_STs(
+            graph.matrix, graph.coordinates, 1)
+        graph.matrix = ptpg_matrices[0]
+        graph.nodecnt = graph.matrix.shape[0]
+        graph.edgecnt = int(np.count_nonzero(graph.matrix == 1) / 2)
+        for key in extra_nodes[0]:
+            graph.mergednodes.append(key)
+            graph.irreg_nodes1.append(extra_nodes[0][key][0])
+            graph.irreg_nodes2.append(extra_nodes[0][key][1])
+    cip = find_cips(graph)
+    if len(cip) > 5:
+        return "cips greater than 5"
+    
+    tripletSet = find_multiple_triplet(graph)
+    original_nodecnt = graph.nodecnt
+    original_matrix = graph.matrix
+    for triplet in tripletSet:
+        path1 = find_paths(graph, triplet, cip)
+        print("checking path1", path1)
+        new_adjacency_mat = connect_northeast(graph, path1)
+        print("checking new_adjacency_matrix", new_adjacency_mat)
+        graph.user_matrix = new_adjacency_mat
+        graph.cip = find_cips(graph)
+        new_adjacency_mat = add_NESW(graph, new_adjacency_mat, path1)
+        graph.matrix = new_adjacency_mat
+        graph.matrix[graph.north][graph.south] = 1
+        graph.matrix[graph.south][graph.north] = 1
+        print("checking final graph.matrix ", graph.matrix)
+
+        can = canonical()
+        can.displayInputGraph(graph.nodecnt, graph.matrix, nodes_data)
+        can.runWithArguments(graph.nodecnt, graph.west, graph.south, graph.north, triplet, graph, graph.matrix,cip)
+        graph.matrix[graph.north][graph.south] = 0
+        graph.matrix[graph.south][graph.north] = 0
+        print(can.graph_data['indexToCanOrd'])
+        my_rel = Canonical_LShaped.Canonical_L_Shaped(can.graph_data['indexToCanOrd'], graph)
+        # graph.rel = my_rel
+
+        g = nx.from_numpy_array(graph.matrix, create_using=nx.DiGraph)
+        edgeset = g.edges()
+        
+        new_graph = inputgraph(graph.nodecnt, graph.edgecnt, edgeset, graph.coordinates)
+        
+        graph.fpcnt += 1
+        graph.rel_matrix_list.append(my_rel)
+        new_graph.rel_matrix_list = my_rel
+        new_graph.mergednodes= []
+        new_graph.irreg_nodes1 = []
+        new_graph.irreg_nodes2 = []
+        new_graph.extranodes= [graph.northeast]
+        new_graph.nodecnt_list = graph.nodecnt
+        graph.graph_list.append(new_graph)
+        
+        graph.matrix = original_matrix
+        graph.nodecnt = original_nodecnt
+
+    for cnt in range(graph.fpcnt):
+        [graph.graph_list[cnt].room_x, graph.graph_list[cnt].room_y, graph.graph_list[cnt].room_width, graph.graph_list[cnt].room_height] = rdg.construct_dual(graph.graph_list[cnt].rel_matrix_list,
+                                                                        graph.graph_list[cnt].nodecnt_list,
+                                                                        graph.graph_list[cnt].mergednodes,
+                                                                        graph.graph_list[cnt].irreg_nodes1)
+
+
+    print("check", graph.room_x)
+
+
+def find_multiple_triplet(graph):
+    H = opr.get_directed(graph.matrix)
+
+    ordered_outer_vertices = opr.ordered_bdy(graph.bdy_nodes, graph.bdy_edges)
+
+    triplet_set = []
+    triplet = False
+    
+    for i in range(0, len(ordered_outer_vertices) - 1):
+
+        a = ordered_outer_vertices[i]
+
+        if (i < len(ordered_outer_vertices) - 2):
+            b = ordered_outer_vertices[i + 1]
+            c = ordered_outer_vertices[i + 2]
+
+        elif (i == len(ordered_outer_vertices) - 2):
+            b = ordered_outer_vertices[i + 1]
+            c = ordered_outer_vertices[0]
+
+        else:
+            b = ordered_outer_vertices[0]
+            c = ordered_outer_vertices[1]
+
+        if (a, c) in H.edges():
+            continue
+
+        triplet = True
+
+        for v in H.nodes():
+            if v != b and ((a, v) in H.edges() and (v, c) in H.edges):
+                triplet = False
+                break
+
+        if (triplet == True):
+            triplet_set.append((a, b, c))
+            triplet = False
+
+    # if (len(triplet_set) >0):
+    #     print("=====triplet=====")
+    #     print(a, b, c)
+    #     return (a, b, c)
+    # else:
+    #     return -1
+    print("checking triplet set ", triplet_set)
+    return triplet_set
 
 def find_cips(graph):
     triangular_cycles = opr.get_trngls(graph.matrix)
@@ -257,8 +426,10 @@ def new_matrix(graph, node_count):
 
 
 def boundary_path_single(paths, boundary, corner_points):
+    ne = corner_points[0]
     for path in paths:
-        corner_points.append(path[randint(0, len(path) - 1)])
+        if ne not in path:
+            corner_points.append(path[randint(0, len(path) - 1)])
     while (len(corner_points) < 4):
         corner_vertex = boundary[randint(0, len(boundary) - 1)]
         while (corner_vertex in corner_points):
@@ -304,10 +475,10 @@ def get_rel(graph, path1):
 
 
 def get_floorplan(graph, triplet):
-    a = triplet[0]
-    b = triplet[1]
-    c = triplet[2]
-    b_ne = graph.matrix[b][graph.northeast]
+    # a = triplet[0]
+    # b = triplet[1]
+    # c = triplet[2]
+    # b_ne = graph.matrix[b][graph.northeast]
 
     graph.extranodes.append(graph.northeast)
     print("here")
