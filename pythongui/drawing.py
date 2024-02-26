@@ -43,32 +43,35 @@ def find_points(x1, y1, x2, y2,
 
 # Draw rectangular dual of graph
 # import turtle as pen
+def find_areas(graph):
+    for shape in graph.final_traversal:
+        area = 0
+        for j in range(len(shape) ):
+            x1, y1 = shape[j]
+            x2, y2 = shape[(j + 1)%len(shape)]
+            area += x1 * y2 - x2 * y1
+        graph.area.append(abs(area)/2)
+
 def draw_rdg(graph,count,pen,mode,color_list,room_names,origin,scale=True):
 
     pen.width(1.5)
     pen.color('black')
     pen.hideturtle()
     pen.penup()
-    #TODO Find area
-    #TODO Use this area in scale in a logical manner
-
-    width= np.amax(graph.room_width)
-    scale = 100*(math.exp(-0.30*width+math.log(0.8)) + 0.1)
     shapes=graph.final_traversal
+    find_areas(graph)
+    print(graph.area)
+    max_area=np.amax(graph.area)
+    plot_area=np.sum(graph.area)
+    scale=100*(math.exp(-0.3*math.sqrt(max_area)+math.log(0.8))+0.1)
+    # dim gives the approximate bounding box for the rfp
     dim=[0,0]
+    dim[0] = max(coord[0] for shape in graph.final_traversal for coord in shape)
+    dim[1] = max(coord[1] for shape in graph.final_traversal for coord in shape)
     origin = {'x': origin - 100, 'y': -100}
     for i, shape_coords in enumerate(shapes):
-        if(graph.room_x[i] + graph.room_width[i]> dim[0] ):
-            dim[0] = graph.room_x[i] + graph.room_width[i]
-        if(graph.room_y[i] + graph.room_height[i]> dim[1] ):
-            dim[1] = graph.room_y[i] + graph.room_height[i]
-        if ((len(shape_coords) == 0) or (i in graph.extranodes)):
-            continue
-
         pen.fillcolor(color_list[i%len(color_list)])
         pen.begin_fill()
-
-        # Move to the starting point without drawing
         start_x, start_y = shape_coords[0]
         pen.setposition(start_x * scale + origin['x'], start_y * scale + origin['y'])
         pen.pendown()
@@ -78,43 +81,46 @@ def draw_rdg(graph,count,pen,mode,color_list,room_names,origin,scale=True):
             pen.setposition(x * scale + origin['x'], y * scale + origin['y'])
             pen.pendown()
 
-        # Connect the last point to the starting point
         pen.setposition(start_x * scale + origin['x'], start_y * scale + origin['y'])
         pen.penup()
 
         pen.end_fill()
 
-#TODO Find and print writing part from traversal
-    for i in range(len(graph.room_x)):
-        if i in graph.extranodes:
-            continue
-        pen.color('black')
-        if(i not in graph.mergednodes):
-            pen.setposition(((2 * graph.room_x[i] ) * scale / 2) + origin['x'] + 5,
-                            ((2 * graph.room_y[i] + graph.room_height[i]) * scale / 2) + origin['y'])
-            pen.write(i)
-            pen.penup()
-        if(i in graph.mergednodes and mode == 2):
-            pen.setposition(((2 * graph.room_x[i] ) * scale / 2) + origin['x'] + 5,
-                            ((2 * graph.room_y[i] + graph.room_height[i]) * scale / 2) + origin['y'])
-            pen.write(i)
-            pen.penup()    
+    for i in range(len(graph.final_traversal)):
+        pen.setposition(((2 * graph.final_traversal[i][0][0] ) * scale / 2) + origin['x'] + 5,
+                        ((graph.final_traversal[i][0][1] + graph.final_traversal[i][1][1]) * scale / 2) + origin['y'])
+        pen.write(i)
+        pen.penup()
     value = 1    
-    
-    #TODO Find and print area from traversal
     if(len(graph.area) != 0):
         pen.setposition(dim[0]* scale + origin['x']+50, dim[1]* scale + origin['y']-30)
         pen.write('Area of Each Room' ,font=("Arial", 20, "normal"))
         for i in range(0,len(graph.area)):
-            if i in graph.extranodes:
-                continue
+            shape=graph.final_traversal[i]
+            heigt=shape[1][1] - shape[0][1]
+            width=shape[3][0] - shape[0][0]
             pen.setposition(dim[0]* scale + origin['x']+50, dim[1]* scale + origin['y']-30-value*30)
-            if not room_names:
-                pen.write('Room ' + str(i)+ ': ' + 'W:' + str(graph.room_width[i])+ '  H:' + str(graph.room_height[i]),font=("Arial", 15, "normal"))
+            if(len(shape)==4):
+                if not room_names:
+                    pen.write('Room ' + str(i)+ ': '+
+                              'Area: '+ str(graph.area[i])+
+                              'H: ' + str(heigt)+
+                              'W: ' + str(width)
+                              ,font=("Arial", 15, "normal"))
+                else:
+                    pen.write(str(room_names[i]) + ': ' + str(graph.area[i]),font=("Arial", 15, "normal"))
             else:
-                pen.write(str(room_names[i]) + ': ' + 'W:' + str(graph.room_width[i])+ '  H:' + str(graph.room_height[i]),font=("Arial", 15, "normal"))
+                if not room_names:
+                    pen.write('Room ' + str(i)+ ': ' +
+                              'Area: '+ str(graph.area[i])+
+                              'H: ' + str(heigt)+
+                              'W: ' + str(width),
+                              font=("Arial", 15, "normal"))
+                else:
+                    pen.write(str(room_names[i]) + ': ' + str(graph.area[i]),font=("Arial", 15, "normal"))
             pen.penup()
             value+=1
+
 def draw_rdg2(graph_data,count,pen,mode,color_list,room_names,origin):
     coordinates = {}
     for i in range(graph_data['room_x'].shape[0]):
