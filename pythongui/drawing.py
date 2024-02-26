@@ -44,7 +44,7 @@ def find_points(x1, y1, x2, y2,
 # Draw rectangular dual of graph
 # import turtle as pen
 def find_areas(graph):
-    for shape in graph.final_traversal:
+    for shape in shapes:
         area = 0
         for j in range(len(shape) ):
             x1, y1 = shape[j]
@@ -66,8 +66,8 @@ def draw_rdg(graph,count,pen,mode,color_list,room_names,origin,scale=True):
     scale=100*(math.exp(-0.3*math.sqrt(max_area)+math.log(0.8))+0.1)
     # dim gives the approximate bounding box for the rfp
     dim=[0,0]
-    dim[0] = max(coord[0] for shape in graph.final_traversal for coord in shape)
-    dim[1] = max(coord[1] for shape in graph.final_traversal for coord in shape)
+    dim[0] = max(coord[0] for shape in shapes for coord in shape)
+    dim[1] = max(coord[1] for shape in shapes for coord in shape)
     origin = {'x': origin - 100, 'y': -100}
     for i, shape_coords in enumerate(shapes):
         pen.fillcolor(color_list[i%len(color_list)])
@@ -86,9 +86,9 @@ def draw_rdg(graph,count,pen,mode,color_list,room_names,origin,scale=True):
 
         pen.end_fill()
 
-    for i in range(len(graph.final_traversal)):
-        pen.setposition(((2 * graph.final_traversal[i][0][0] ) * scale / 2) + origin['x'] + 5,
-                        ((graph.final_traversal[i][0][1] + graph.final_traversal[i][1][1]) * scale / 2) + origin['y'])
+    for i in range(len(shapes)):
+        pen.setposition(((2 * shapes[i][0][0] ) * scale / 2) + origin['x'] + 5,
+                        ((shapes[i][0][1] + shapes[i][1][1]) * scale / 2) + origin['y'])
         pen.write(i)
         pen.penup()
     value = 1    
@@ -96,7 +96,7 @@ def draw_rdg(graph,count,pen,mode,color_list,room_names,origin,scale=True):
         pen.setposition(dim[0]* scale + origin['x']+50, dim[1]* scale + origin['y']-30)
         pen.write('Area of Each Room' ,font=("Arial", 20, "normal"))
         for i in range(0,len(graph.area)):
-            shape=graph.final_traversal[i]
+            shape=shapes[i]
             heigt=shape[1][1] - shape[0][1]
             width=shape[3][0] - shape[0][0]
             pen.setposition(dim[0]* scale + origin['x']+50, dim[1]* scale + origin['y']-30-value*30)
