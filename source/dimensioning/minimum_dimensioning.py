@@ -218,6 +218,8 @@ def construct_constraintgraphX(small_positive = 0.5):
                 if (data['edges'][j]['source'] == x and data['edges'][j]['target'] == i) or (data['edges'][j]['source'] == i and data['edges'][j]['target'] == x) :
                     if(data ['edges'][j]['color'] == 'red') :
                         small_positive = 3
+                    elif(data ['edges'][j]['color'] == 'black') :
+                        small_positive=0.5
 
 
             left_wall_x = 2 * x - 1
@@ -292,6 +294,9 @@ def construct_constraintgraphY(small_positive = 0.5):
                 if (data['edges'][j]['source'] == x and data['edges'][j]['target'] == i) or (data['edges'][j]['source'] == i and data['edges'][j]['target'] == x) :
                     if(data ['edges'][j]['color'] == 'red') :
                         small_positive = 3
+                    elif(data ['edges'][j]['color'] == 'black'):
+                        small_positive=0.5 
+        
 
             left_wall_x = 2 * x - 1
             right_wall_x = 2 * x
@@ -510,26 +515,28 @@ def compute_rot(small_positive = 0.5):
         rotx1[2*i-1]=max(rotx1[2*i-1],placementx[2*i-1]+data['nodes'][i-1]['min_width'])
         roty1[2*i-2]=max(roty1[2*i-2],placementy[2*i]+data['nodes'][i-1]['min_height'])
         roty2[2*i-1]=min(roty2[2*i-1],placementy[2*i-1]-data['nodes'][i-1]['min_height'])
-
+    
+    #print("debug",roty2[5])
     for i in range(1,rooms+1):
         for x in adj[i]:
             type_val = adj_type[(i, x)]
-            if type_val==1:#1st wall of ith room will be 
+            if type_val==1:#ith room is on right
                 b=data['nodes'][x-1]['min_width']+placementx[2*x-1]
                 rotx1[2*i-2]=max(rotx1[2*i-2],b)
 
-            elif type_val==2:
+            elif type_val==2:#ith room is on left
                 a=placementx[2*x]-data['nodes'][x-1]['min_width']
                 rotx2[2*i-1]=min(rotx2[2*i-1],a)
 
-            elif type_val==3:
+            elif type_val==3:#ith room is in bottom
                 a=placementy[2*x-1]-data['nodes'][x-1]['min_height']
                 roty2[2*i-2]=min(roty2[2*i-2],a)
 
-            elif type_val==4:
+            elif type_val==4:#ith room is at top
                 a=placementy[2*x]+data['nodes'][x-1]['min_height']
                 roty1[2*i-1]=max(roty1[2*i-1],a)   
-
+    #print("debug",roty2[5])
+    #print("Adjacency list",adj[3])
     for i in range(1,rooms+1):#to handle the small positive 
 
         for x in adj[i]:
@@ -537,6 +544,8 @@ def compute_rot(small_positive = 0.5):
                 if (data['edges'][j]['source'] == x and data['edges'][j]['target'] == i) or (data['edges'][j]['source'] == i and data['edges'][j]['target'] == x) :
                     if(data ['edges'][j]['color'] == 'red') :
                         small_positive = 3
+                    elif(data ['edges'][j]['color'] == 'black'):
+                        small_positive = 0.5
              #print("Change to be noted",small_positive)
              type_val = adj_type[(i, x)]
              if type_val==1 or type_val==2:
@@ -545,6 +554,8 @@ def compute_rot(small_positive = 0.5):
                  if roty1[2*i-2]<a:
                     roty1[2*i-2]=a
                  if roty2[2*i-1]>b:
+                    #print("small positive",small_positive)
+                    #print("change in rot",b,i,x)
                     roty2[2*i-1]=b 
              if type_val==3 or type_val==4:
                  a=placementx[2*x-1]+small_positive
@@ -553,7 +564,7 @@ def compute_rot(small_positive = 0.5):
                     rotx1[2*i-1]=a
                  if rotx2[2*i-2]>b:
                     rotx2[2*i-2]=b 
-
+    #print("debug",roty2[5])
     for i in range(1,rooms+1):#to make sure that same walls have same range of tolerance
         for x in adj[i]:
             type_val=adj_type[(i,x)]
@@ -585,7 +596,7 @@ def compute_rot(small_positive = 0.5):
                 roty1[2*x-2]=a
                 roty2[2*i-1]=b
                 roty2[2*x-2]=b      
-
+    #print("debug",roty2[5])    
                 
 
 
@@ -714,6 +725,7 @@ def main(file_path, plot_width, plot_height):
     compute_rot()
     print_rot()
     edit_placements()
+    #print_placements()
     create_json()
     return True
 
