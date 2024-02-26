@@ -59,6 +59,7 @@ def draw_rdg(graph,count,pen,mode,color_list,room_names,origin,scale=True):
     pen.hideturtle()
     pen.penup()
     shapes=graph.final_traversal
+    graph.area=[]
     find_areas(graph)
     print(graph.area)
     max_area=np.amax(graph.area)
@@ -110,13 +111,15 @@ def draw_rdg(graph,count,pen,mode,color_list,room_names,origin,scale=True):
                               ' W: ' + str(width)
                               ,font=("Arial", 15, "normal"))
                 else:
-                    pen.write(str(room_names[i]) + ': ' + str(graph.area[i]),font=("Arial", 15, "normal"))
+                    pen.write(str(room_names[i]) + ': '+
+                              'Area: '+ str(graph.area[i])+
+                              ' H: ' + str(heigt)+
+                              ' W: ' + str(width),
+                              font=("Arial", 15, "normal"))
             else:
                 if not room_names:
                     pen.write('Room ' + str(i)+ ': ' +
-                              'Area: '+ str(graph.area[i])+
-                              'H: ' + str(heigt)+
-                              'W: ' + str(width),
+                              'Area: '+ str(graph.area[i]),
                               font=("Arial", 15, "normal"))
                 else:
                     pen.write(str(room_names[i]) + ': ' + str(graph.area[i]),font=("Arial", 15, "normal"))
