@@ -64,11 +64,12 @@ def draw_rdg(graph,count,pen,mode,color_list,room_names,origin,scale=True):
     max_area=np.amax(graph.area)
     plot_area=np.sum(graph.area)
     scale=100*(math.exp(-0.3*math.sqrt(max_area)+math.log(0.8))+0.1)
-    # dim gives the approximate bounding box for the rfp
+    # dim gives the bounding box for the rfp
     dim=[0,0]
     dim[0] = max(coord[0] for shape in shapes for coord in shape)
     dim[1] = max(coord[1] for shape in shapes for coord in shape)
     origin = {'x': origin - 100, 'y': -100}
+    #Drawing the rooms
     for i, shape_coords in enumerate(shapes):
         pen.fillcolor(color_list[i%len(color_list)])
         pen.begin_fill()
@@ -85,13 +86,14 @@ def draw_rdg(graph,count,pen,mode,color_list,room_names,origin,scale=True):
         pen.penup()
 
         pen.end_fill()
-
+    #Writing the Room numbers
     for i in range(len(shapes)):
         pen.setposition(((2 * shapes[i][0][0] ) * scale / 2) + origin['x'] + 5,
                         ((shapes[i][0][1] + shapes[i][1][1]) * scale / 2) + origin['y'])
         pen.write(i)
         pen.penup()
-    value = 1    
+    value = 1
+    #Writing areas of each room and height width for rectangular rooms
     if(len(graph.area) != 0):
         pen.setposition(dim[0]* scale + origin['x']+50, dim[1]* scale + origin['y']-30)
         pen.write('Area of Each Room' ,font=("Arial", 20, "normal"))
