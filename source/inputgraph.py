@@ -1113,6 +1113,25 @@ def merge_traversal(list1, list2, index):
 
     return newList
 
+# def get_circular_traversal(self,):
+#     _circular_traversal = []
+#     for i in range(len(room_x)):
+#         list_ = []
+#         list_.append(tuple([room_x[i], room_y[i]]))
+#         list_.append (tuple([room_x[i], room_y[i] + room_height[i]]))
+#         list_.append(tuple([room_x[i] + room_width[i], room_y[i]+room_height[i]]))
+#         list_.append(tuple([room_x[i] + room_width[i], room_y[i]]))
+#         _circular_traversal.append(list_)
+#     return _circular_traversal
+
+def get_circular_traversal(room_x,room_y,room_width,room_height,room_index):
+    list_ = []
+    list_.append(tuple([room_x[room_index], room_y[room_index]]))
+    list_.append (tuple([room_x[room_index], room_y[room_index] + room_height[room_index]]))
+    list_.append(tuple([room_x[room_index] + room_width[room_index], room_y[room_index]+room_height[room_index]]))
+    list_.append(tuple([room_x[room_index] + room_width[room_index], room_y[room_index]]))
+    return list_
+
 def get_final_traversal(graph):
 
     
@@ -1120,11 +1139,7 @@ def get_final_traversal(graph):
     # print(" x : ", graph.room_x, " y : ",graph.room_y)
     # print(" w : ",graph.room_width, " h : ",graph.room_height)
     for i in range(len(graph.room_x)):
-        list_ = []
-        list_.append(tuple([graph.room_x[i], graph.room_y[i]]))
-        list_.append (tuple([graph.room_x[i], graph.room_y[i] + graph.room_height[i]]))
-        list_.append(tuple([graph.room_x[i] + graph.room_width[i], graph.room_y[i]+graph.room_height[i]]))
-        list_.append(tuple([graph.room_x[i] + graph.room_width[i], graph.room_y[i]]))
+        list_  = get_circular_traversal(graph.room_x,graph.room_y,graph.room_width,graph.room_height,i)
         graph.circular_traversal.append(list_)
         # print(i ,": ", list_)
 

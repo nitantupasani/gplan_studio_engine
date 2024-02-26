@@ -815,10 +815,10 @@ def run():
 
                     for i in range(len(old_unchanged_coordinates)):
                         if(i==gclass.room_limits):
-                            _circular_traversal.append(newCoordsInstance.circularTraversalForMain(-1))
+                            _circular_traversal.append(newCoordsInstance.circularTraversalOfSelectedRoomForMain())
                             
                         elif(old_unchanged_coordinates[i]==True):
-                            _circular_traversal.append(newCoordsInstance.circularTraversalForMain(i))
+                            _circular_traversal.append(inputgraph.get_circular_traversal(graph_data['room_x'],graph_data['room_y'],graph_data['room_width'],graph_data['room_height'],i))
                         else:
                             _circular_traversal.append(newCoordsInstance.adjrooms[k].coord())
                             k = k + 1
