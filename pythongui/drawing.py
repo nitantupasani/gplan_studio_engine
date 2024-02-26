@@ -44,7 +44,7 @@ def find_points(x1, y1, x2, y2,
 # Draw rectangular dual of graph
 # import turtle as pen
 def find_areas(graph):
-    for shape in shapes:
+    for shape in graph.final_traversal:
         area = 0
         for j in range(len(shape) ):
             x1, y1 = shape[j]
@@ -106,8 +106,8 @@ def draw_rdg(graph,count,pen,mode,color_list,room_names,origin,scale=True):
                 if not room_names:
                     pen.write('Room ' + str(i)+ ': '+
                               'Area: '+ str(graph.area[i])+
-                              'H: ' + str(heigt)+
-                              'W: ' + str(width)
+                              ' H: ' + str(heigt)+
+                              ' W: ' + str(width)
                               ,font=("Arial", 15, "normal"))
                 else:
                     pen.write(str(room_names[i]) + ': ' + str(graph.area[i]),font=("Arial", 15, "normal"))
