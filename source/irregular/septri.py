@@ -34,7 +34,7 @@ def sign(x1, y1, x2, y2, x3, y3):
     """
     return (x1 - x3) * (y2 - y3) - (x2 - x3) * (y1 - y3)
 
-def point_in_triangle(x1, y1, x2, y2, x3, y3, x, y):
+def point_in_triangle(x1, y1, x2, y2, x3, y3, x, y, nodeId, face, adjacency):
     """Checks if a point is inside the triangle.
 
     Args:
@@ -50,7 +50,13 @@ def point_in_triangle(x1, y1, x2, y2, x3, y3, x, y):
     has_neg = (d1 < 0) or (d2 < 0) or (d3 < 0)
     has_pos = (d1 > 0) or (d2 > 0) or (d3 > 0)
 
-    return not (has_neg and has_pos)
+    interior_pos = not (has_neg and has_pos)
+
+    if((adjacency[nodeId][face[0]] == 1) and (adjacency[nodeId][face[1]] == 1) and (adjacency[nodeId][face[2]] == 1) ):     
+        if interior_pos:
+            return True
+
+    return False
 
 def get_edges(cycle):
     """Returns edges of a cycle.
@@ -61,7 +67,7 @@ def get_edges(cycle):
     Returns:
         A list of tuples containing each edge's vertices in sorted order.
     """
-    return [tuple(sorted([cycle[i], cycle[(i+1)%3]])) for i in range(len(cycle))]
+    return [tuple(sorted([cycle[i], cycle[(i+1)%len(cycle)]])) for i in range(len(cycle))]
 
 def add_edge_to_cover(edge, edge_cover, separating_triangles, separating_edges, separating_edge_to_triangles):
     """Add the edge of separating triangle to edge cover.
@@ -317,7 +323,7 @@ def handle_STs(adjacency, positions, num_expected_outputs):
             ## Search for node within triangle
             if (point_in_triangle(origin_pos[face[0]][0], origin_pos[face[0]][1], origin_pos[face[1]][0],
                                 origin_pos[face[1]][1], origin_pos[face[2]][0],
-                                origin_pos[face[2]][1], origin_pos[NodeID][0], origin_pos[NodeID][1])):
+                                origin_pos[face[2]][1], origin_pos[NodeID][0], origin_pos[NodeID][1], NodeID, face, adjacency )):
                 flag = True
                 break
 
@@ -356,7 +362,7 @@ def handle_STs(adjacency, positions, num_expected_outputs):
         extra_nodes_pair.append(extra_nodes)
         graphs.append(graph_copy)
     
-    # nx.draw_networkx(graph)
+    # nx.draw_planar(graph)
 
     adjacencies = [nx.to_numpy_array(graph).astype(int) for graph in graphs]
     return adjacencies, extra_nodes_pair
@@ -367,6 +373,56 @@ def check_edge_in_graph(one_connected, triangle):
             return False
     
     return True
+
+def calc_all_triangles(graph):
+    all_cliques = list(nx.enumerate_all_cliques(graph))
+    all_triangles = [sorted(i) for i in all_cliques if len(i) == 3]
+    all_triangles = [list(triangle) for triangle in np.unique(all_triangles, axis=0)]
+    return all_triangles
+
+def get_sep_triangles_and_edges(all_triangles, num_nodes, origin_pos, adjacency):
+    triangular_faces = []
+    separating_triangles = []
+    separating_edges = []       ## edges of separating triangles
+    separating_edge_to_triangles = dict()
+    edge_to_faces = dict()
+
+    for face in all_triangles:
+        flag = False
+        for NodeID in range(num_nodes):
+            if NodeID in face:
+                continue
+
+            ## Search for node within triangle
+            if (point_in_triangle(origin_pos[face[0]][0], origin_pos[face[0]][1], origin_pos[face[1]][0],
+                                origin_pos[face[1]][1], origin_pos[face[2]][0],
+                                origin_pos[face[2]][1], origin_pos[NodeID][0], origin_pos[NodeID][1], NodeID, face, adjacency)):
+                flag = True
+
+
+        if not flag:
+            ## Add face information to edge_to_faces
+            triangular_faces.append(face)
+            for edge in get_edges(face):
+                if(edge not in edge_to_faces):
+                    edge_to_faces[edge] = []
+                edge_to_faces[edge].append(face)
+
+        else:
+            ## Add ST information to separating_triangles, separating_edges and separating_edge_to_triangles
+            separating_triangle = tuple(sorted([face[0], face[1], face[2]]))
+            separating_triangles.append(separating_triangle)
+
+            edges = get_edges(face)
+            separating_edges.extend(edges)
+
+            for edge in edges:
+                if(edge not in separating_edge_to_triangles):
+                    separating_edge_to_triangles[edge] = []
+                separating_edge_to_triangles[edge].append(separating_triangle)
+    separating_edges = list(set(separating_edges))
+
+    return separating_triangles, separating_edges, separating_edge_to_triangles, edge_to_faces
 
 def handle_STs_with_edge_selection(one_connected, adjacency, positions, num_expected_outputs):
     """Handles separating triangles in a given adjacency matrix.
@@ -391,7 +447,8 @@ def handle_STs_with_edge_selection(one_connected, adjacency, positions, num_expe
         for column in range(num_nodes):
             if(adjacency[row][column]):
                 graph.add_edge(row, column)
-    origin_pos = positions
+    # origin_pos = positions
+    origin_pos = nx.planar_layout(graph)
 
     #printing the graph 
     pos=nx.spring_layout(graph) # positions for all nodes
@@ -402,9 +459,7 @@ def handle_STs_with_edge_selection(one_connected, adjacency, positions, num_expe
     
 
     ## Get all cycles of length 3
-    all_cliques = list(nx.enumerate_all_cliques(graph))
-    all_triangles = [sorted(i) for i in all_cliques if len(i) == 3]
-    all_triangles = [list(triangle) for triangle in np.unique(all_triangles, axis=0)]
+    all_triangles = calc_all_triangles(graph)
     st_with_internal_node = dict()
 
     for face in all_triangles:
@@ -414,7 +469,7 @@ def handle_STs_with_edge_selection(one_connected, adjacency, positions, num_expe
             ## Search for node within triangle, storing the separating traingles wrt the internal node
             if (point_in_triangle(origin_pos[face[0]][0], origin_pos[face[0]][1], origin_pos[face[1]][0],
                                 origin_pos[face[1]][1], origin_pos[face[2]][0],
-                                origin_pos[face[2]][1], origin_pos[NodeID][0], origin_pos[NodeID][1])):
+                                origin_pos[face[2]][1], origin_pos[NodeID][0], origin_pos[NodeID][1], NodeID, face, adjacency )):
                 if NodeID not in st_with_internal_node :
                     st_with_internal_node[NodeID] = [tuple(sorted([face[0], face[1], face[2]]))]
                 else:
@@ -422,7 +477,7 @@ def handle_STs_with_edge_selection(one_connected, adjacency, positions, num_expe
     
     # number of separating traingles in the graph
     total_STs = len(st_with_internal_node)
-
+    print("separating trngs", st_with_internal_node)
     for i in st_with_internal_node.keys():
         # check if edge is in original graph
         for triangle in  st_with_internal_node[i]:
@@ -449,7 +504,7 @@ def handle_STs_with_edge_selection(one_connected, adjacency, positions, num_expe
                         print("edge-removed1:",tuple([edge[0], edge[1]])," from triangle:",triangle )
                         for i in  st_with_internal_node.keys():
                             for trngl in st_with_internal_node[i]:
-                                if(tuple([edge[0], edge[1]]) in get_edges(trngl)):
+                                if(tuple([edge[0], edge[1]]) in get_edges(trngl+(i,))or (tuple([edge[1], edge[0]]) in get_edges(trngl+(i,)))):
                                     st_with_internal_node[i].remove(trngl)
                                     if(list(trngl) in all_triangles):
                                             all_triangles.remove(list(trngl))
@@ -457,70 +512,55 @@ def handle_STs_with_edge_selection(one_connected, adjacency, positions, num_expe
                         total_STs-=1
                         flag = True
                         break
-                    
+                    # origin_pos = nx.planar_layout(graph)
                 # traverse list of possible elimination for edges
                 if(not flag):
-                    # selection of non exterior, planarity TODO:
                     for nbr in nx.common_neighbors(graph, edge[0], edge[1]):
-                        if(nbr != i):
+                        if((nbr != i) and (nbr not in triangle) and(graph.has_edge(nbr,i)==False) and(graph.has_edge(edge[0], edge[1]))):
                             graph.add_edge(nbr, i)
                             print("edge-added2:",tuple([nbr,i])," from triangle:",triangle )
                             graph.remove_edge(edge[0], edge[1])
+                            print("edge-removed2:",tuple([edge[0], edge[1]])," from triangle:",triangle )
+
+                            # add edge to all triangles list
+                            all_triangles = calc_all_triangles(graph)
+
+                            origin_pos = nx.planar_layout(graph)
+                            adjacency=nx.adjacency_matrix(graph).toarray()
+                            separating_triangles, separating_edges, separating_edge_to_triangles, edge_to_faces = get_sep_triangles_and_edges(all_triangles, num_nodes, origin_pos, adjacency)
+                            if(len(separating_triangles) > total_STs-1):
+                            # if(not planar):
+                                graph.remove_edge(nbr, i)
+                                graph.add_edge(edge[0], edge[1])
+                                all_triangles = calc_all_triangles(graph)
+
+                                print("changes revoked")
+                                continue
+
                             for i in  st_with_internal_node.keys():
                                 for trngl in st_with_internal_node[i]:
-                                    if(tuple([edge[0], edge[1]]) in get_edges(trngl)):
+                                    # print("4 tuple ", trngl+(i,))
+                                    if((tuple([edge[0], edge[1]]) in get_edges(trngl+(i,))) or (tuple([edge[1], edge[0]]) in get_edges(trngl+(i,))) ):
                                         st_with_internal_node[i].remove(trngl)
                                         if(list(trngl) in all_triangles):
                                             all_triangles.remove(list(trngl))
-                            print("planarity test post addition2: ", nx.check_planarity(graph))
+
                             print("edge-removed2:",tuple([edge[0], edge[1]])," from triangle:",triangle )
-                            total_STs-=1
+                            origin_pos = nx.planar_layout(graph)
+                            adjacency=nx.adjacency_matrix(graph).toarray()
+                            separating_triangles, separating_edges, separating_edge_to_triangles, edge_to_faces = get_sep_triangles_and_edges(all_triangles, num_nodes, origin_pos, adjacency)
+                            print("post sep_tri: ", separating_triangles)
+                            print("st_with_internal_node: ", st_with_internal_node)
+                            total_STs = len(separating_triangles)
                             break
     
+    # nx.draw_planar(graph)
     nx.draw_networkx(graph)
     adjacency=nx.adjacency_matrix(graph).toarray()
-    if total_STs != 0:
-        triangular_faces = []
-        separating_triangles = []
-        separating_edges = []       ## edges of separating triangles
-        separating_edge_to_triangles = dict()
-        edge_to_faces = dict()
-
-        for face in all_triangles:
-            flag = False
-            for NodeID in range(num_nodes):
-                if NodeID in face:
-                    continue
-
-                ## Search for node within triangle
-                if (point_in_triangle(origin_pos[face[0]][0], origin_pos[face[0]][1], origin_pos[face[1]][0],
-                                    origin_pos[face[1]][1], origin_pos[face[2]][0],
-                                    origin_pos[face[2]][1], origin_pos[NodeID][0], origin_pos[NodeID][1])):
-                    flag = True
-
-
-            if not flag:
-                ## Add face information to edge_to_faces
-                triangular_faces.append(face)
-                for edge in get_edges(face):
-                    if(edge not in edge_to_faces):
-                        edge_to_faces[edge] = []
-                    edge_to_faces[edge].append(face)
-
-            else:
-                ## Add ST information to separating_triangles, separating_edges and separating_edge_to_triangles
-                separating_triangle = tuple(sorted([face[0], face[1], face[2]]))
-                separating_triangles.append(separating_triangle)
-
-                edges = get_edges(face)
-                separating_edges.extend(edges)
-
-                for edge in edges:
-                    if(edge not in separating_edge_to_triangles):
-                        separating_edge_to_triangles[edge] = []
-                    separating_edge_to_triangles[edge].append(separating_triangle)
-        separating_edges = list(set(separating_edges))
-
+    if total_STs > 0:
+        origin_pos = nx.planar_layout(graph)
+        separating_triangles, separating_edges, separating_edge_to_triangles, edge_to_faces = get_sep_triangles_and_edges(all_triangles, num_nodes, origin_pos, adjacency)
+        print("sep tri in prev algo: ", separating_triangles)
         covers = list(get_multiple_separating_edge_covers(num_expected_outputs, separating_triangles, separating_edges, separating_edge_to_triangles))
 
         graphs = []
@@ -528,16 +568,18 @@ def handle_STs_with_edge_selection(one_connected, adjacency, positions, num_expe
         for i in range(len(covers)):
             graph_copy = graph.copy()
             # origin_pos = nx.get_node_attributes(graph, 'pos')
-            nx.draw_networkx(graph)
+            # nx.draw_planar(graph)
             extra_nodes = remove_separating_triangles(graph_copy, covers[i], copy.deepcopy(edge_to_faces))
             extra_nodes_pair.append(extra_nodes)
             graphs.append(graph_copy)
-        
-        # nx.draw_networkx(graph)
+    
+        nx.draw_networkx(graph)
 
         adjacencies = [nx.to_numpy_array(graph).astype(int) for graph in graphs]
         return adjacencies, extra_nodes_pair 
     adjacencies = [nx.to_numpy_array(graph).astype(int)]
     
+    nx.draw_planar(graph)
+    # nx.draw_networkx(graph)
     return adjacencies, []
             
