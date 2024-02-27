@@ -1173,7 +1173,7 @@ def get_final_traversal(graph):
                 break
 
     for i in range(len(graph.circular_traversal)):
-        if(i not in graph.mergednodes):
+        if((i not in graph.mergednodes) and (i not in graph.extranodes)):
             graph.final_traversal.append(graph.circular_traversal[i])
     print("circular traversal for all rooms: ", graph.final_traversal)
 
