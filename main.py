@@ -900,15 +900,15 @@ def run():
                                 , origin)
                 
 
-                graph2.door_connectivity2()
-                graph2.final_traversal=inputgraph.get_final_traversal(graph2)
-                draw.draw_rdg(graph2
-                                , 1
-                                , gclass.pen
-                                , 1
-                                , gclass.value[6]
-                                ,[]
-                                , origin- 300)
+                # graph2.door_connectivity2()
+                # graph2.final_traversal=inputgraph.get_final_traversal(graph2)
+                # draw.draw_rdg(graph2
+                #                 , 1
+                #                 , gclass.pen
+                #                 , 1
+                #                 , gclass.value[6]
+                #                 ,[]
+                #                 , origin- 300)
                 
 
             gclass.time_taken = (end-start)*1000
