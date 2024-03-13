@@ -729,7 +729,7 @@ def run():
                     gclass.dimensional_constraints = [min_width, min_height, plot_width, plot_height]
                     
             elif (gclass.command == "multiple_oc"):
-                if (gclass.value[4] == 0):  # Non-Dimensioned multiple dual
+                if (gclass.value[4] == 0 and gclass.value[10] == 0):  # Non-Dimensioned multiple dual
                     start = time.time()
                     try:
                         graph.oneconnected_dual("multiple")
@@ -765,6 +765,115 @@ def run():
                         # gclass.ocan.add_tab()
                         # gclass.pen = gclass.ocan.getpen()
                         # gclass.pen.speed(0)
+                elif (gclass.value[10] == 1): # Minimum dimensioned rectangular floorplans
+                    old_dims = [[3] * gclass.value[0]
+                        , [3] * gclass.value[0]]
+                    min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(old_dims, gclass.value[0], gclass.value[5])
+                    start = time.time()
+                    try:
+                        graph.oneconnected_dual("multiple")
+                    except inputgraph.OCError:
+                        gclass.show_warning("Can not generate rectangular floorplan.")
+                        graph.irreg_multiple_dual()
+                    except inputgraph.BCNError:
+                        graph.irreg_multiple_dual()
+                    number_of_floorplans = graph.fpcnt
+                    floorplan_found = False
+
+                    # Resets the data already present for downloading catalogues
+                    gclass.output_data = []
+                    gclass.multiple_output_found = 0
+                    
+                    # Iterate through all possible floorplans to find one which satisfies the given conditions
+                    for i in range(number_of_floorplans):
+                        print("Trying floorplan number", i + 1, "to see if minimum dimension floorplan can be constructed.")
+                        floorplan_obj = input_for_min_dim.floorplan(gclass.value[3], gclass.value[4],
+                                                            gclass.value[8], gclass.value[9], gclass.corridor_thickness)
+                        enc_mat = get_encoded_matrix(gclass.value[0], graph.room_x[i], graph.room_y[i], graph.room_width[i], graph.room_height[i])
+                        floorplan_data = floorplan_obj.get_floorplan_details(
+                            gclass.value[5], gclass.value[6], gclass.value[7], min_width, min_height, graph.room_x[i], graph.room_y[i], graph.room_width[i], graph.room_height[i],
+                            gclass.value[2], enc_mat
+                        )
+                        input_path = "input_to_min_dim.json"
+                        json_data = json.dumps(floorplan_data, indent=2)
+                        with open(input_path, 'w') as json_file:
+                            json_file.write(json_data)
+                        print(f"JSON data has been written to {input_path}")
+
+                        # If floorplan satisfying the given constraints is satisfied
+                        if min_dim.main(input_path, plot_width, plot_height):
+                            output_path = "output_from_min_dim.json"
+                            with open(output_path, 'r') as file:
+                                json_content = json.load(file)
+                            
+                            room_x = [] 
+                            room_y = [] 
+                            room_width = [] 
+                            room_height = [] 
+                            room_area = []
+                            room_name = []
+                            for room_detail in json_content["nodes"]:
+                                room_x.append(room_detail["room_x"])
+                                room_y.append(room_detail["room_y"])
+                                room_width.append(room_detail["width"])
+                                room_height.append(room_detail["height"])
+                                room_area.append(room_detail["width"] * room_detail["height"])
+
+                            # Store the room labels if they have been entered
+                            for room_id in range(len(json_content["nodes"])):
+                                if "label" not in json_content["nodes"][room_id]:
+                                    room_name.append(str(room_id))
+                                else:
+                                    room_name.append(json_content["nodes"][room_id]["label"])
+                            
+                            room_x = np.array(room_x)
+                            room_y = np.array(room_y)
+                            room_width = np.array(room_width)
+                            room_height = np.array(room_height)
+                            
+                            graph_data = {
+                                'room_x': room_x,
+                                'room_y': room_y,
+                                'room_width': room_width,
+                                'room_height': room_height,
+                                'area': room_area,
+                                'extranodes': graph.extranodes,
+                                'mergednodes': graph.mergednodes,
+                                'irreg_nodes': graph.irreg_nodes1
+                            }
+                            
+                            '''
+                            Adds the graph data to output_data for downloading the catalogue and 
+                            multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
+                            '''
+                            gclass.output_data.append(graph_data)
+                            gclass.multiple_output_found = 1
+                            
+                            delete_file(input_path)
+                            delete_file(output_path)
+                            floorplan_found = True
+
+                            draw.draw_rdg(graph_data
+                                        , 1
+                                        , gclass.pen
+                                        , 1
+                                        , gclass.value[6]
+                                        , room_name
+                                        , origin)
+                            gclass.ocan.add_tab()
+                            gclass.pen = gclass.ocan.getpen()
+                            gclass.pen.speed(0)
+                        else:
+                            delete_file(input_path)
+                    if not floorplan_found:
+                        print("No floorplan found which satisfies the minimum dimensions input by user.")
+
+                    end = time.time()
+                    printe("Time taken: " + str((end - start) * 1000) + " ms")
+
+                    # Sets the ptpg object to the current graph to use for download catalogue and also stores the dimensional constraints of the graph
+                    gclass.ptpg = graph
+                    gclass.dimensional_constraints = [min_width, min_height, plot_width, plot_height]
                 else:
                     old_dims = [[0] * gclass.value[0]
                         , [0] * gclass.value[0]

@@ -115,6 +115,7 @@ class InputGraph:
         self.area = []
         self.rel_matrix_list = []
         self.floorplan_exist = False
+        self.floorplan_limit = 5
         self.fpcnt = 0
         self.coordinates = [np.array(x) for x in node_coordinates]
 
@@ -478,6 +479,7 @@ class InputGraph:
         if (len(bcn_edges) != 0 or len(trng_edges) != 0):
             self.nonrect = True
 
+        is_floorplan_limit_reached = False
         if (self.nodecnt - self.edgecnt + len(opr.get_trngls(self.matrix)) != 1):
             extranodes = []
             for edge in bcn_edges:
@@ -495,6 +497,8 @@ class InputGraph:
             ptpg_matrices, extra_nodes = st.handle_STs(self.matrix, positions, 20)
 
             for cnt in range(len(ptpg_matrices)):
+                if is_floorplan_limit_reached:
+                    break
                 self.matrix = ptpg_matrices[cnt]
                 self.nodecnt = self.matrix.shape[0]
                 self.edgecnt = int(np.count_nonzero(self.matrix == 1) / 2)
@@ -509,10 +513,15 @@ class InputGraph:
                     self.matrix, self.nodecnt, self.edgecnt, bcn_edges, trng_edges, mergednodes, irreg_nodes1,
                     irreg_nodes2)
                 for bdys in cip_list:
+                    if is_floorplan_limit_reached:
+                        break
                     matrix = copy.deepcopy(self.matrix)
                     rel_matrices = generate_multiple_rel(
                         bdys, matrix, self.nodecnt, self.edgecnt)
                     for i in rel_matrices:
+                        if self.fpcnt >= self.floorplan_limit:
+                            is_floorplan_limit_reached = True
+                            break
                         self.fpcnt += 1
                         self.rel_matrix_list.append(i)
                         self.mergednodes.append(mergednodes)
@@ -540,10 +549,15 @@ class InputGraph:
             self.matrix, cip_list, self.nodecnt, self.edgecnt, mergednodes, irreg_nodes1, irreg_nodes2 = generate_multiple_bdy(
                 self.matrix, self.nodecnt, self.edgecnt, bcn_edges, trng_edges, mergednodes, irreg_nodes1, irreg_nodes2)
             for bdys in cip_list:
+                if is_floorplan_limit_reached:
+                    break
                 matrix = copy.deepcopy(self.matrix)
                 rel_matrices = generate_multiple_rel(
                     bdys, matrix, self.nodecnt, self.edgecnt)
                 for i in rel_matrices:
+                    if self.fpcnt >= self.floorplan_limit:
+                        is_floorplan_limit_reached = True
+                        break
                     self.fpcnt += 1
                     self.rel_matrix_list.append(i)
                     self.mergednodes.append([])
