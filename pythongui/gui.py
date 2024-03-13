@@ -91,6 +91,7 @@ class treenode:
 
 class gui_class:
 
+    dimensional_constraints = []
 
     def __init__(self):
         
@@ -219,7 +220,6 @@ class gui_class:
         self.num_rfp = 0
         self.pdf_colors = []
         self.multiple_output_found = 0
-        self.dimensional_constraints = []
 
         while ((self.value[0] == 0) and done):
             self.root.wait_variable(self.end)
@@ -1656,8 +1656,13 @@ class gui_class:
             self.textbox.insert('insert', "\t         Output\n")
 
     def graph_ret(self):
-        # value is set here 
-        self.value = self.app.return_everything()
+        # value is set here, dimensioned and mindim flags are set for graphs from input file
+        if self.open == True and len(self.value) > 0:
+            isDimensioned, isMindim = self.value[4], self.value[10]
+            self.value = self.app.return_everything()
+            self.value[4], self.value[10] = isDimensioned, isMindim
+        else:
+            self.value = self.app.return_everything()
         self.textbox = self.tbox.gettext()
 
     def single_floorplan(self):
@@ -1791,13 +1796,11 @@ class gui_class:
         fname = fname[:-3]
         fname += "png"
         self.open_ret = ast.literal_eval(f)
-        i = 0
-        for val in self.open_ret:
-            i += 1
-        value = self.open_ret[0]
+        self.value = self.open_ret[0]
         node_data = self.open_ret[1]
         edge_data = self.open_ret[2]
         con_data = self.open_ret[3]
+        self.dimensional_constraints = self.open_ret[4]
         self.app.retreive_graph(node_data, edge_data, con_data)
         self.open = True
 
@@ -2306,6 +2309,7 @@ class gui_class:
         saved_data.append(node_data)
         saved_data.append(self.app.edges)
         saved_data.append(self.app.connectivity)
+        saved_data.append(self.dimensional_constraints)
         f.write(str(saved_data))
         # f.write(str(node_data))
         l = open(".\saved_files\RFP_latest.txt", "w")

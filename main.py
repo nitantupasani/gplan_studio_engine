@@ -510,6 +510,10 @@ def run():
                         # gclass.pen.speed(0)
             elif(gclass.command == "single_oc"):
                 if(gclass.value[4] == 0 and gclass.value[10] == 0): #Non-Dimensioned single rectangular dual
+                    
+                    # If the graph came from opening an input file
+                    if gclass.open:
+                        gclass.open = False
                     start = time.time()
                     try:
                         graph.oneconnected_dual("single")
@@ -542,6 +546,8 @@ def run():
                                   , gclass.value[6]
                                   , room_name
                                   , origin)
+                    gclass.dimensional_constraints = []
+
                 elif (gclass.value[4] == 1):  # Dimensioned single floorplan
                     old_dims = [[0] * gclass.value[0]
                         , [0] * gclass.value[0]
@@ -550,6 +556,20 @@ def run():
                         , ""
                         , [0] * gclass.value[0]
                         , [0] * gclass.value[0]]
+                    
+                    # If the graph came from an input file, the default values are set
+                    if gclass.open and len(gclass.dimensional_constraints) > 0:
+                        [old_min_width, old_max_width, old_min_height, old_max_height, old_symm_string, old_min_aspect, old_max_aspect, old_plot_width, old_plot_height] = gclass.dimensional_constraints
+                        for i in range(len(old_min_width)):
+                            old_dims[0][i] = old_min_width[i]
+                            old_dims[1][i] = old_max_width[i]
+                            old_dims[2][i] = old_min_height[i]
+                            old_dims[3][i] = old_max_height[i]
+                            old_dims[4] = old_symm_string
+                            old_dims[5][i] = old_min_aspect[i]
+                            old_dims[6][i] = old_max_aspect[i]
+                        old_dims.extend([old_plot_width, old_plot_height])
+                        gclass.open = False
                     min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(
                         old_dims, gclass.value[0], gclass.value[5])
                     start = time.time()
@@ -594,9 +614,21 @@ def run():
                                   , gclass.value[6]
                                   , room_name
                                   , origin)
+                    gclass.dimensional_constraints = [min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height]
+
                 elif(gclass.value[10] == 1):
                     old_dims = [[3] * gclass.value[0]
                         , [3] * gclass.value[0]]
+                    
+                    # If the graph came from an input file, the default values are set
+                    if gclass.open and len(gclass.dimensional_constraints) > 0:
+                        [old_min_width, old_min_height, plot_width, plot_height] = gclass.dimensional_constraints
+                        print("Dim Constraints before old dims:", gclass.dimensional_constraints)
+                        for i in range(len(old_min_height)):
+                            old_dims[0][i] = old_min_width[i]
+                            old_dims[1][i] = old_min_height[i]
+                        old_dims.extend([plot_width, plot_height])
+                        gclass.open = False
                     min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(old_dims, gclass.value[0], gclass.value[5])
                     start = time.time()
                     try:
