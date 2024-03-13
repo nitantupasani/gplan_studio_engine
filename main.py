@@ -800,6 +800,15 @@ def run():
                 elif (gclass.value[10] == 1): # Minimum dimensioned rectangular floorplans
                     old_dims = [[3] * gclass.value[0]
                         , [3] * gclass.value[0]]
+                    # If the graph came from an input file, the default values are set
+                    if gclass.open and len(gclass.dimensional_constraints) > 0:
+                        [old_min_width, old_min_height, plot_width, plot_height] = gclass.dimensional_constraints
+                        print("Dim Constraints before old dims:", gclass.dimensional_constraints)
+                        for i in range(len(old_min_height)):
+                            old_dims[0][i] = old_min_width[i]
+                            old_dims[1][i] = old_min_height[i]
+                        old_dims.extend([plot_width, plot_height])
+                        gclass.open = False
                     min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(old_dims, gclass.value[0], gclass.value[5])
                     start = time.time()
                     try:
@@ -906,7 +915,7 @@ def run():
                     # Sets the ptpg object to the current graph to use for download catalogue and also stores the dimensional constraints of the graph
                     gclass.ptpg = graph
                     gclass.dimensional_constraints = [min_width, min_height, plot_width, plot_height]
-                else:
+                else: # Dimensioned rectangular floorplans
                     old_dims = [[0] * gclass.value[0]
                         , [0] * gclass.value[0]
                         , [0] * gclass.value[0]
