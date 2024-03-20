@@ -999,28 +999,141 @@ def run():
                         ,origin,gclass.outer_boundary, gclass.shape)
                 
             elif (gclass.command == "door_connectivity"):  # Door Connectivity Floorplan
-                start = time.time()
-                graph.door_connectivity()
+                if gclass.value[10] == 1:
+                    old_dims = [[3] * gclass.value[0]
+                        , [3] * gclass.value[0]]
+                    # If the graph came from an input file, the default values are set
+                    if gclass.open and len(gclass.dimensional_constraints) > 0:
+                        [old_min_width, old_min_height, plot_width, plot_height] = gclass.dimensional_constraints
+                        print("Dim Constraints before old dims:", gclass.dimensional_constraints)
+                        for i in range(len(old_min_height)):
+                            old_dims[0][i] = old_min_width[i]
+                            old_dims[1][i] = old_min_height[i]
+                        old_dims.extend([plot_width, plot_height])
+                        gclass.open = False
+                    min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(old_dims, gclass.value[0], gclass.value[5])
+                    start = time.time()
+                    graph.door_connectivity()
+
+                    # Resets the data already present for downloading catalogues
+                    gclass.output_data = []
+                    gclass.multiple_output_found = 0
+                    
+                    print("Trying floorplan number", i + 1, "to see if minimum dimension floorplan can be constructed.")
+                    floorplan_obj = input_for_min_dim.floorplan(gclass.value[3], gclass.value[4],
+                                                        gclass.value[8], gclass.value[9], gclass.corridor_thickness)
+                    enc_mat = get_encoded_matrix(gclass.value[0], graph.room_x, graph.room_y, graph.room_width, graph.room_height)
+                    floorplan_data = floorplan_obj.get_floorplan_details(
+                        gclass.value[5], gclass.value[6], gclass.value[7], min_width, min_height, graph.room_x, graph.room_y, graph.room_width, graph.room_height,
+                        gclass.value[2], enc_mat
+                    )
+                    input_path = "input_to_min_dim.json"
+                    json_data = json.dumps(floorplan_data, indent=2)
+                    with open(input_path, 'w') as json_file:
+                        json_file.write(json_data)
+                    print(f"JSON data has been written to {input_path}")
+
+                    # If floorplan satisfying the given constraints is satisfied
+                    if min_dim.main(input_path, plot_width, plot_height):
+                        output_path = "output_from_min_dim.json"
+                        with open(output_path, 'r') as file:
+                            json_content = json.load(file)
+                        
+                        room_x = [] 
+                        room_y = [] 
+                        room_width = [] 
+                        room_height = []
+                        room_area = []
+                        room_name = []
+                        for room_detail in json_content["nodes"]:
+                            room_x.append(room_detail["room_x"])
+                            room_y.append(room_detail["room_y"])
+                            room_width.append(room_detail["width"])
+                            room_height.append(room_detail["height"])
+                            room_area.append(room_detail["width"] * room_detail["height"])
+
+                        # Store the room labels if they have been entered
+                        for room_id in range(len(json_content["nodes"])):
+                            if "label" not in json_content["nodes"][room_id]:
+                                room_name.append(str(room_id))
+                            else:
+                                room_name.append(json_content["nodes"][room_id]["label"])
+                        
+                        room_x = np.array(room_x)
+                        room_y = np.array(room_y)
+                        room_width = np.array(room_width)
+                        room_height = np.array(room_height)
+                        
+                        graph_data = {
+                            'room_x': room_x,
+                            'room_y': room_y,
+                            'room_width': room_width,
+                            'room_height': room_height,
+                            'area': room_area,
+                            'extranodes': graph.extranodes,
+                            'mergednodes': graph.mergednodes,
+                            'irreg_nodes': graph.irreg_nodes1
+                        }
+                        
+                        '''
+                        Adds the graph data to output_data for downloading the catalogue and 
+                        multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
+                        '''
+                        gclass.output_data.append(graph_data)
+                        gclass.multiple_output_found = 1
+                        
+                        delete_file(input_path)
+                        delete_file(output_path)
+
+                        draw.draw_rdg(graph_data
+                                    , 1
+                                    , gclass.pen
+                                    , 1
+                                    , gclass.value[6]
+                                    , room_name
+                                    , origin)
+                        
+                        # Sets the ptpg object to the current graph to use for download catalogue and also stores the dimensional constraints of the graph
+                        gclass.ptpg = graph
+                        gclass.dimensional_constraints = [min_width, min_height, plot_width, plot_height]
+                
+                else:
+                    # If the graph came from opening an input file
+                    if gclass.open:
+                        gclass.open = False
+                        
+                    # Resets the data already present for downloading catalogues
+                    gclass.output_data = []
+                    gclass.multiple_output_found = 0
+
+                    start = time.time()
+                    graph.door_connectivity()
+                    graph_data = {
+                        'room_x': graph.room_x,
+                        'room_y': graph.room_y,
+                        'room_width': graph.room_width,
+                        'room_height': graph.room_height,
+                        'area': graph.area,
+                        'extranodes': graph.extranodes,
+                        'mergednodes': graph.mergednodes,
+                        'irreg_nodes': graph.irreg_nodes1
+                    }
+
+                    # If room labels are provided, they are stored else left empty
+                    room_name = []
+                    if len(gclass.value[5]) > 0:
+                        room_name = gclass.value[5]
+                    draw.draw_rdg(graph_data
+                                    , 1
+                                    , gclass.pen
+                                    , 1
+                                    , gclass.value[6]
+                                    , room_name
+                                    , origin)
+                    gclass.dimensional_constraints = []
+                    
                 end = time.time()
                 printe("Time taken: " + str((end - start) * 1000) + " ms")
-                graph_data = {
-                    'room_x': graph.room_x,
-                    'room_y': graph.room_y,
-                    'room_width': graph.room_width,
-                    'room_height': graph.room_height,
-                    'area': graph.area,
-                    'extranodes': graph.extranodes,
-                    'mergednodes': graph.mergednodes,
-                    'irreg_nodes': graph.irreg_nodes1
-                }
-                gclass.output_data.append(graph_data)
-                draw.draw_rdg(graph_data
-                                , 1
-                                , gclass.pen
-                                , 1
-                                , gclass.value[6]
-                                , []
-                                , origin)
 
             gclass.time_taken = (end-start)*1000
             gclass.num_rfp = len(graph.room_x)
