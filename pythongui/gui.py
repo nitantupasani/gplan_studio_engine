@@ -2165,6 +2165,7 @@ class gui_class:
         clear_button.grid(row = 7, column = 2, pady=10)
         ex = tk.Button(root,text = "Submit",command = self.corridor_thickness_gui, justify=tk.CENTER)
         ex.grid(padx=100, pady=20)
+        self.radio_desel("menu")
     
 
     def corridor_thickness_gui(self):
