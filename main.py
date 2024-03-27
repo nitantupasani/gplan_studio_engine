@@ -83,7 +83,155 @@ def run():
                 is_dimensioned = False
                 remove_corridor = False
                 dim_constraints = []
-                if (gclass.value[8] == 0 and gclass.value[9] == 0): #Non-dimensioned single circulation
+                if (gclass.value[10] == 1): # Minimum dimensioned circulation
+                    old_dims = [[3] * gclass.value[0]
+                        , [3] * gclass.value[0]]
+                    
+                    # If the graph came from an input file, the default values are set
+                    if gclass.open and len(gclass.dimensional_constraints) > 0:
+                        [old_min_width, old_min_height, plot_width, plot_height] = gclass.dimensional_constraints
+                        print("Dim Constraints before old dims:", gclass.dimensional_constraints)
+                        for i in range(len(old_min_height)):
+                            old_dims[0][i] = old_min_width[i]
+                            old_dims[1][i] = old_min_height[i]
+                        old_dims.extend([plot_width, plot_height])
+                        gclass.open = False
+                    min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(old_dims, gclass.value[0], gclass.value[5])
+                    start = time.time()
+                    try:
+                        graph.oneconnected_dual("multiple")
+                    except inputgraph.OCError:
+                        gclass.show_warning("Can not generate rectangular floorplan.")
+                        graph.irreg_multiple_dual()
+                    except inputgraph.BCNError:
+                        graph.irreg_multiple_dual()
+                    number_of_floorplans = graph.fpcnt
+                    floorplan_found = False
+
+                    # Resets the data already present for downloading catalogues
+                    gclass.output_data = []
+                    gclass.multiple_output_found = 0
+
+                    # Variables for storing the data of the floorplan with minimal area
+                    min_area = -1
+                    min_graph_data = None
+                    areas = []
+                    
+                    # Iterate through all possible floorplans to find one which satisfies the given conditions
+                    for i in range(number_of_floorplans):
+                        print("Trying floorplan number", i + 1, "to see if minimum dimension floorplan can be constructed.")
+                        floorplan_obj = input_for_min_dim.floorplan(gclass.value[3], gclass.value[4],
+                                                            gclass.value[8], gclass.value[9], gclass.corridor_thickness)
+                        enc_mat = get_encoded_matrix(gclass.value[0], graph.room_x[i], graph.room_y[i], graph.room_width[i], graph.room_height[i])
+                        floorplan_data = floorplan_obj.get_floorplan_details(
+                            gclass.value[5], gclass.value[6], gclass.value[7], min_width, min_height, graph.room_x[i], graph.room_y[i], graph.room_width[i], graph.room_height[i],
+                            gclass.value[2], enc_mat
+                        )
+                        input_path = "input_to_min_dim.json"
+                        json_data = json.dumps(floorplan_data, indent=2)
+                        with open(input_path, 'w') as json_file:
+                            json_file.write(json_data)
+                        print(f"JSON data has been written to {input_path}")
+
+                        # If floorplan satisfying the given constraints is satisfied
+                        if min_dim.main(input_path, plot_width, plot_height):
+                            output_path = "output_from_min_dim.json"
+                            with open(output_path, 'r') as file:
+                                json_content = json.load(file)
+                            
+                            room_x = [] 
+                            room_y = [] 
+                            room_width = [] 
+                            room_height = [] 
+                            room_area = []
+                            room_name = []
+                            for room_detail in json_content["nodes"]:
+                                room_x.append(room_detail["room_x"])
+                                room_y.append(room_detail["room_y"])
+                                room_width.append(room_detail["width"])
+                                room_height.append(room_detail["height"])
+                                room_area.append(room_detail["width"] * room_detail["height"])
+
+                            # Store the room labels if they have been entered
+                            for room_id in range(len(json_content["nodes"])):
+                                if "label" not in json_content["nodes"][room_id]:
+                                    room_name.append(str(room_id))
+                                else:
+                                    room_name.append(json_content["nodes"][room_id]["label"])
+                            
+                            room_x = np.array(room_x)
+                            room_y = np.array(room_y)
+                            room_width = np.array(room_width)
+                            room_height = np.array(room_height)
+                            
+                            graph_data = {
+                                'room_x': room_x,
+                                'room_y': room_y,
+                                'room_width': room_width,
+                                'room_height': room_height,
+                                'area': room_area,
+                                'extranodes': graph.extranodes,
+                                'mergednodes': graph.mergednodes,
+                                'irreg_nodes': graph.irreg_nodes1
+                            }
+                            
+                            delete_file(input_path)
+                            delete_file(output_path)
+                            floorplan_found = True
+
+                            # If optimal area not required, store graph data
+                            if optimal_floorplan == 0:
+                                '''
+                                Adds the graph data to output_data for downloading the catalogue and 
+                                multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
+                                '''
+                                gclass.output_data.append(graph_data)
+                                break
+
+                            # Store graph data if graph area is less than current minimal area
+                            area_sum = sum(room_area)
+                            areas.append(area_sum)
+                            if min_area < 0 or area_sum < min_area:
+                                min_area = area_sum
+                                min_graph_data = graph_data
+                            
+                        else:
+                            delete_file(input_path)
+                    if not floorplan_found:
+                        print("No floorplan found which satisfies the minimum dimensions input by user.")
+                    
+                    # Store graph data with optimal area if required
+                    elif optimal_floorplan == 1:
+                        gclass.output_data.append(min_graph_data)
+
+                    end = time.time()
+                    printe("Time taken: " + str((end - start) * 1000) + " ms")
+
+                    # Sets the ptpg object to the current graph to use for download catalogue and also stores the dimensional constraints of the graph
+                    gclass.multiple_output_found = 1
+                    gclass.ptpg = graph
+                    gclass.dimensional_constraints = [min_width, min_height, plot_width, plot_height]
+
+                    mindim_graph_data = gclass.output_data[0]
+                    (new_graph_data, success) = call_circulation(mindim_graph_data, gclass, node_coord, is_dimensioned, gclass.dimensional_constraints, remove_corridor, is_minimum_dimensioned = True)
+                    print("Constraints: ", dim_constraints)
+                    print("New graph data: ", new_graph_data)
+                    print("success: ", success)
+
+                    # Resets the flag for minimum dimensioned circulation as it is the same flag as minimum dimensioned floorplans
+                    gclass.checkvar4.set(0)
+
+                    # If there was some error in algorithm execution new_graph_data will be empty
+                    # we display the pop-up error message
+                    if new_graph_data == None:
+                        tk.messagebox.showerror("Error", "ERROR!! THE INITIAL CHOSEN ENTRY EDGE MUST BE EXTERIOR EDGE")
+                    
+                    # If no issues we continue to draw the corridor
+                    elif success == True:
+                        draw.draw_rdg(new_graph_data, 1, gclass.pen, 1, gclass.value[6], gclass.value[5], origin)
+                        feasible_dim = 1
+
+                elif (gclass.value[8] == 0 and gclass.value[9] == 0): #Non-dimensioned single circulation
                     start = time.time()
                     graph.irreg_single_dual()
                     end = time.time()
@@ -708,19 +856,17 @@ def run():
                                 'irreg_nodes': graph.irreg_nodes1
                             }
                             
-                            '''
-                            Adds the graph data to output_data for downloading the catalogue and 
-                            multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
-                            '''
-                            gclass.output_data.append(graph_data)
-                            gclass.multiple_output_found = 1
-                            
                             delete_file(input_path)
                             delete_file(output_path)
                             floorplan_found = True
 
                             # If optimal area not required, display floorplan
                             if optimal_floorplan == 0:
+                                '''
+                                Adds the graph data to output_data for downloading the catalogue and 
+                                multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
+                                '''
+                                gclass.output_data.append(graph_data)
                                 draw.draw_rdg(graph_data
                                             , 1
                                             , gclass.pen
@@ -745,6 +891,7 @@ def run():
                     # Display floorplan with optimal area if required
                     elif optimal_floorplan == 1:
                         print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
+                        gclass.output_data.append(min_graph_data)
                         draw.draw_rdg(min_graph_data
                                     , 1
                                     , gclass.pen
@@ -757,6 +904,7 @@ def run():
                     printe("Time taken: " + str((end - start) * 1000) + " ms")
 
                     # Sets the ptpg object to the current graph to use for download catalogue and also stores the dimensional constraints of the graph
+                    gclass.multiple_output_found = 1
                     gclass.ptpg = graph
                     gclass.dimensional_constraints = [min_width, min_height, plot_width, plot_height]
                     
@@ -1081,7 +1229,7 @@ def make_dissection_corridor(gclass):
 
 
 # def call_circulation(graph_data, edge_set, entry):
-def call_circulation(graph_data, gclass, coord, is_dimensioned, dim_constraints, remove_corridor):
+def call_circulation(graph_data, gclass, coord, is_dimensioned, dim_constraints, remove_corridor, is_minimum_dimensioned = False):
 
     g = nx.Graph()
     edge_set = gclass.value[2]
@@ -1105,6 +1253,9 @@ def call_circulation(graph_data, gclass, coord, is_dimensioned, dim_constraints,
     # Add dimensional constraints if chosen option is "dimensioned circulation"
     if is_dimensioned == True:
         circulation_obj.is_dimensioned = True
+        circulation_obj.dimension_constraints = dim_constraints
+    elif is_minimum_dimensioned == True:
+        circulation_obj.is_minimum_dimensioned = True
         circulation_obj.dimension_constraints = dim_constraints
     
     # Apply circulation algorithm

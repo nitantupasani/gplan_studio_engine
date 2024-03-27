@@ -61,6 +61,7 @@ class circulation:
         self.multiple_circ = []
         self.exterior_edges = []
         self.is_dimensioned = False
+        self.is_minimum_dimensioned = False
         self.dimensions = {}
         self.dimension_constraints = []
         self.room_area = []
@@ -513,7 +514,13 @@ class circulation:
                         # self.room_area.append(self.dimensions[i][0] * self.dimensions[i][1])
                         self.room_area.append("W:{0}; H:{1}; A:{2}".format(round(self.dimensions[i][0], 2), 
                                                 round(self.dimensions[i][1], 2), round(self.dimensions[i][0] * self.dimensions[i][1], 2)))
-        
+            elif (self.is_minimum_dimensioned == True):
+                is_feasible = self.check_mindim_feasibility()
+                self.is_dimensioning_successful = is_feasible
+                if is_feasible == True:
+                    for i in range(len(self.dimension_constraints[0])):
+                        self.room_area.append("W:{0}; H:{1}; A:{2}".format(round(self.dimensions[i][0], 2), 
+                                                round(self.dimensions[i][1], 2), round(self.dimensions[i][0] * self.dimensions[i][1], 2)))
         else:
             return
 
@@ -856,7 +863,31 @@ class circulation:
         if flag == 1:
             return False
         else:
-            return True  
+            return True
+
+    def check_mindim_feasibility(self) -> bool:
+        """This checks which dimensioned floorplans still satisfies the minimum dimensioned constraints after adding circulation
+
+        Returns:
+            bool: True if modified floorplan still satisfies dimension conditions, else False
+        """
+        # Variables declared for readability
+        min_width = self.dimension_constraints[0]
+        min_height = self.dimension_constraints[1]
+        plot_width = self.dimension_constraints[2]
+        plot_height = self.dimension_constraints[3]
+
+        flag = 0
+        for i in range(len(min_width)):
+            width = self.dimensions[i][0]
+            height = self.dimensions[i][1]
+            if (width < min_width[i] - self.corridor_thickness or height < min_height[i] - self.corridor_thickness):
+                flag = 1
+                break
+        if flag == 1:
+            return False
+        else:
+            return True
 
 # ----------------------------------------------------- HELPER FUNCTIONS -----------------------------------------------------
 def wheel_graph(n: int) -> Tuple[nx.Graph, list]:

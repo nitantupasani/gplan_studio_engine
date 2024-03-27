@@ -2069,9 +2069,15 @@ class gui_class:
             if(self.circ_choice.get() == 2):
                 self.checkvar2.set(1)
                 self.checkvar3.set(0)
+                self.checkvar4.set(0)
             elif(self.circ_choice.get() == 3):
                 self.checkvar2.set(0)
                 self.checkvar3.set(1)
+                self.checkvar4.set(0)
+            elif (self.circ_choice.get() == 4):
+                self.checkvar2.set(0)
+                self.checkvar3.set(0)
+                self.checkvar4.set(1)
         elif mode=="redundant":
             self.rem = self.opti.get()
             print("The redundant corridors will be removed")
@@ -2098,7 +2104,7 @@ class gui_class:
 
         self.top = tk.Toplevel(self.root, width=300, height=300)
         root = self.top
-        root.geometry("600x100")
+        root.geometry("1000x100")
         sub_text = tk.Label(root, text="""Choose the circulation choice:""", justify=tk.LEFT, padx=20)
         sub_text.grid(row=3)
 
@@ -2110,6 +2116,9 @@ class gui_class:
 
         btn3 = tk.Radiobutton(root, text="Remove corridors", padx=20, variable=self.circ_choice, value=3, command=lambda: self.radio_sel("menu"))
         btn3.grid(row=4, column=2)
+
+        btn4 = tk.Radiobutton(root, text="Minimum dimensioned circulation", padx=20, variable=self.circ_choice, value=4, command=lambda: self.radio_sel("menu"))
+        btn4.grid(row=4, column=3)
 
         clear_button = tk.Button(root, text="Clear Selection", command=lambda: self.radio_desel("menu"))
         clear_button.grid(row = 7, column = 2, pady=10)
