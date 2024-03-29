@@ -267,7 +267,7 @@ def run():
                     else :
                         # draw_circulation(new_graph_data, gclass.ocan.canvas, gclass.value[6], gclass.entry_door)
                         # draw_circulation(new_graph_data, gclass.pen, gclass.ocan.canvas, gclass.value[6])
-                        draw.draw_rdg(new_graph_data, 1, gclass.pen, 1, gclass.value[6], [],origin)
+                        draw.draw_rdg(new_graph_data, 1, gclass.pen, 1, gclass.value[6], gclass.value[5], origin)
 
 
                 elif(gclass.value[8] == 1 and gclass.value[9] == 0): #Dimensioned single circulation
@@ -328,7 +328,7 @@ def run():
                                 continue
                             # draw_circulation(new_graph_data, gclass.ocan.canvas, gclass.value[6], gclass.entry_door)
                             # draw_circulation(new_graph_data, gclass.pen, gclass.ocan.canvas, gclass.value[6])
-                            draw.draw_rdg(new_graph_data, 1, gclass.pen, 1, gclass.value[6], [],origin)
+                            draw.draw_rdg(new_graph_data, 1, gclass.pen, 1, gclass.value[6], gclass.value[5], origin)
                             feasible_dim = 1
                             break
                     
@@ -364,7 +364,7 @@ def run():
                     else :
                         # draw_circulation(new_graph_data, gclass.ocan.canvas, gclass.value[6], gclass.entry_door)
                         # draw_circulation(new_graph_data, gclass.pen, gclass.ocan.canvas, gclass.value[6])
-                        draw.draw_rdg(new_graph_data, 1, gclass.pen, 1, gclass.value[6], [],origin)
+                        draw.draw_rdg(new_graph_data, 1, gclass.pen, 1, gclass.value[6], gclass.value[5], origin)
 
 
 
