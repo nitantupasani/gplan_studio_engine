@@ -62,6 +62,7 @@ class circulation:
         self.exterior_edges = []
         self.is_dimensioned = False
         self.is_minimum_dimensioned = False
+        self.is_optimal = False
         self.dimensions = {}
         self.dimension_constraints = []
         self.room_area = []
