@@ -29,7 +29,7 @@ import datetime
 from fpdf import FPDF
 
 from .catalogue_maker import generate_catalogue, generate_catalogue_dimensioned, generate_mindim_catalogue
-from source.polygonal import canonical as cano
+from GPLAN.source.polygonal import canonical as cano
 
 
 if os.environ.get('DISPLAY','') == '':
