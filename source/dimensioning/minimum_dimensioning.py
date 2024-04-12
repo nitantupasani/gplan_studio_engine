@@ -635,7 +635,7 @@ def edit_placements():
     
     
 # the final file to be given to gplan to show in UI
-def create_json():
+def return_output():
     global placementx,placementy,data
     out_data={'nodes':[]}
     for i in range(rooms):
@@ -650,8 +650,7 @@ def create_json():
         out_data['nodes'].append(dic)
     # print(out_data)
 
-    with open('output_from_min_dim.json', 'w') as json_file:
-        json.dump(out_data, json_file,  indent=2)
+    return out_data
 
  
 
@@ -693,11 +692,10 @@ def reinitialize():
 
 
 # main wrapper
-def main(file_path, plot_width, plot_height):
+def main(input, plot_width, plot_height):
     global data
     reinitialize()
-    f = open(file_path)
-    data = json.load(f)
+    data = input
     for a in data['edges']:
         a['source']=a['source']+1
         a['target']=a['target']+1
@@ -719,15 +717,13 @@ def main(file_path, plot_width, plot_height):
     print_edges()  # Print edges for X and Y constraints
     if not compute_placement():  # Compute placements using longest path algorithm and return false if no legal placement found
         print_placements()
-        return False
+        return [False, None]
     print_placements()  # Print computed placements
-    create_json()
     compute_rot()
     print_rot()
     edit_placements()
-    #print_placements()
-    create_json()
-    return True
+    out_data = return_output()
+    return [True, out_data]
 
 # Main execution
 # main(file_path)
