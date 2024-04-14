@@ -60,8 +60,8 @@ def run():
 
     warnings.filterwarnings("ignore")
     gclass = gui.gui_class() 
-    for i in range(0,11):
-        print(gclass.value[i])
+    # for i in range(0,11):
+        # print(gclass.value[i])
 
     dim_circ = False
 
