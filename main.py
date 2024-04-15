@@ -19,8 +19,6 @@ import matplotlib.pyplot as plt
 import copy
 import input.input_for_min_dim as input_for_min_dim
 from source.graphoperations.operations import get_encoded_matrix
-import json
-from system_functions.os_functions import delete_file
 import source.dimensioning.minimum_dimensioning as min_dim
 
 import source.lettershape.lshape.Lshaped as Lshaped
@@ -62,8 +60,8 @@ def run():
 
     warnings.filterwarnings("ignore")
     gclass = gui.gui_class() 
-    for i in range(0,11):
-        print(gclass.value[i])
+    # for i in range(0,11):
+        # print(gclass.value[i])
 
     dim_circ = False
 
@@ -703,25 +701,17 @@ def run():
                             gclass.value[5], gclass.value[6], gclass.value[7], min_width, min_height, graph.room_x[i], graph.room_y[i], graph.room_width[i], graph.room_height[i],
                             gclass.value[2], enc_mat
                         )
-                        input_path = "input_to_min_dim.json"
-                        json_data = json.dumps(floorplan_data, indent=2)
-                        with open(input_path, 'w') as json_file:
-                            json_file.write(json_data)
-                        print(f"JSON data has been written to {input_path}")
 
                         # If floorplan satisfying the given constraints is satisfied
-                        if min_dim.main(input_path, plot_width, plot_height):
-                            output_path = "output_from_min_dim.json"
-                            with open(output_path, 'r') as file:
-                                json_content = json.load(file)
-                            
+                        [status, out_data] = min_dim.main(floorplan_data, plot_width, plot_height)
+                        if status == True:
                             room_x = [] 
                             room_y = [] 
                             room_width = [] 
                             room_height = [] 
                             room_area = []
                             room_name = []
-                            for room_detail in json_content["nodes"]:
+                            for room_detail in out_data["nodes"]:
                                 room_x.append(room_detail["room_x"])
                                 room_y.append(room_detail["room_y"])
                                 room_width.append(room_detail["width"])
@@ -729,11 +719,11 @@ def run():
                                 room_area.append(room_detail["width"] * room_detail["height"])
 
                             # Store the room labels if they have been entered
-                            for room_id in range(len(json_content["nodes"])):
-                                if "label" not in json_content["nodes"][room_id]:
+                            for room_id in range(len(out_data["nodes"])):
+                                if "label" not in out_data["nodes"][room_id]:
                                     room_name.append(str(room_id))
                                 else:
-                                    room_name.append(json_content["nodes"][room_id]["label"])
+                                    room_name.append(out_data["nodes"][room_id]["label"])
                             
                             room_x = np.array(room_x)
                             room_y = np.array(room_y)
@@ -751,8 +741,13 @@ def run():
                                 'irreg_nodes': graph.irreg_nodes1
                             }
                             
-                            delete_file(input_path)
-                            delete_file(output_path)
+                            '''
+                            Adds the graph data to output_data for downloading the catalogue and 
+                            multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
+                            '''
+                            gclass.output_data.append(graph_data)
+                            gclass.multiple_output_found = 1
+                            
                             floorplan_found = True
 
                             # If optimal area not required, display floorplan
@@ -778,8 +773,6 @@ def run():
                                 min_area = area_sum
                                 min_graph_data = graph_data
                             
-                        else:
-                            delete_file(input_path)
                     if not floorplan_found:
                         print("No floorplan found which satisfies the minimum dimensions input by user.")
                     
@@ -878,25 +871,17 @@ def run():
                             gclass.value[5], gclass.value[6], gclass.value[7], min_width, min_height, graph.room_x[i], graph.room_y[i], graph.room_width[i], graph.room_height[i],
                             gclass.value[2], enc_mat
                         )
-                        input_path = "input_to_min_dim.json"
-                        json_data = json.dumps(floorplan_data, indent=2)
-                        with open(input_path, 'w') as json_file:
-                            json_file.write(json_data)
-                        print(f"JSON data has been written to {input_path}")
 
                         # If floorplan satisfying the given constraints is satisfied
-                        if min_dim.main(input_path, plot_width, plot_height):
-                            output_path = "output_from_min_dim.json"
-                            with open(output_path, 'r') as file:
-                                json_content = json.load(file)
-                            
+                        [status, out_data] = min_dim.main(floorplan_data, plot_width, plot_height)
+                        if status == True:
                             room_x = [] 
                             room_y = [] 
                             room_width = [] 
                             room_height = [] 
                             room_area = []
                             room_name = []
-                            for room_detail in json_content["nodes"]:
+                            for room_detail in out_data["nodes"]:
                                 room_x.append(room_detail["room_x"])
                                 room_y.append(room_detail["room_y"])
                                 room_width.append(room_detail["width"])
@@ -904,11 +889,11 @@ def run():
                                 room_area.append(room_detail["width"] * room_detail["height"])
 
                             # Store the room labels if they have been entered
-                            for room_id in range(len(json_content["nodes"])):
-                                if "label" not in json_content["nodes"][room_id]:
+                            for room_id in range(len(out_data["nodes"])):
+                                if "label" not in out_data["nodes"][room_id]:
                                     room_name.append(str(room_id))
                                 else:
-                                    room_name.append(json_content["nodes"][room_id]["label"])
+                                    room_name.append(out_data["nodes"][room_id]["label"])
                             
                             room_x = np.array(room_x)
                             room_y = np.array(room_y)
@@ -932,9 +917,6 @@ def run():
                             '''
                             gclass.output_data.append(graph_data)
                             gclass.multiple_output_found = 1
-                            
-                            delete_file(input_path)
-                            delete_file(output_path)
                             floorplan_found = True
 
                             draw.draw_rdg(graph_data
@@ -947,8 +929,7 @@ def run():
                             gclass.ocan.add_tab()
                             gclass.pen = gclass.ocan.getpen()
                             gclass.pen.speed(0)
-                        else:
-                            delete_file(input_path)
+                            
                     if not floorplan_found:
                         print("No floorplan found which satisfies the minimum dimensions input by user.")
 
