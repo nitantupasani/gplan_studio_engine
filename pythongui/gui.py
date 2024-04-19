@@ -2066,6 +2066,10 @@ class gui_class:
                 self.checkvar2.set(0)
                 self.checkvar3.set(0)
                 self.checkvar4.set(1)
+            elif (self.circ_choice.get() == 5):
+                self.checkvar2.set(0)
+                self.checkvar3.set(1)
+                self.checkvar4.set(1)
         elif mode=="redundant":
             self.rem = self.opti.get()
             print("The redundant corridors will be removed")
@@ -2092,7 +2096,9 @@ class gui_class:
 
         self.top = tk.Toplevel(self.root, width=300, height=300)
         root = self.top
-        root.geometry("1000x100")
+        root.geometry("1500x100")
+        self.radio_desel("menu") # Clears previously chosen option
+
         sub_text = tk.Label(root, text="""Choose the circulation choice:""", justify=tk.LEFT, padx=20)
         sub_text.grid(row=3)
 
@@ -2107,6 +2113,9 @@ class gui_class:
 
         btn4 = tk.Radiobutton(root, text="Minimum dimensioned circulation", padx=20, variable=self.circ_choice, value=4, command=lambda: self.radio_sel("menu"))
         btn4.grid(row=4, column=3)
+
+        btn5 = tk.Radiobutton(root, text="Remove minimum dimensioned corridors", padx=20, variable=self.circ_choice, value=5, command=lambda: self.radio_sel("menu"))
+        btn5.grid(row=4, column=4)
 
         clear_button = tk.Button(root, text="Clear Selection", command=lambda: self.radio_desel("menu"))
         clear_button.grid(row = 7, column = 2, pady=10)
@@ -2153,7 +2162,6 @@ class gui_class:
         clear_button.grid(row = 7, column = 2, pady=10)
         ex = tk.Button(root,text = "Submit",command = self.corridor_thickness_gui, justify=tk.CENTER)
         ex.grid(padx=100, pady=20)
-        self.radio_desel("menu")
     
 
     def corridor_thickness_gui(self):

@@ -81,7 +81,7 @@ def run():
                 is_dimensioned = False
                 remove_corridor = False
                 dim_constraints = []
-                if (gclass.value[10] == 1): # Minimum dimensioned circulation
+                if (gclass.value[10] == 1 and gclass.value[9] == 0): # Minimum dimensioned circulation
                     old_dims = [[3] * gclass.value[0]
                         , [3] * gclass.value[0]]
                     
@@ -125,6 +125,7 @@ def run():
                         feasible_dim = 1
 
                 elif (gclass.value[8] == 0 and gclass.value[9] == 0): #Non-dimensioned single circulation
+                    print("panyamshtest: nondim_mode, rem_mode:", gclass.checkvar3.get())
                     start = time.time()
                     graph.irreg_single_dual()
                     end = time.time()
@@ -228,6 +229,52 @@ def run():
                     if(feasible_dim == 0):
                         tk.messagebox.showerror("Error", "ERROR!! NO CIRCULATION POSSIBLE FOR GIVEN DIMENSIONS")
                 
+                elif (gclass.value[10] == 1 and gclass.value[9] == 1): # Remove corridors for mindim
+                    old_dims = [[3] * gclass.value[0]
+                        , [3] * gclass.value[0]]
+                    
+                    # If the graph came from an input file, the default values are set
+                    if gclass.open and len(gclass.dimensional_constraints) > 0:
+                        [old_min_width, old_min_height, plot_width, plot_height] = gclass.dimensional_constraints
+                        print("Dim Constraints before old dims:", gclass.dimensional_constraints)
+                        for i in range(len(old_min_height)):
+                            old_dims[0][i] = old_min_width[i]
+                            old_dims[1][i] = old_min_height[i]
+                        old_dims.extend([plot_width, plot_height])
+                        gclass.open = False
+                    min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(old_dims, gclass.value[0], gclass.value[5])
+                    remove_corridor = True
+                    start = time.time()
+                    generate_mindim_rfp(graph, gclass, min_width, min_height, plot_width, plot_height, optimal_floorplan)
+                    end = time.time()
+                    printe("Time taken: " + str((end - start) * 1000) + " ms")
+
+                    # Sets the ptpg object to the current graph to use for download catalogue and also stores the dimensional constraints of the graph
+                    gclass.multiple_output_found = 1
+                    gclass.ptpg = graph
+                    gclass.dimensional_constraints = [min_width, min_height, plot_width, plot_height]
+
+                    mindim_graph_data = gclass.output_data[0]
+                    (new_graph_data, success) = call_circulation(mindim_graph_data, gclass, node_coord, is_dimensioned, gclass.dimensional_constraints, remove_corridor, is_minimum_dimensioned = True, is_optimal = optimal_floorplan)
+                    print("Constraints: ", dim_constraints)
+                    print("New graph data: ", new_graph_data)
+                    print("success: ", success)
+
+                    # Resets the flag for minimum dimensioned circulation as it is the same flag as minimum dimensioned floorplans
+                    gclass.checkvar4.set(0)
+
+                    # If there was some error in algorithm execution new_graph_data will be empty
+                    # we display the pop-up error message
+                    if new_graph_data == None:
+                        tk.messagebox.showerror("Error", "ERROR!! THE INITIAL CHOSEN ENTRY EDGE MUST BE EXTERIOR EDGE")
+                    
+                    # If no issues we continue to draw the corridor
+                    elif success == True:
+                        gclass.ocan.add_tab()
+                        gclass.pen = gclass.ocan.getpen()
+                        gclass.pen.speed(0)
+                        draw.draw_rdg(new_graph_data, 1, gclass.pen, 1, gclass.value[6], gclass.value[5], origin)
+
                 elif(gclass.value[8] == 0 and gclass.value[9] == 1): # Add/remove
                     remove_corridor = True
                     start = time.time()
