@@ -118,6 +118,7 @@ class InputGraph:
         self.floorplan_limit = 5
         self.fpcnt = 0
         self.coordinates = [np.array(x) for x in node_coordinates]
+        self.dummy_node_adjacencies = set()
 
         # Check if input has crossings
         x_coord = [x[0] for x in node_coordinates]
@@ -186,6 +187,7 @@ class InputGraph:
             ptpg_matrices, extra_nodes = st.handle_STs(
                 self.matrix, positions, 1)
             self.matrix = ptpg_matrices[0]
+            self.dummy_node_adjacencies = store_dummy_node_adjacencies(self.matrix)
             self.nodecnt = self.matrix.shape[0]
             self.edgecnt = int(np.count_nonzero(self.matrix == 1) / 2)
             for key in extra_nodes[0]:
@@ -912,3 +914,12 @@ def lettershape(graph, node_data, letter):
 def staircaseshaped(graph):
     StaircaseShapedFloorplan(graph)
 
+# Store the new adjacency data after dummy nodes have been added for removing separating triangles
+def store_dummy_node_adjacencies(matrix):
+    dummy_node_adjacencies = set()
+    total_node_count = matrix.shape[0]
+    for i in range(0, total_node_count):
+        for j in range(0, i + 1):
+            if (matrix[i][j] == 1):
+                dummy_node_adjacencies.add((i, j))
+    return dummy_node_adjacencies

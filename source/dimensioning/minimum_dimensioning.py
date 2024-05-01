@@ -51,6 +51,9 @@ rotx1=[]
 rotx2=[]
 roty1=[]
 roty2=[]
+
+irreg_nodes_map = {}
+door_connectivity_edges = set()
 """
 LEFT WALL - 1
 TOP WALL - 2
@@ -687,18 +690,48 @@ def reinitialize():
     roty1=[]
     roty2=[]
 
-
-
+    irreg_nodes_map.clear()
+    door_connectivity_edges.clear()
 
 
 # main wrapper
 def main(input, plot_width, plot_height):
-    global data
+    global data, irreg_nodes_map
     reinitialize()
     data = input
-    for a in data['edges']:
-        a['source']=a['source']+1
-        a['target']=a['target']+1
+
+    # Store the all dummy nodes as the value of the irregular rooms they are adjacent to
+    if 'mergednodes' in data and 'irreg_nodes1' in data and 'irreg_nodes2' in data:
+        for i in range(0, len(data['mergednodes'])):
+            irreg_nodes_map[(data['irreg_nodes1'][i], data['irreg_nodes2'][i])] = data['mergednodes'][i]
+    
+    # If dummy nodes exist, remove the adjacency between irregular rooms as they are now separated by dummy nodes
+    if 'dummy_node_adj' in data:
+        for a in data['edges']:
+
+            # Add the edges with door connectivity to the door_connectivity_edges set
+            if a['color'] == 'black':
+                continue
+
+            # If there is door connectivity between irregular nodes separated by a dummy node, add a door connectivity between the dummy node and irregular node instead
+            elif (a['source'], a['target']) in irreg_nodes_map:
+                door_connectivity_edges.add((irreg_nodes_map[(a['source'], a['target'])], a['target']))
+            elif (a['target'], a['source']) in irreg_nodes_map:
+                door_connectivity_edges.add((irreg_nodes_map[(a['target'], a['source'])], a['source']))
+            else:
+                door_connectivity_edges.add((a['source'], a['target']))
+        data['edges'].clear()
+
+        # Update modified edge data
+        for a in data['dummy_node_adj']:
+            color = 'black'
+            if ((a[0], a[1]) in door_connectivity_edges or (a[1], a[0]) in door_connectivity_edges):
+                color = 'red'
+            data['edges'].append({'source':a[0] + 1, 'target':a[1] + 1, 'color':color})
+    else:
+        for a in data['edges']:
+            a['source']=a['source']+1
+            a['target']=a['target']+1
     for i in range(len(data['boundary_rooms']['north'])):
         data['boundary_rooms']['north'][i]= data['boundary_rooms']['north'][i]+1
     for i in range(len(data['boundary_rooms']['south'])):
