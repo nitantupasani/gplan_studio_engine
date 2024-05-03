@@ -330,7 +330,7 @@ def run():
                                   , gclass.pen
                                   , 1
                                   , gclass.value[6]
-                                  , []
+                                  , gclass.value[5]
                                   , origin)
                 else:  # Dimensioned single floorplan
                     old_dims = [[0] * gclass.value[0]
@@ -370,7 +370,7 @@ def run():
                             ,gclass.pen
                             ,1
                             ,gclass.value[6]
-                            ,[]
+                            ,gclass.value[5]
                             ,origin)
                             
             elif gclass.command == "letter_shape":
@@ -401,7 +401,7 @@ def run():
                                 , gclass.pen
                                 , 1
                                 , gclass.value[6]
-                                , []
+                                , gclass.value[5]
                                 , origin)
                 else:
                     old_dims = [[0] * gclass.value[0]
@@ -473,7 +473,7 @@ def run():
                                 , gclass.pen
                                 , 1
                                 , gclass.value[6]
-                                , []
+                                , gclass.value[5]
                                 , origin)
                     
             elif(gclass.command == "multiple_l"):#Multiple L-shaped Floorplan
@@ -517,7 +517,7 @@ def run():
                               , gclass.pen
                               , 1
                               , gclass.value[6]
-                              , []
+                              , gclass.value[5]
                               , origin)
 
             elif(gclass.command == "multiple"):#Multiple Irregular Dual/Floorplan
@@ -1090,7 +1090,7 @@ def run():
                                 , gclass.pen
                                 , 1
                                 , gclass.value[6]
-                                , []
+                                , gclass.value[5]
                                 , origin)
 
             gclass.time_taken = (end-start)*1000
@@ -1227,7 +1227,7 @@ def call_circulation(graph_data, gclass, coord, is_dimensioned, dim_constraints,
         graph_data1['extranodes'] = graph_data['extranodes']
         graph_data1['mergednodes'] = graph_data['mergednodes']
         graph_data1['irreg_nodes'] = graph_data['irreg_nodes']
-        draw.draw_rdg(graph_data1, 1, gclass.pen, 1, gclass.value[6], [], origin)
+        draw.draw_rdg(graph_data1, 1, gclass.pen, 1, gclass.value[6], gclass.value[5], origin)
 
         # Now going back to flow of removing circulation
         corridors = circulation_obj.adjacency
