@@ -1076,7 +1076,6 @@ def run():
                     # If the graph came from an input file, the default values are set
                     if gclass.open and len(gclass.dimensional_constraints) > 0:
                         [old_min_width, old_min_height, plot_width, plot_height] = gclass.dimensional_constraints
-                        print("Dim Constraints before old dims:", gclass.dimensional_constraints)
                         for i in range(len(old_min_height)):
                             old_dims[0][i] = old_min_width[i]
                             old_dims[1][i] = old_min_height[i]
@@ -1090,7 +1089,6 @@ def run():
                     gclass.output_data = []
                     gclass.multiple_output_found = 0
                     
-                    print("Trying floorplan number", i + 1, "to see if minimum dimension floorplan can be constructed.")
                     floorplan_obj = input_for_min_dim.floorplan(gclass.value[3], gclass.value[4],
                                                         gclass.value[8], gclass.value[9], gclass.corridor_thickness)
                     enc_mat = get_encoded_matrix(gclass.value[0], graph.room_x, graph.room_y, graph.room_width, graph.room_height)
@@ -1098,25 +1096,17 @@ def run():
                         gclass.value[5], gclass.value[6], gclass.value[7], min_width, min_height, graph.room_x, graph.room_y, graph.room_width, graph.room_height,
                         gclass.value[2], enc_mat
                     )
-                    input_path = "input_to_min_dim.json"
-                    json_data = json.dumps(floorplan_data, indent=2)
-                    with open(input_path, 'w') as json_file:
-                        json_file.write(json_data)
-                    print(f"JSON data has been written to {input_path}")
 
                     # If floorplan satisfying the given constraints is satisfied
-                    if min_dim.main(input_path, plot_width, plot_height):
-                        output_path = "output_from_min_dim.json"
-                        with open(output_path, 'r') as file:
-                            json_content = json.load(file)
-                        
+                    [status, out_data] = min_dim.main(floorplan_data, plot_width, plot_height)
+                    if status == True:
                         room_x = [] 
                         room_y = [] 
                         room_width = [] 
                         room_height = []
                         room_area = []
                         room_name = []
-                        for room_detail in json_content["nodes"]:
+                        for room_detail in out_data["nodes"]:
                             room_x.append(room_detail["room_x"])
                             room_y.append(room_detail["room_y"])
                             room_width.append(room_detail["width"])
@@ -1124,11 +1114,11 @@ def run():
                             room_area.append(room_detail["width"] * room_detail["height"])
 
                         # Store the room labels if they have been entered
-                        for room_id in range(len(json_content["nodes"])):
-                            if "label" not in json_content["nodes"][room_id]:
+                        for room_id in range(len(out_data["nodes"])):
+                            if "label" not in out_data["nodes"][room_id]:
                                 room_name.append(str(room_id))
                             else:
-                                room_name.append(json_content["nodes"][room_id]["label"])
+                                room_name.append(out_data["nodes"][room_id]["label"])
                         
                         room_x = np.array(room_x)
                         room_y = np.array(room_y)
@@ -1152,9 +1142,6 @@ def run():
                         '''
                         gclass.output_data.append(graph_data)
                         gclass.multiple_output_found = 1
-                        
-                        delete_file(input_path)
-                        delete_file(output_path)
 
                         draw.draw_rdg(graph_data
                                     , 1
@@ -1189,6 +1176,7 @@ def run():
                         'mergednodes': graph.mergednodes,
                         'irreg_nodes': graph.irreg_nodes1
                     }
+                    gclass.multiple_output_found = 1
                     gclass.output_data.append(graph_data)
                     draw.draw_rdg(graph_data
                                     , 1
