@@ -27,12 +27,12 @@ class LimitsAlgorithm:
         (x_max,y_max) = self.run()
         self.proceed = 1
         if shiftDirection == "Left" :
-            if shiftValue>x_max:
+            if shiftValue>=x_max:
                 self.errorMessage = "Exceeding beyond the limits in the Left Direction" 
                 print(self.errorMessage)
                 self.proceed = 0
         elif shiftDirection == "Right" :
-            if shiftValue>y_max:
+            if shiftValue>=y_max:
                 self.errorMessage = "Exceeding beyond the limits in the Right Direction" 
                 print(self.errorMessage)
                 self.proceed = 0
@@ -206,11 +206,13 @@ class LimitsAlgorithm:
                                     
                                 elif m_ == "NOT DEFINED":
                                     if self.rooms[i].coords[j][1] < self.coords_input1[1] < self.rooms[i].coords[j-1][1] or self.rooms[i].coords[j][1] > self.coords_input1[1] > self.rooms[i].coords[j-1][1]:
-                                        X = ((self.coords_input1[1] - self.rooms[i].coords[j-1][1])/m) + self.rooms[i].coords[j-1][0] 
+                                        #X = ((self.coords_input1[1] - self.rooms[i].coords[j-1][1])/m) + self.rooms[i].coords[j-1][0] 
+                                        X = self.rooms[i].coords[j][0]
                                         Y = self.coords_input1[1]
                                         pts[(X,Y)] = abs(X - self.coords_input1[0])
                                     elif self.rooms[i].coords[j][1] < self.coords_input2[1] < self.rooms[i].coords[j-1][1] or self.rooms[i].coords[j][1] > self.coords_input2[1] > self.rooms[i].coords[j-1][1]:
-                                        X = ((self.coords_input2[1] - self.rooms[i].coords[j-1][1])/m) + self.rooms[i].coords[j-1][0] 
+                                        #X = ((self.coords_input2[1] - self.rooms[i].coords[j-1][1])/m) + self.rooms[i].coords[j-1][0] 
+                                        X = self.rooms[i].coords[j][0]
                                         Y = self.coords_input2[1]
                                         pts[(X,Y)] = abs(X - self.coords_input2[0])
                     else:
@@ -265,11 +267,13 @@ class LimitsAlgorithm:
                                     
                                 elif m_ == "NOT DEFINED":
                                     if self.rooms[i].coords[0][1] < self.coords_input1[1] < self.rooms[i].coords[len(self.rooms[i].coords)-1][1] or self.rooms[i].coords[0][1] > self.coords_input1[1] > self.rooms[i].coords[len(self.rooms[i].coords)-1][1]:
-                                        X = ((self.coords_input1[1] - self.rooms[i].coords[j-1][1])/m) + self.rooms[i].coords[j-1][0] 
+                                        #X = ((self.coords_input1[1] - self.rooms[i].coords[j-1][1])/m) + self.rooms[i].coords[j-1][0] 
+                                        X = self.rooms[i].coords[0][0]
                                         Y = self.coords_input1[1]
                                         pts[(X,Y)] = abs(X - self.coords_input1[0])
                                     elif self.rooms[i].coords[0][1] < self.coords_input2[1] < self.rooms[i].coords[len(self.rooms[i].coords)-1][1] or self.rooms[i].coords[0][1] > self.coords_input2[1] > self.rooms[i].coords[len(self.rooms[i].coords)-1][1]:
-                                        X = ((self.coords_input2[1] - self.rooms[i].coords[j-1][1])/m) + self.rooms[i].coords[j-1][0] 
+                                        #X = ((self.coords_input2[1] - self.rooms[i].coords[j-1][1])/m) + self.rooms[i].coords[j-1][0] 
+                                        X = self.rooms[i].coords[0][0]
                                         Y = self.coords_input2[1]
                                         pts[(X,Y)] = abs(X - self.coords_input2[0])
 
