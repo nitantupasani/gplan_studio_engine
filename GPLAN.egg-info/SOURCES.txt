@@ -40,6 +40,8 @@ source/irregular/shortcutresolver.py
 source/polygonal/__init__.py
 source/polygonal/canonical.py
 source/polygonal/draw.py
+source/polygonal/limits.py
 source/polygonal/lshape.py
+source/polygonal/newcoord.py
 source/polygonal/poly.py
 source/polygonal/polygui.py

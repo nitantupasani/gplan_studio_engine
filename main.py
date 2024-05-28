@@ -2,10 +2,14 @@
 
 """
 from dataclasses import is_dataclass
+import gc
+from re import S
+import re
 import warnings
 import time
 import tkinter as tk
 from tkinter import messagebox
+from webbrowser import get
 import networkx as nx
 import numpy as np
 from numpy import true_divide
@@ -24,7 +28,6 @@ import json
 from source.graphoperations.operations import get_encoded_matrix
 from system_functions.os_functions import delete_file
 import source.dimensioning.minimum_dimensioning as min_dim
-
 import source.lettershape.lshape.Lshaped as Lshaped
 import source.lettershape.tshape.tshape as Tshaped
 import source.lettershape.ushape.ushape as Ushaped
@@ -38,8 +41,275 @@ import source.polygonal.newcoord as nc
 
 # import tests
 # import triangularity as trng
-origin = 0
+class GuiParameters:
+    
+    __gclass: gui.gui_class
+    __graph: inputgraph.InputGraph
+    __isGui: bool
+    __noOfNodes: int
+    __edgeCount: int
+    __edges: list
+    __command: str
+    __roomNames: list
+    __isDimensioned: int
+    __isDimensionedCirculation: int
+    __isRemoveAddCirculation: int
+    __isMinDimensioned: int
+    __isPublic: int
+    __nodeCoordinates: list
+    __roomColors: list
+    __letter: str
+    __corridor_thickness: float
+    __message:str = ""
+    
+    def get_corridor_thickness(self) -> float:
+        return self.__corridor_thickness
+    
+    def set_corridor_thickness(self, corridor_thickness: float):
+        self.__corridor_thickness = corridor_thickness
+        return self
+    
+    def get_letter(self) -> str:
+        return self.__letter
+    
+    def set_letter(self, letter: str):
+        self.__letter = letter
+        return self
+    
+    def get_isMinDimensioned(self) -> int:
+        return self.__isMinDimensioned
+    
+    def set_isMinDimensioned(self, isMinDimensioned):
+        if isMinDimensioned is None:
+            self.__isMinDimensioned = 0
+        else:
+            self.__isMinDimensioned = isMinDimensioned
+        return self
+        
+    def get_isPublic(self) -> int:
+        return self.__isPublic
+    
+    def set_isPublic(self, isPublic):
+        if isPublic is None:
+            self.__isPublic = 0
+        else:
+            self.__isPublic = isPublic
+        return self
+        
+    def get_isRemoveAddCirculation(self) -> int:
+        return self.__isRemoveAddCirculation
+    
+    def set_isRemoveAddCirculation(self, isRemoveAddCirculation):
+        if isRemoveAddCirculation is None:
+            self.isRemoveAddCirculation = 0
+        else:
+            self.__isRemoveAddCirculation = isRemoveAddCirculation
+        return self
 
+    def get_isDimensionedCirculation(self) -> int:
+        return self.__isDimensionedCirculation
+    
+    def set_isDimensionedCirculation(self, isDimensionedCirculation):
+        if isDimensionedCirculation is None:
+            self.isDimensionedCirculation = 0
+        else:
+            self.__isDimensionedCirculation = isDimensionedCirculation
+        return self
+
+    def get_isDimensioned(self) -> int:
+        return self.__isDimensioned
+    
+    def set_isDimensioned(self, isDimensioned: int):
+        if isDimensioned is None:
+            self.isDimensioned = 0
+        else:
+            self.__isDimensioned = isDimensioned 
+        return self
+    
+    def get_nodeCoordinates(self) -> list:
+        return self.__nodeCoordinates
+    
+    def set_nodeCoordinates(self, nodeCoordinates: list):
+        self.__nodeCoordinates = nodeCoordinates
+        return self
+         
+    def set_gclass(self, gclass: gui.gui_class):
+        self.__gclass = gclass
+        return self
+
+    def get_isGui(self) -> bool:
+        return self.__isGui
+
+    def set_isGui(self, isGui: bool):
+        self.__isGui = isGui
+        return self
+
+    def get_noOfNodes(self) -> int:
+        return self.__noOfNodes
+
+    def set_noOfNodes(self, noOfNodes):
+        self.__noOfNodes = noOfNodes
+        return self
+
+    def get_edgeCount(self) -> int:
+        return self.__edgeCount
+
+    def set_edgeCount(self, edgeCount):
+        self.__edgeCount = edgeCount
+        return self
+
+    def get_edges(self) -> list:
+        return self.__edges
+
+    def set_edges(self, edges: list):
+        self.__edges = edges
+        return self
+
+    def get_command(self) -> str:
+        return self.__command
+
+    def set_command(self, command: str):
+        self.__command = command
+        return self
+
+    def get_roomNames(self) -> list:
+        return self.__roomNames
+
+    def set_roomNames(self, roomNames: list):
+        self.__roomNames = roomNames
+        return self
+
+    def get_roomColors(self) -> list:
+        return self.__roomColors
+
+    def set_roomColors(self, roomColors: list):
+        self.__roomColors = roomColors
+        return self
+    
+    def get_gclass(self) -> gui.gui_class:
+        return self.__gclass
+    
+    def get_graph(self) -> inputgraph.InputGraph:
+        return self.__graph
+    
+    def set_graph(self, graph: inputgraph.InputGraph):
+        self.__graph = graph
+        return self
+    
+    def set_message(self, message: str):
+        if self.get_message() is not None:
+            self.__message += message
+        return self.__message
+    
+    def get_message(self) -> str:
+        return self.__message
+    
+    def __init__(self, gclass = None, graph = None):
+        if gclass is not None:
+            self.set_gclass(gclass)
+            self.set_noOfNodes(gclass.value[0])
+            self.set_edgeCount(gclass.value[1])
+            self.set_edges(gclass.value[2])
+            self.set_command(gclass.value[3])
+            self.set_isDimensioned(gclass.value[4])
+            self.set_roomNames(gclass.value[5])
+            self.set_roomColors(gclass.value[6])
+            self.set_nodeCoordinates(gclass.value[7])
+            self.set_isDimensionedCirculation(gclass.value[8])
+            self.set_isRemoveAddCirculation(gclass.value[9])
+            self.set_isMinDimensioned(gclass.value[10])
+            self.set_isPublic(gclass.value[11])
+            self.set_isGui(True)
+            self.set_letter(gclass.letter)
+            self.set_corridor_thickness(gclass.corridor_thickness)
+            self.set_message("")
+        
+        if graph is not None:
+            self.set_graph(graph)
+            self.set_edgeCount(graph.edgecnt)
+            self.set_noOfNodes(graph.nodecnt)
+            self.set_edges(graph.edges)
+            self.set_nodeCoordinates(graph.coordinates)
+            self.set_isGui(False)
+    
+    def print_gui(self, string):
+        ui.set_message(string)
+        if self.get_gclass() is not None:
+            self.get_gclass().textbox.insert(tk.END, string) # type: ignore
+            self.get_gclass().textbox.insert(tk.END, "\n") # type: ignore
+            
+    def _append_output_data(self, graph_new):
+        if self.get_gclass() is not None:
+            self.get_gclass().output_data.append(graph_new)
+    
+    def _set_output_data(self, output_data):
+        if self.get_gclass() is not None:
+            self.get_gclass().output_data = output_data
+    
+    def _set_time_taken(self, time_taken):
+        if self.get_gclass() is not None:
+            self.get_gclass().time_taken = time_taken
+    
+    def _set_num_rfp(self, num_rfp):
+        if self.get_gclass() is not None:
+            self.get_gclass().num_rfp = num_rfp
+            
+    def _set_pdf_colors(self, pdf_colors):
+        if self.get_gclass() is not None:
+            self.get_gclass().pdf_colors = pdf_colors
+            
+    def _set_output_found(self, output_found):
+        if self.get_gclass() is not None:
+            self.get_gclass().output_found = output_found
+            
+    def _set_multiple_output_found(self, multiple_output_found):
+        if self.get_gclass() is not None:
+            self.get_gclass().multiple_output_found = multiple_output_found
+                    
+    def _set_dim_constraints(self, dim_constraints):
+        if self.get_gclass() is not None:
+            self.get_gclass().dimensional_constraints = dim_constraints
+    
+    def _set_ptpg(self, graph):
+        if self.get_gclass() is not None:
+            self.get_gclass().ptpg = graph
+    
+# gclass.bottom_shift_value
+# gclass.bottom_dropdown_value
+# gclass.top_dropdown_value
+# gclass.top_shift_value
+# gclass.right_shift_value
+# gclass.right_dropdown_value
+# gclass.left_shift_value
+# gclass.side
+# gclass.left_dropdown_value
+# gclass.room_limits
+# gclass.ptpg = graph
+# gclass.dimensional_constraints = [min_width, min_height, plot_width, plot_height]
+# gclass.multiple_output_found = 1
+
+
+
+origin = 0
+gclass: gui.gui_class = gui.gui_class()
+ui = GuiParameters(gclass)
+
+def drawFunction(graph, origin, roomName, isPoly = False):
+    if not isPoly:
+        draw.draw_rdg(graph
+                    , 1
+                    , gclass.pen
+                    , 1
+                    , ui.get_roomColors()
+                    , roomName
+                    , origin)
+    else:
+        draw.draw_poly(gclass.canonicalObject.graph_data,1
+            ,gclass.pen
+            ,1
+            ,ui.get_roomColors()
+            ,[]
+            ,origin,gclass.outer_boundary, gclass.shape,graph.matrix)
 
 def run():
     """Runs the GPLAN program.
@@ -52,40 +322,41 @@ def run():
     """
 
     warnings.filterwarnings("ignore")
-    gclass = gui.gui_class() 
 
     while (gclass.command!="end"):
+        ui = GuiParameters(gclass)
         gclass.output_data=[]
         if(gclass.command=="dissection"):
             make_dissection_corridor(gclass)
         else:
-            graph = inputgraph.InputGraph(gclass.value[0]
-                                          , gclass.value[1]
-                                          , gclass.value[2]
-                                          , gclass.value[7])
+            graph = inputgraph.InputGraph(ui.get_noOfNodes()
+                                          , ui.get_edgeCount()
+                                          , ui.get_edges()
+                                          , ui.get_nodeCoordinates())
+            ui.set_graph(graph)
             origin = 0
             if gclass.command == "circulation":
-                handle_circulation(gclass, graph, True)
+                handle_circulation(graph, True, gclass)
             elif gclass.command == "single":  # Single Irregular Dual/Floorplan
-                handle_single(gclass, graph, True)
+                handle_single(graph, True, gclass)
             elif gclass.command == "letter_shape":
-                handle_letter_shape(gclass, graph, True)
+                handle_letter_shape(graph, True, gclass)
             elif gclass.command == "multiple_l":
-                handle_multiple_l(gclass, graph)
+                handle_multiple_l(graph, gclass)
             elif gclass.command == "staircase_shaped":
-                handle_staircase_shaped(gclass, graph, True)
+                handle_staircase_shaped(graph, True, gclass)
             elif gclass.command == "multiple":
-                handle_multiple(gclass, graph)
+                handle_multiple(graph, gclass)
             elif gclass.command == "single_oc":
-                handle_single_oc(gclass, graph, True)
+                handle_single_oc(graph, True, gclass)
             elif gclass.command == "multiple_oc":
-                handle_multiple_oc(gclass, graph, True)
+                handle_multiple_oc(graph, True, gclass)
             elif gclass.command == "poly":
-                handle_poly(gclass, graph, True)
+                handle_poly(graph, True, gclass)
             elif gclass.command == "limits":
-                handle_limits(gclass, graph, True)
+                handle_limits(graph, True, gclass)
             elif gclass.command == "door_connectivity":
-                handle_door_connectivity(gclass, graph, True)
+                handle_door_connectivity(graph, True, gclass)
         gclass.root.wait_variable(gclass.end)
         gclass.graph_ret()
         gclass.ocan.add_tab()
@@ -117,7 +388,7 @@ def make_dissection_corridor(gclass):
 def call_circulation(graph, gclass, coord, is_dimensioned, dim_constraints, remove_corridor,public_private, drawGUI):
 
     g = nx.Graph()
-    edge_set = gclass.value[2]
+    edge_set = ui.get_edges()
     entry = gclass.entry_door
 
     for x in edge_set:
@@ -133,7 +404,7 @@ def call_circulation(graph, gclass, coord, is_dimensioned, dim_constraints, remo
     rfp = cir.RFP(g, rooms)
 
     cir.plot(g,n)
-    circulation_obj = cir.circulation(g, gclass.corridor_thickness, rfp, gclass.rem)
+    circulation_obj = cir.circulation(g, ui.get_corridor_thickness(), rfp, gclass.rem)
     
     # Add dimensional constraints if chosen option is "dimensioned circulation"
     if is_dimensioned == True:
@@ -178,7 +449,7 @@ def call_circulation(graph, gclass, coord, is_dimensioned, dim_constraints, remo
         new_graph.room_width=room_width1
         new_graph.final_traversal=inputgraph.get_final_traversal(new_graph)
         if drawGUI:
-            draw.draw_rdg(new_graph, 1, gclass.pen, 1, gclass.value[6], [], origin)
+            drawFunction(new_graph, origin, [])
 
         # Now going back to flow of removing circulation
         corridors = circulation_obj.adjacency
@@ -225,7 +496,7 @@ def call_circulation(graph, gclass, coord, is_dimensioned, dim_constraints, remo
 
         new_graph.final_traversal=inputgraph.get_final_traversal(new_graph)
         if drawGUI:
-            draw.draw_rdg(new_graph, 1, gclass.pen, 1, gclass.value[6], [], origin)
+            drawFunction(new_graph, origin, [])
 
         # Now going back to flow of removing circulation
         corridors = circulation_obj.adjacency
@@ -287,19 +558,20 @@ def plot(graph: nx.Graph,m: int) -> None:
                     alpha=1)
     plt.show()
 
-def handle_circulation(gclass, graph, drawGUI):
+def handle_circulation(graph, drawGUI = False, gclass = None):
     is_dimensioned = False
     remove_corridor = False
     public_private = False
     node_coord = graph.coordinates
     dim_constraints = []
-    if (gclass.value[8] == 0 and gclass.value[9] == 0 and gclass.value[11]==0): #Non-dimensioned single circulation
+    if (ui.get_isDimensionedCirculation() == 0 and ui.get_isRemoveAddCirculation() == 0 and ui.get_isPublic()==0): #Non-dimensioned single circulation
         start = time.time()
         graph.irreg_single_dual()
+        ui.print_gui('Generated Single Irregular floorplan with Circulation')
         end = time.time()
-        print_gui("Time taken: " + str((end-start)*1000) + " ms", gclass)
+        ui.print_gui("Time taken: " + str((end-start)*1000) + " ms")
         print("type of roomx " + str(type(graph.room_x)))
-        (new_graph, success) = call_circulation(graph, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor,public_private,drawGUI) # type: ignore
+        (new_graph, success) = call_circulation(graph, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor,public_private,drawGUI) 
         # If there was some error in algorithm execution new_graph will be empty
         # we display the pop-up error message
         if new_graph == None:
@@ -308,37 +580,42 @@ def handle_circulation(gclass, graph, drawGUI):
         else :
             graph.final_traversal = inputgraph.get_final_traversal(graph)
             if drawGUI:
-                draw.draw_rdg(new_graph, 1, gclass.pen, 1, gclass.value[6], [],origin)
+                drawFunction(new_graph, origin, [])
         
-    elif(gclass.value[8] == 1 and gclass.value[9] == 0 and gclass.value[11]==0): #Dimensioned single circulation
+    elif(ui.get_isDimensionedCirculation() == 1 and ui.get_isRemoveAddCirculation() == 0 and ui.get_isPublic()==0): #Dimensioned single circulation
         is_dimensioned = True
         feasible_dim = 0
-        old_dims = [[0] * gclass.value[0]
-                    , [0] * gclass.value[0]
-                    , [0] * gclass.value[0]
-                    , [0] * gclass.value[0]
+        old_dims = [[0] * ui.get_noOfNodes()
+                    , [0] * ui.get_noOfNodes()
+                    , [0] * ui.get_noOfNodes()
+                    , [0] * ui.get_noOfNodes()
                     , ""
-                    , [0] * gclass.value[0]
-                    , [0] * gclass.value[0]]
-        min_width,max_width,min_height,max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height  = dimgui.gui_fnc(old_dims, gclass.value[0])
+                    , [0] * ui.get_noOfNodes()
+                    , [0] * ui.get_noOfNodes()]
+        min_width,max_width,min_height,max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height  = dimgui.gui_fnc(old_dims, ui.get_noOfNodes())
         dimensional_constraints = [min_width,max_width,min_height,max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height]
         start = time.time()
         try:
             graph.oneconnected_dual("multiple")
+            ui.print_gui('Generated Dimensioned Multiple Rectangular floorplan with Circulation')        
         except inputgraph.OCError:
-            gclass.show_warning("Can not generate rectangular floorplan.")
+            show_warning("Can not generate rectangular floorplan.")
             graph.irreg_multiple_dual()
+            ui.print_gui('Generated Dimensioned Multiple Irregular floorplan instead of Rectangular with Circulation. OCERROR')
+
+            
         except inputgraph.BCNError:
             graph.irreg_multiple_dual()
+            ui.print_gui('Generated Dimensioned Multiple Irregular floorplan instead of Rectangular with Circulation. BCNError')
         
         graph.single_floorplan(min_width,min_height,max_width,max_height,symm_string, min_aspect, max_aspect, plot_width, plot_height)
         while(graph.floorplan_exist == False):
             old_dims = [min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect]
-            min_width,max_width,min_height,max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height  = dimgui.gui_fnc(old_dims, gclass.value[0])
+            min_width,max_width,min_height,max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height  = dimgui.gui_fnc(old_dims, ui.get_noOfNodes())
             graph.irreg_multiple_dual()
             graph.single_floorplan(min_width,min_height,max_width,max_height,symm_string, min_aspect, max_aspect, plot_width, plot_height)
         end = time.time()
-        print_gui("Time taken: " + str((end-start)*1000) + " ms",gclass)
+        ui.print_gui("Time taken: " + str((end-start)*1000) + " ms")
         
             
         dim_constraints = [min_width, max_width, min_height, max_height, min_aspect, max_aspect]
@@ -356,18 +633,19 @@ def handle_circulation(gclass, graph, drawGUI):
                 return
             new_graph.final_traversal=inputgraph.get_final_traversal(new_graph)
             if drawGUI:
-                draw.draw_rdg(new_graph, 1, gclass.pen, 1, gclass.value[6], [],origin)
+                drawFunction(new_graph, origin, [])
             feasible_dim = 1
             return
         if(feasible_dim == 0):
             messagebox.showerror("Error", "ERROR!! NO CIRCULATION POSSIBLE FOR GIVEN DIMENSIONS")
     
-    elif(gclass.value[8] == 0 and gclass.value[9] == 1 and gclass.value[11]==0): # Add/remove
+    elif(ui.get_isDimensionedCirculation() == 0 and ui.get_isRemoveAddCirculation() == 1 and ui.get_isPublic()==0): # Add/remove
         remove_corridor = True
         start = time.time()
         graph.irreg_single_dual()
+        ui.print_gui('Generated Single Irregular floorplan with Circulation. Remove/Add Circulation:Enabled and Public: disabled')
         end = time.time()
-        print_gui("Time taken: " + str((end-start)*1000) + " ms",gclass)
+        ui.print_gui("Time taken: " + str((end-start)*1000) + " ms")
         print("type of roomx " + str(type(graph.room_x)))
         
         (new_graph, success) = call_circulation(graph, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor, public_private,drawGUI) # type: ignore
@@ -380,14 +658,14 @@ def handle_circulation(gclass, graph, drawGUI):
         # If no issues we continue to draw the corridor
         else :
             if drawGUI:
-                draw.draw_rdg(new_graph, 1, gclass.pen, 1, gclass.value[6], [],origin)
-
-    elif(gclass.value[8] == 0 and gclass.value[11] == 1):
+                drawFunction(new_graph, origin, [])
+    elif(ui.get_isDimensionedCirculation() == 0 and ui.get_isPublic() == 1):
         public_private = True
         start = time.time()
         graph.irreg_single_dual()
+        ui.print_gui('Generated Single Irregular floorplan with Circulation. Dimensioned: Disabled and Public: Enabled')
         end = time.time()
-        print_gui("Time taken: " + str((end-start)*1000) + " ms",gclass)
+        ui.print_gui("Time taken: " + str((end-start)*1000) + " ms")
 
         (new_graph, success) = call_circulation(graph, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor,public_private,drawGUI) # type: ignore
 
@@ -400,99 +678,83 @@ def handle_circulation(gclass, graph, drawGUI):
         else :
             new_graph.final_traversal=inputgraph.get_final_traversal(new_graph)
             if drawGUI:
-                draw.draw_rdg(new_graph, 1, gclass.pen, 1, gclass.value[6],[],origin-300)
+                drawFunction(new_graph, origin-300, [])
 
-def handle_single(gclass, graph, drawGUI):
-    if (gclass.value[4] == 0):  # Non-Dimensioned single dual
+def handle_single(graph, drawGUI = False, gclass = None):
+    if (ui.get_isDimensioned() == 0):  # Non-Dimensioned single dual
         start = time.time()
         graph.irreg_single_dual()
+        ui.print_gui('Generated Single Irregular floorplan')
         end = time.time()
-        print_gui("Time taken: " + str((end - start) * 1000) + " ms",gclass)
-        gclass.output_data.append(graph) 
+        ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
+        ui._append_output_data(graph) 
         graph.final_traversal=inputgraph.get_final_traversal(graph)
         if drawGUI:
-            draw.draw_rdg(graph
-                        , 1
-                        , gclass.pen
-                        , 1
-                        , gclass.value[6]
-                        , []
-                        , origin)
+            drawFunction(graph, origin, [])
     else:  # Dimensioned single floorplan
-        old_dims = [[0] * gclass.value[0]
-            , [0] * gclass.value[0]
-            , [0] * gclass.value[0]
-            , [0] * gclass.value[0]
+        old_dims = [[0] * ui.get_noOfNodes()
+            , [0] * ui.get_noOfNodes()
+            , [0] * ui.get_noOfNodes()
+            , [0] * ui.get_noOfNodes()
             , ""
-            , [0] * gclass.value[0]
-            , [0] * gclass.value[0]]
+            , [0] * ui.get_noOfNodes()
+            , [0] * ui.get_noOfNodes()]
         min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(
-            old_dims, gclass.value[0])
+            old_dims, ui.get_noOfNodes())
         dimensional_constraints = [min_width, max_width, min_height, max_height, symm_string, min_aspect,
                                     max_aspect, plot_width, plot_height]
-        gclass.dimensional_constraints = dimensional_constraints
+        ui._set_dim_constraints(dimensional_constraints)
         start = time.time()
         graph.irreg_multiple_dual()
         graph.single_floorplan(min_width,min_height,max_width,max_height,symm_string, min_aspect, max_aspect, plot_width, plot_height)
         while(graph.floorplan_exist == False):
             old_dims = [min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect]
-            min_width,max_width,min_height,max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height  = dimgui.gui_fnc(old_dims, gclass.value[0])
+            min_width,max_width,min_height,max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height  = dimgui.gui_fnc(old_dims, ui.get_noOfNodes())
             graph.irreg_multiple_dual()
             graph.single_floorplan(min_width,min_height,max_width,max_height,symm_string, min_aspect, max_aspect, plot_width, plot_height)
         end = time.time()
-        print_gui("Time taken: " + str((end-start)*1000) + " ms",gclass)
+        ui.print_gui("Time taken: " + str((end-start)*1000) + " ms")
         graph.final_traversal = inputgraph.get_final_traversal(graph)
         if drawGUI:
-            draw.draw_rdg(graph
-                ,1
-                ,gclass.pen
-                ,1
-                ,gclass.value[6]
-                ,[]
-                ,origin)
+            drawFunction(graph, origin, [])
 
-def handle_letter_shape(gclass, graph, drawGUI):
-    if(gclass.value[4] == 0): #Non-Dimensioned Letter Shape
+def handle_letter_shape(graph, drawGUI = False, gclass = None, nodes_data = None):
+    assert ui.get_letter is not None
+    node_data = nodes_data if nodes_data is not None else gclass.app.nodes_data 
+    if(ui.get_isDimensioned() == 0): #Non-Dimensioned Letter Shape
         start = time.time()
-        if(gclass.letter == "L Shape"):
-            Lshaped.LShapedFloorplan(graph, gclass.app.nodes_data)
-        elif(gclass.letter == "T Shape"):
+        if(ui.get_letter() == "L Shape"):
+            Lshaped.LShapedFloorplan(graph, nodes_data)
+        elif(ui.get_letter() == "T Shape"):
             Tshaped.TShapedFloorplan(graph)
-        elif(gclass.letter == "Z Shape"):
+        elif(ui.get_letter() == "Z Shape"):
             Zshaped.ZShapedFloorplan(graph)
-        elif(gclass.letter == "U Shape"):
+        elif(ui.get_letter() == "U Shape"):
             Ushaped.UShapedFloorplan(graph)
         end = time.time()
         print("REL MATRIX \n", graph.matrix)
         graph.final_traversal=inputgraph.get_final_traversal(graph)
         if drawGUI:
-            draw.draw_rdg(graph
-                    , 1
-                    , gclass.pen
-                    , 1
-                    , gclass.value[6]
-                    , []
-                    , origin)
+            drawFunction(graph, origin, [])
     else:
-        old_dims = [[0] * gclass.value[0]
-            , [0] * gclass.value[0]
-            , [0] * gclass.value[0]
-            , [0] * gclass.value[0]
+        old_dims = [[0] * ui.get_noOfNodes()
+            , [0] * ui.get_noOfNodes()
+            , [0] * ui.get_noOfNodes()
+            , [0] * ui.get_noOfNodes()
             , ""
-            , [0] * gclass.value[0]
-            , [0] * gclass.value[0]]
+            , [0] * ui.get_noOfNodes()
+            , [0] * ui.get_noOfNodes()]
         min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(
-            old_dims, gclass.value[0])
+            old_dims, ui.get_noOfNodes())
         start = time.time()   
-        if(gclass.letter == "L Shape"):
+        if(ui.get_letter() == "L Shape"):
             Lshaped.LShapedFloorplan(graph, gclass.app.nodes_data)
-        # elif(letter == "T Shape"):
-        #     source.lettershape.tshape.tshape.TShapedFloorplan(graph)
-        # elif(letter == "Z Shape"):
-        #     source.lettershape.zshape.zshape.ZShapedFloorplan(graph)
-        # elif(letter == "U Shape"):
-        #     source.lettershape.ushape.ushape.UShapedFloorplan(graph)
-        
+        # elif(ui.get_letter() == "T Shape"):
+        #     Tshaped.TShapedFloorplan(graph)
+        # elif(ui.get_letter() == "Z Shape"):
+        #     Zshaped.ZShapedFloorplan(graph)
+        # elif(ui.get_letter() == "U Shape"):
+            Ushaped.UShapedFloorplan(graph)
         graph.rel_matrix_list.append(graph.matrix) #All rels are in it. Currently we have only 1.
         
         # Since multiple rfp are generated before calling single_floorplan, all the parameters need to be
@@ -527,35 +789,30 @@ def handle_letter_shape(gclass, graph, drawGUI):
         # Add code here in case multiple RELs get generated.
         
         end = time.time()
-        print_gui("Time taken: " + str((end - start) * 1000) + " ms",gclass) 
+        ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms") 
         graph.final_traversal=inputgraph.get_final_traversal(graph)
         if drawGUI:
-            draw.draw_rdg(graph
-                    , 1
-                    , gclass.pen
-                    , 1
-                    , gclass.value[6]
-                    , []
-                    , origin)
+            drawFunction(graph, origin, [])
 
-def handle_multiple_l(gclass, graph):
-    if(gclass.value[4] == 0):#Non-Dimensioned multiple dual
+def handle_multiple_l(graph, gclass = None, nodes_data = None):
+    node_data = nodes_data if nodes_data is not None else gclass.app.nodes_data 
+    if(ui.get_isDimensioned() == 0):#Non-Dimensioned multiple dual
         start = time.time()
-        Lshaped.multipleLshapedFloorplans(graph, gclass.app.nodes_data)
+        Lshaped.multipleLshapedFloorplans(graph, nodes_data)
         end = time.time()
-        print_gui("Average Time taken: " + str(((end - start) * 1000) / graph.fpcnt) + " ms",gclass)
-        print_gui("Number of floorplans: " + str(graph.fpcnt),gclass)
+        ui.print_gui("Average Time taken: " + str(((end - start) * 1000) / graph.fpcnt) + " ms")
+        ui.print_gui("Number of floorplans: " + str(graph.fpcnt))
 
         for idx in range(graph.fpcnt):
             graph_new = graph.graph_list[idx]
-            gclass.multiple_output_found = 1
+            ui._set_multiple_output_found(1)
             graph_new.final_traversal = inputgraph.get_final_traversal(graph_new)
             gclass.output_data.append(graph_new)
             # draw.draw_rdg(graph_new
             #     ,idx+1
             #     ,gclass.pen
             #     ,1
-            #     ,gclass.value[6]
+            #     ,ui.get_roomColors()
             #     ,[]
             #     ,origin)
             # # origin += 1000
@@ -563,67 +820,65 @@ def handle_multiple_l(gclass, graph):
             # gclass.pen = gclass.ocan.getpen()
             # gclass.pen.speed(0)
     
-def handle_staircase_shaped(gclass, graph, drawGUI):
+def handle_staircase_shaped(graph, drawGUI = False, gclass = None):
     start = time.time()
     inputgraph.staircaseshaped(graph)
     end = time.time()
     graph.final_traversal=inputgraph.get_final_traversal(graph)
     if drawGUI:
-        draw.draw_rdg(graph
-                    , 1
-                    , gclass.pen
-                    , 1
-                    , gclass.value[6]
-                    , []
-                    , origin)
+        drawFunction(graph, origin, [])
+    return graph
     
-def handle_multiple(gclass, graph):
-    if(gclass.value[4] == 0):#Non-Dimensioned multiple dual
+def handle_multiple(graph, gclass = None):
+    if(ui.get_isDimensioned() == 0):#Non-Dimensioned multiple dual
         start = time.time()
         graph.irreg_multiple_dual()
         end = time.time()
-        print_gui("Average Time taken: " + str(((end - start) * 1000) / graph.fpcnt) + " ms",gclass)
-        print_gui("Number of floorplans: " + str(graph.fpcnt),gclass)
-        gclass.multiple_output_found = 1
+        ui.print_gui("Average Time taken: " + str(((end - start) * 1000) / graph.fpcnt) + " ms")
+        ui.print_gui("Number of floorplans: " + str(graph.fpcnt))
+        ui._set_multiple_output_found(1)
         for idx in range(graph.fpcnt):
             graph_new = graph.graph_list[idx]
-            gclass.output_data.append(graph_new)
+            ui._append_output_data(graph_new)
     else:#Dimensioned multiple floorplans
-        old_dims = [[0] * gclass.value[0]
-                    , [0] * gclass.value[0]
-                    , [0] * gclass.value[0]
-                    , [0] * gclass.value[0]
+        old_dims = [[0] * ui.get_noOfNodes()
+                    , [0] * ui.get_noOfNodes()
+                    , [0] * ui.get_noOfNodes()
+                    , [0] * ui.get_noOfNodes()
                     , ""
-                    , [0] * gclass.value[0]
-                    , [0] * gclass.value[0]]
-        min_width,max_width,min_height,max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height  = dimgui.gui_fnc(old_dims, gclass.value[0])
+                    , [0] * ui.get_noOfNodes()
+                    , [0] * ui.get_noOfNodes()]
+        min_width,max_width,min_height,max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height  = dimgui.gui_fnc(old_dims, ui.get_noOfNodes())
         start = time.time()
         graph.irreg_multiple_dual()
         graph.multiple_floorplan(min_width,min_height,max_width,max_height,symm_string, min_aspect, max_aspect, plot_width, plot_height)
         end = time.time()
-        print_gui("Time taken: " + str((end-start)*1000) + " ms",gclass)
-        print_gui("Number of floorplans: " +  str(len(graph.graph_list)),gclass)
-        gclass.multiple_output_found = 1
+        ui.print_gui("Time taken: " + str((end-start)*1000) + " ms")
+        ui.print_gui("Number of floorplans: " +  str(len(graph.graph_list)))
+        ui._set_multiple_output_found(1)
         for idx in range(len(graph.fpcnt)):
             graph_new = graph.graph_list[idx]
-            gclass.output_data.append(graph_new)
+            ui._append_output_data(graph_new)
 
-def handle_single_oc(gclass, graph, drawGUI):
-    if(gclass.value[4] == 0 and gclass.value[10] == 0): #Non-Dimensioned single rectangular dual
+def handle_single_oc(graph, drawGUI = False, gclass = None):
+    if(ui.get_isDimensioned() == 0 and ui.get_isMinDimensioned() == 0): #Non-Dimensioned single rectangular dual
         start = time.time()
         try:
             graph.oneconnected_dual("single")
+            ui.print_gui('Generated single rectangular floorplan')        
         except inputgraph.OCError:
-            gclass.show_warning("Can not generate rectangular floorplan.")
+            show_warning("Can not generate rectangular floorplan.")
             graph.irreg_single_dual()
+            ui.print_gui('Generated Single Irregular floorplan instead of Rectangular. OCERROR')
         except inputgraph.BCNError:
             graph.irreg_single_dual()
+            ui.print_gui('Generated Single Irregular floorplan instead of Rectangular. BCNERROR')
         
         temp_graph_data = {}
-        temp_graph_data["nodecnt"] = gclass.value[0]
-        temp_graph_data["edgecnt"] = gclass.value[1]
-        temp_graph_data["edgeset"] = gclass.value[2]
-        temp_graph_data["node_coordinate"] = gclass.value[7]
+        temp_graph_data["nodecnt"] = ui.get_noOfNodes()
+        temp_graph_data["edgecnt"] = ui.get_edgeCount()
+        temp_graph_data["edgeset"] = ui.get_edges()
+        temp_graph_data["node_coordinate"] = ui.get_nodeCoordinates()
         graph_data = {
             'room_x': graph.room_x,
             'room_y': graph.room_y,
@@ -648,80 +903,74 @@ def handle_single_oc(gclass, graph, drawGUI):
 
         #min_dim.main(input_path)
         end = time.time()
-        print_gui("Time taken: " + str((end - start) * 1000) + " ms",gclass)
+        ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
         room_name = []
-        if len(gclass.value[5]) > 0:
-            room_name = gclass.value[5]
+        if len(ui.get_roomNames()) > 0:
+            room_name = ui.get_roomNames()
         graph.final_traversal=inputgraph.get_final_traversal(graph)
         if drawGUI:
-            draw.draw_rdg(graph
-                        , 1
-                        , gclass.pen
-                        , 1
-                        , gclass.value[6]
-                        , room_name
-                        , origin)
-    elif (gclass.value[4] == 1):  # Dimensioned single floorplan
-        old_dims = [[0] * gclass.value[0]
-            , [0] * gclass.value[0]
-            , [0] * gclass.value[0]
-            , [0] * gclass.value[0]
+            drawFunction(graph, origin, [])
+    elif (ui.get_isDimensioned() == 1):  # Dimensioned single floorplan
+        old_dims = [[0] * ui.get_noOfNodes()
+            , [0] * ui.get_noOfNodes()
+            , [0] * ui.get_noOfNodes()
+            , [0] * ui.get_noOfNodes()
             , ""
-            , [0] * gclass.value[0]
-            , [0] * gclass.value[0]]
+            , [0] * ui.get_noOfNodes()
+            , [0] * ui.get_noOfNodes()]
         min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(
-            old_dims, gclass.value[0], gclass.value[5])
+            old_dims, ui.get_noOfNodes(), ui.get_roomNames())
         start = time.time()
         try:
             graph.oneconnected_dual("multiple")
+            ui.print_gui('Generated single rectangular floorplan. Dimensioned')        
         except inputgraph.OCError:
-            gclass.show_warning("Can not generate rectangular floorplan.")
+            show_warning("Can not generate rectangular floorplan. Dimensioned")
             graph.irreg_multiple_dual()
+            ui.print_gui('Generated Multiple Irregular floorplan instead of Rectangular. OCError')
         except inputgraph.BCNError:
             graph.irreg_multiple_dual()
+            ui.print_gui('Generated Multiple Irregular floorplan instead of Rectangular. BCNError')
         graph.single_floorplan(min_width, min_height, max_width, max_height, symm_string, min_aspect,
                                 max_aspect, plot_width, plot_height)
         while (graph.floorplan_exist == False):
             old_dims = [min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect]
             min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(
-                old_dims, gclass.value[0])
+                old_dims, ui.get_noOfNodes())
             graph.multiple_dual()
             graph.single_floorplan(min_width, min_height, max_width, max_height, symm_string, min_aspect,
                                     max_aspect, plot_width, plot_height)
         end = time.time()
-        print_gui("Time taken: " + str((end - start) * 1000) + " ms",gclass)
+        ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
         graph_new = graph.graph_list[0]
-        gclass.output_data.append(graph_new)
+        ui._append_output_data(graph_new)
         room_name = []
-        if len(gclass.value[5]) > 0:
-            room_name = gclass.value[5]
+        if len(ui.get_roomNames()) > 0:
+            room_name = ui.get_roomNames()
         graph_new.final_traversal=inputgraph.get_final_traversal(graph_new)
         if drawGUI:
-            draw.draw_rdg(graph_new
-                        , 1
-                        , gclass.pen
-                        , 1
-                        , gclass.value[6]
-                        , room_name
-                        , origin)
-    elif(gclass.value[10] == 1):
-        old_dims = [[3] * gclass.value[0]
-            , [3] * gclass.value[0]]
-        min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(old_dims, gclass.value[0], gclass.value[5])
+            drawFunction(graph_new, origin, room_name)
+    elif(ui.get_isMinDimensioned() == 1):
+        old_dims = [[3] * ui.get_noOfNodes()
+            , [3] * ui.get_noOfNodes()]
+        min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(old_dims, ui.get_noOfNodes(), ui.get_roomNames())
         start = time.time()
         try:
             graph.oneconnected_dual("multiple")
+            ui.print_gui('Generated multiple rectangular floorplan. Min Dim Enabled')        
         except inputgraph.OCError:
-            gclass.show_warning("Can not generate rectangular floorplan.")
+            show_warning("Can not generate rectangular floorplan.")
             graph.irreg_multiple_dual()
+            ui.print_gui('Generated Multiple Irregular floorplan instead of Rectangular. Min Dim Enabled. OCError')
         except inputgraph.BCNError:
             graph.irreg_multiple_dual()
+            ui.print_gui('Generated Multiple Irregular floorplan instead of Rectangular. Min Dim Enabled. BCNError')
         number_of_floorplans = graph.fpcnt
         floorplan_found = False
 
         # Resets the data already present for downloading catalogues
-        gclass.output_data = []
-        gclass.multiple_output_found = 0
+        ui._set_output_data([])
+        ui._set_multiple_output_found(0)
 
         # Variables for storing the data of the floorplan with minimal area
         min_area = -1
@@ -731,12 +980,12 @@ def handle_single_oc(gclass, graph, drawGUI):
         # Iterate through all possible floorplans to find one which satisfies the given conditions
         for i in range(number_of_floorplans):
             print("Trying floorplan number", i + 1, "to see if minimum dimension floorplan can be constructed.")
-            floorplan_obj = input_for_min_dim.floorplan(gclass.value[3], gclass.value[4],
-                                                gclass.value[8], gclass.value[9], gclass.corridor_thickness)
-            enc_mat = get_encoded_matrix(gclass.value[0], graph.graph_list[i].room_x, graph.graph_list[i].room_y, graph.graph_list[i].room_width, graph.graph_list[i].room_height)
+            floorplan_obj = input_for_min_dim.floorplan(ui.get_command(), ui.get_isDimensioned(),
+                                                ui.get_isDimensionedCirculation(), ui.get_isRemoveAddCirculation(), ui.get_corridor_thickness())
+            enc_mat = get_encoded_matrix(ui.get_noOfNodes(), graph.graph_list[i].room_x, graph.graph_list[i].room_y, graph.graph_list[i].room_width, graph.graph_list[i].room_height)
             floorplan_data = floorplan_obj.get_floorplan_details(
-                gclass.value[5], gclass.value[6], gclass.value[7], min_width, min_height, graph.graph_list[i].room_x, graph.graph_list[i].room_y, graph.graph_list[i].room_width, graph.graph_list[i].room_height,
-                gclass.value[2], enc_mat
+                ui.get_roomNames(), ui.get_roomColors(), ui.get_nodeCoordinates(), min_width, min_height, graph.graph_list[i].room_x, graph.graph_list[i].room_y, graph.graph_list[i].room_width, graph.graph_list[i].room_height,
+                ui.get_edges(), enc_mat
             )
             print(floorplan_data)
             input_path = "input_to_min_dim.json"
@@ -782,15 +1031,14 @@ def handle_single_oc(gclass, graph, drawGUI):
                 graph.graph_list[i].room_width =  room_width
                 graph.graph_list[i].room_height = room_height
                 graph.graph_list[i].area = room_area
-                
-                
-                
+                                
                 '''
                 Adds the graph data to output_data for downloading the catalogue and 
                 multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
                 '''
-                gclass.output_data.append(graph.graph_list[i])
-                gclass.multiple_output_found = 1
+                ui._append_output_data(graph.graph_list[i])
+                ui._set_multiple_output_found(1)
+
                 
                 delete_file(input_path)
                 delete_file(output_path)
@@ -800,13 +1048,7 @@ def handle_single_oc(gclass, graph, drawGUI):
                 if optimal_floorplan == 0:
                     graph.graph_list[i].final_traversal=inputgraph.get_final_traversal(graph.graph_list[i])
                     if drawGUI:
-                        draw.draw_rdg(graph.graph_list[i]
-                                , 1
-                                , gclass.pen
-                                , 1
-                                , gclass.value[6]
-                                , room_name
-                                , origin)
+                        drawFunction(graph.graph_list[i], origin, room_name)
                     break
 
                 # Store graph data if graph area is less than current minimal area
@@ -825,74 +1067,73 @@ def handle_single_oc(gclass, graph, drawGUI):
         elif optimal_floorplan == 1:
             print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
             if drawGUI:
-                draw.draw_rdg(min_graph
-                        , 1
-                        , gclass.pen
-                        , 1
-                        , gclass.value[6]
-                        , room_name
-                        , origin)
-
+                drawFunction(min_graph, origin, room_name)
+                
         end = time.time()
-        print_gui("Time taken: " + str((end - start) * 1000) + " ms",gclass)
+        ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
 
         # Sets the ptpg object to the current graph to use for download catalogue and also stores the dimensional constraints of the graph
         gclass.ptpg = graph
-        gclass.dimensional_constraints = [min_width, min_height, plot_width, plot_height]
+        ui._set_dim_constraints([min_width, min_height, plot_width, plot_height])
     
-def handle_multiple_oc(gclass, graph, drawGUI):
-    if (gclass.value[4] == 0):  # Non-Dimensioned multiple dual
+def handle_multiple_oc(graph, drawGUI = False, gclass = None):
+    if (ui.get_isDimensioned() == 0):  # Non-Dimensioned multiple dual
         start = time.time()
         try:
             graph.oneconnected_dual("multiple")
+            ui.print_gui('Generated multiple rectangular floorplan')        
         except inputgraph.OCError:
-            gclass.show_warning("Can not generate rectangular floorplan.")
+            show_warning("Can not generate rectangular floorplan.")
             graph.irreg_multiple_dual()
+            ui.print_gui('Generated Multiple Irregular floorplan instead of Rectangular. OCError')
         except inputgraph.BCNError:
             graph.irreg_multiple_dual()
+            ui.print_gui('Generated Multiple Irregular floorplan instead of Rectangular. BCNError')
         end = time.time()
-        print_gui("Average Time taken: " + str(((end - start) * 1000) / graph.fpcnt) + " ms",gclass)
-        print_gui("Number of floorplans: " + str(graph.fpcnt),gclass)
+        ui.print_gui("Average Time taken: " + str(((end - start) * 1000) / graph.fpcnt) + " ms")
+        ui.print_gui("Number of floorplans: " + str(graph.fpcnt))
 
         for idx in range(graph.fpcnt):
             graph_new = graph.graph_list[idx]
-            gclass.multiple_output_found = 1
-            gclass.output_data.append(graph_new)
+            ui._set_multiple_output_found(1)
+            ui._append_output_data(graph_new)
     else:
-        old_dims = [[0] * gclass.value[0]
-            , [0] * gclass.value[0]
-            , [0] * gclass.value[0]
-            , [0] * gclass.value[0]
+        old_dims = [[0] * ui.get_noOfNodes()
+            , [0] * ui.get_noOfNodes()
+            , [0] * ui.get_noOfNodes()
+            , [0] * ui.get_noOfNodes()
             , ""
-            , [0] * gclass.value[0]
-            , [0] * gclass.value[0]]
+            , [0] * ui.get_noOfNodes()
+            , [0] * ui.get_noOfNodes()]
         min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(
-            old_dims, gclass.value[0])
-        dimensional_constraints = [min_width, max_width, min_height, max_height, symm_string, min_aspect,
-                                max_aspect, plot_width, plot_height]
+            old_dims, ui.get_noOfNodes())
+        ui._set_dim_constraints([min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height])
         start = time.time()
         try:
             graph.oneconnected_dual("multiple")
+            ui.print_gui('Generated multiple Dimensioned Rectangular floorplan')        
         except inputgraph.OCError:
-            gclass.show_warning("Can not generate rectangular floorplan.")
+            show_warning("Can not generate rectangular floorplan.")
             graph.irreg_multiple_dual()
+            ui.print_gui('Generated Multiple Irregular Dimensioned floorplan instead of Rectangular. OCError')
         except inputgraph.BCNError:
             graph.irreg_multiple_dual()
+            ui.print_gui('Generated Multiple Irregular Dimensioned floorplan instead of Rectangular. BCNError')
         graph.multiple_floorplan(min_width, min_height, max_width, max_height, symm_string, min_aspect,
                                 max_aspect, plot_width, plot_height)
         end = time.time()
-        print_gui("Time taken: " + str((end - start) * 1000) + " ms",gclass)
-        print_gui("Number of floorplans: " + str(len(graph.room_x)),gclass)
-        gclass.multiple_output_found = 1
+        ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
+        ui.print_gui("Number of floorplans: " + str(len(graph.room_x)))
+        ui._set_multiple_output_found(1)
 
         room_name = []
-        if len(gclass.value[5]) > 0:
-            room_name = gclass.value[5]
+        if len(ui.get_roomNames()) > 0:
+            room_name = ui.get_roomNames()
 
         for idx in range(len(graph.room_x)):
             graph_new = graph.graph_list[idx]
-            gclass.output_data.append(graph_new)
-            gclass.dimensional_constraints = dimensional_constraints
+            ui._append_output_data(graph_new)
+            ui._set_dim_constraints([min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height])
             gclass.ptpg = graph
             print_all_rfp = False
             if print_all_rfp == True:
@@ -901,29 +1142,19 @@ def handle_multiple_oc(gclass, graph, drawGUI):
                 gclass.pen.speed(0)
                 graph_new.final_traversal=inputgraph.get_final_traversal(graph_new)
                 if drawGUI:
-                    draw.draw_rdg(graph_new
-                    ,1
-                    ,gclass.pen
-                    ,1
-                    ,gclass.value[6]
-                    ,room_name
-                    ,origin)
+                    drawFunction(graph_new, origin, room_name)
 
-def handle_poly(gclass, graph, drawGUI):
+def handle_poly(graph, drawGUI = False, gclass = None):
     start = time.time()
     # graph.irreg_single_dual()
-    graph.polyonalinput(gclass.canonicalObject, gclass.v1, gclass.v2, gclass.vn, gclass.po, gclass.value[2],
+    graph.polyonalinput(gclass.canonicalObject, gclass.v1, gclass.v2, gclass.vn, gclass.po, ui.get_edges(),
                         gclass.debugcano)
     end = time.time()
     if drawGUI:
-        draw.draw_poly(gclass.canonicalObject.graph_data,1
-            ,gclass.pen
-            ,1
-            ,gclass.value[6]
-            ,[]
-            ,origin,gclass.outer_boundary, gclass.shape,graph.matrix)
+        drawFunction(graph, origin, [], isPoly=True )
+        
 
-def handle_limits(gclass, graph, drawGUI):
+def handle_limits(graph, drawGUI = False, gclass = None):
     input_json = {}
     graph_data = {}
     start = time.time()
@@ -933,7 +1164,7 @@ def handle_limits(gclass, graph, drawGUI):
         with open(input_path, 'r') as file:
             input_json = json.load(file)
     except:
-        gclass.show_warning("Draw a floorplan before applying Limits algorithm.")
+        show_warning("Draw a floorplan before applying Limits algorithm.")
         
         
     for key, value in input_json.items():
@@ -1032,10 +1263,11 @@ def handle_limits(gclass, graph, drawGUI):
         newCoordsInstance = nc.NewCoordinateAlgorithm(exact_RoomSet,newRoomSet,s_dir,dist,limits_instance.coords_input1,limits_instance.coords_input2, gclass.side,rooms[gclass.room_limits])
         k=0
         _circular_traversal = []
-        new_graph  = inputgraph.InputGraph(gclass.value[0]
-            , gclass.value[1]
-            , gclass.value[2]
-            , gclass.value[7])
+        new_graph  = inputgraph.InputGraph(ui.get_noOfNodes()
+            , ui.get_edgeCount()
+            , ui.get_edges()
+            , ui.get_nodeCoordinates())
+        ui.set_graph(new_graph)
 
         for i in range(len(old_unchanged_coordinates)):
             if(i==gclass.room_limits):
@@ -1060,10 +1292,10 @@ def handle_limits(gclass, graph, drawGUI):
         #         }
         
         # temp_graph_data = {}
-        # temp_graph_data["nodecnt"] = gclass.value[0]
-        # temp_graph_data["edgecnt"] = gclass.value[1]
-        # temp_graph_data["edgeset"] = gclass.value[2]
-        # temp_graph_data["node_coordinate"] = gclass.value[7]
+        # temp_graph_data["nodecnt"] = ui.get_noOfNodes()
+        # temp_graph_data["edgecnt"] = ui.get_edgeCount()
+        # temp_graph_data["edgeset"] = ui.get_edges()
+        # temp_graph_data["node_coordinate"] = ui.get_nodeCoordinates()
 
         # for key, value in graph_data.items():
         #     if isinstance(value, np.ndarray):
@@ -1094,67 +1326,45 @@ def handle_limits(gclass, graph, drawGUI):
         # new_graph.irreg_nodes1 = new_graph_data['irreg_nodes']
 
         if drawGUI:
-            draw.draw_rdg(new_graph
-                        , 1
-                        , gclass.pen
-                        , 1
-                        , gclass.value[6]
-                        , []
-                        , origin)
+            drawFunction(new_graph, origin, [])
     else:
         print("Limit Exceeded")
-        # gclass.show_warning(newCoordsInstance.error_message)
+        # show_warning(newCoordsInstance.error_message)
 
-def handle_door_connectivity(gclass, graph, drawGUI):
+def handle_door_connectivity(graph, drawGUI = False, gclass = None):
     start = time.time()
-    graph2 = inputgraph.InputGraph(gclass.value[0] 
-                                , gclass.value[1]
-                                , gclass.value[2]
-                                , gclass.value[7])
+    graph2 = inputgraph.InputGraph(ui.get_noOfNodes() 
+                                , ui.get_edgeCount()
+                                , ui.get_edges()
+                                , ui.get_nodeCoordinates())
     graphx = nx.from_numpy_array(graph.matrix)
     # plot(graphx, len(graphx.nodes))
     graph.door_connectivity()
     # plot(graphx, len(graphx.nodes))
     end = time.time()
-    print_gui("Time taken: " + str((end - start) * 1000) + " ms",gclass)
-    gclass.output_data.append(graph)
+    ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
+    ui._append_output_data(graph)
     graph.final_traversal=inputgraph.get_final_traversal(graph)
     if drawGUI:
-        draw.draw_rdg(graph
-                    , 1
-                    , gclass.pen
-                    , 1
-                    , gclass.value[6]
-                    ,[]
-                    , origin)
+        drawFunction(graph, origin, [])
     
-
     # graph2.door_connectivity2()
     # graph2.final_traversal=inputgraph.get_final_traversal(graph2)
-    # if drawGUI:
-    #   draw.draw_rdg(graph2
+    # draw.draw_rdg(graph2
     #                 , 1
     #                 , gclass.pen
     #                 , 1
-    #                 , gclass.value[6]
+    #                 , ui.get_roomColors()
     #                 ,[]
     #                 , origin- 300)
-    gclass.time_taken = (end-start)*1000
-    gclass.num_rfp = len(graph.graph_list)
-    gclass.pdf_colors = gclass.value[6][0]
-    gclass.output_found = 1
-    
-def print_gui(string,gclass):
-        """Prints string on GUI console.
+    ui._set_time_taken((end - start) * 1000)
+    ui._set_num_rfp(len(graph.graph_list))
+    ui._set_pdf_colors(ui.get_roomColors()[0])
+    ui._set_output_found(1)
 
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        gclass.textbox.insert('end', string)
-        gclass.textbox.insert('end', "\n")
 if __name__ == "__main__":
     run()
+                                                    
+def show_warning(str):
+    messagebox.showinfo("Warning", str)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            

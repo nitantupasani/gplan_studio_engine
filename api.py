@@ -6,104 +6,201 @@ Current support only for rectangular floorplans.
 A running example is available.
 
 """
-from .source import inputgraph as inputgraph
+import re
+from source.inputgraph import InputGraph, OCError, BCNError
+import source.lettershape.lshape.Lshaped as Lshaped
+import source.lettershape.tshape.tshape as Tshaped
+import source.lettershape.ushape.ushape as Ushaped
+import source.lettershape.zshape.zshape as Zshaped
+import pythongui.gui as gui
+import uuid
+
+from main import GuiParameters, handle_letter_shape, handle_multiple, handle_multiple_l, handle_multiple_oc, handle_single, handle_single_oc, handle_staircase_shaped
+
+class Asset:
+    def __init__(self, _id, properties, asset_type):
+        self._id = _id
+        self.properties = properties
+        self.type = asset_type
+
+    def to_dict(self):
+        return {
+            "_id": self._id,
+            "properties": self.properties,
+            "type": self.type
+        }
 
 
-def graph_to_rfp(input_data, normalize_const=40, limit=100000):
-    """Generates a rfp for given graph data
+class Wall:
+    def __init__(self, _id, x1, y1, x2, y2, assets = None):
+        self._id = _id
+        self.x1 = x1
+        self.y1 = y1
+        self.x2 = x2
+        self.y2 = y2
+        if assets:
+            self.assets = [asset.to_dict() for asset in assets]
 
-    Args:
-        input_data: A dictionary containing keys:
-            nodes: Node data of the graph.
-            edges: Edge data of the graph.
-        normalize_const: (optional) Normalize height, width, top, left to this
-        limit: (optional) Limit no. of RFPs to these many
-
-    Returns:
-        output_data: A list containing multiple or single floorplan.
-            Each floorplan is a list of dictionary where each dictionary denotes a room.
-    """
-    nodecnt = len(input_data['nodes'])
-    edgecnt = len(input_data['edges'])
-    edgedata = []
-    for edge in input_data['edges']:
-        edgedata.append([edge['source'], edge['target']])
-    node_coordinates = []
-    for node in input_data['nodes']:
-        node_coordinates.append([node['x'], node['y']])
-    graph = inputgraph.InputGraph(nodecnt, edgecnt, edgedata, node_coordinates)
-    output_data = []
-    graphs = graph.irreg_multiple_dual()
-    # graph.final_traversal= inputgraph.get_circular_traversal(graph)
-    for idx in range(min(graph.fpcnt, limit)):
-        output_fp = []
-        graph.final_traversal = []
-        graph.final_traversal = inputgraph.get_final_traversal(graph)
-        for node in input_data['nodes']:
-            output_fp.append({
-                "id": node["id"],
-                "label": node["label"],
-                "color": node["color"],
-                "final_traversal": graph.final_traversal[node]
-                # "left": int(graph.room_x[idx][node["id"]] * normalize_const),
-                # "top": int(graph.room_y[idx][node["id"]] * normalize_const),
-                # "width": int(graph.room_width[idx][node["id"]] * normalize_const),
-                # "height": int(graph.room_height[idx][node["id"]] * normalize_const)
-            })
-        for cnt in range(len(graph.mergednodes[idx])):
-            output_fp.append({
-                "id": graph.mergednodes[idx][cnt],
-                "label": input_data['nodes'][graph.irreg_nodes1[idx][cnt]]["label"],
-                "color": input_data['nodes'][graph.irreg_nodes1[idx][cnt]]["color"],
-                "left": int(graph.room_x[idx][graph.mergednodes[idx][cnt]] * normalize_const),
-                "top": int(graph.room_y[idx][graph.mergednodes[idx][cnt]] * normalize_const),
-                "width": int(graph.room_width[idx][graph.mergednodes[idx][cnt]] * normalize_const),
-                "height": int(graph.room_height[idx][graph.mergednodes[idx][cnt]] * normalize_const)
-            })
-        output_data.append(output_fp)
-    return output_data
+    def to_dict(self):
+        return {
+            "_id": self._id,
+            "x1": self.x1,
+            "y1": self.y1,
+            "x2": self.x2,
+            "y2": self.y2,
+            "assets": self.assets
+        }
 
 
-if __name__ == "__main__":
-    input_data = {
-        "nodes": [
-            {"id": 0, "label": "kitchen", "x": 14, "y": 20, "color": "#e7e7e7","width_min": 2,"width_max": 4,"height_min": 2,"height_max": 6},
-            {"id": 1, "label": "living room", "x": 25, "y": 20, "color": "#e7e7e7","width_min": 2,"width_max": 4,"height_min": 2,"height_max": 6},
-            {"id": 2, "label": "rotunda", "x": 20, "y": 30, "color": "#e7e7e7","width_min": 2,"width_max": 4,"height_min": 2,"height_max": 6}],
-        "edges": [
-            {"source": 0, "target": 1},
-            {"source": 1, "target": 2},
-            {"source": 2, "target": 0}],
-    "fp_type": "multiple",
-    "rectangular": "false"
-    }
-    print(graph_to_rfp(input_data))
+class Room:
+    def __init__(self, _id, name,color, walls = None, assets = None, circular_coordinates = None):
+        self._id = _id
+        self.name = name
+        if assets:
+            self.assets = [asset.to_dict() for asset in assets]
+        self.color = color
+        if walls:
+            self.walls = [wall.to_dict() for wall in walls]
+        self.circular_coordinates = circular_coordinates
 
-    input_data = {
-        "nodes": [
-            {"id": 0, "label": "kitchen", "x": 14, "y": 20, "color": "#e7e7e7"},
-            {"id": 1, "label": "living room", "x": 25, "y": 20, "color": "#e7e7e7"},
-            {"id": 2, "label": "rotunda", "x": 20, "y": 30, "color": "#e7e7e7"}],
-        "edges": [
-            {"source": 0, "target": 1},
-            {"source": 1, "target": 2},
-            {"source": 2, "target": 0}],
-    }
-    print(graph_to_rfp(input_data))
+    def to_dict(self):
+        return {
+            "_id": self._id,
+            "name": self.name,
+            "assets": self.assets,
+            "color": self.color,
+            "walls": self.walls,
+            "circular_coordinates": self.circular_coordinates
+        }
 
-    input_data = {
-        "nodes": [
-            {"id": 0, "label": "kitchen", "x": 14, "y": 20, "color": "#e7e7e7"},
-            {"id": 1, "label": "living room", "x": 25, "y": 20, "color": "#e7e7e7"},
-            {"id": 2, "label": "rotunda", "x": 20, "y": 30, "color": "#e7e7e7"},
-            {"id": 3, "label": "rotunda", "x": 20, "y": 25, "color": "#e7e7e7"}],
-        "edges": [
-            {"source": 0, "target": 1},
-            {"source": 1, "target": 2},
-            {"source": 2, "target": 0},
-            {"source": 0, "target": 3},
-            {"source": 1, "target": 3},
-            {"source": 2, "target": 3}],
-    }
+FLOORPLAN_LIMIT = 10
 
-    print(graph_to_rfp(input_data))
+class FloorPlans:
+    def __init__(self, hasMore, offset, values = None):
+        self.hasMore = hasMore
+        self.offset = offset
+        if values:
+            self.values = [value.to_dict() for value in values]
+
+    def to_dict(self):
+        return {
+            "floorPlans": {
+                "hasMore": self.hasMore,
+                "offset": self.offset,
+                "values": self.values
+            }
+        }
+    
+    def get_floorplans(self, starting_from: int, count: int, caller, nodes_list: list, graph: InputGraph, rectangular: bool, corridor=False,
+                         dimensioned = False, dimensionedCirculation =False , minDimEnabled = False, removeAddCirculation = False, publicEnabled = False,normalize_const=40, limit=FLOORPLAN_LIMIT, corridor_thickness=None):
+        isDimensioned = 1 if dimensioned == True else 0
+        isDimensionedCirculation = 1 if dimensionedCirculation == True else 0
+        isMinDimensioned = 1 if minDimEnabled == True else 0
+        isRemoveAddCirculation = 1 if removeAddCirculation == True else 0
+        isPublic = 1 if publicEnabled == True else 0
+        ui = GuiParameters(graph = graph).set_isDimensioned(isDimensioned).set_isDimensionedCirculation(isDimensionedCirculation).set_isMinDimensioned(isMinDimensioned).set_isRemoveAddCirculation(isRemoveAddCirculation).set_isPublic(isPublic)
+        ui.set_message("")
+        roomColors = []
+        roomNames = []
+        for node in nodes_list:
+            roomColors.append(node["color"])
+            roomNames.append(node["label"])
+        ui.set_roomNames(roomNames)
+        ui.set_roomColors(roomColors)
+        if corridor_thickness is not None: 
+            ui.set_corridor_thickness(corridor_thickness)
+        if corridor:
+            ui.set_command('circulation')
+        if starting_from is None:
+            starting_from = 0
+        if count is None:
+            count = 1
+        nodes_data = []
+        floorplans = []
+        if count==1:
+            if caller.__class__.__name__ == 'GenerateLshape':
+                print("Generating L shape")
+                ui.set_letter("L Shape")
+                for node in nodes_list:
+                    node_obj = gui.gui_class.Nodes(node['id'], node['x'], node['y'])
+                    nodes_data.append(node_obj)
+                handle_letter_shape(graph, nodes_data=nodes_data)
+                message = 'Generated L shaped floorplan.'
+                message += ui.get_message()
+                print(message)
+            elif caller.__class__.__name__ == 'GenerateUshape':
+                ui.set_letter("U Shape")
+                handle_letter_shape(graph)
+                message = 'Generated U shaped floorplan.'
+                message += ui.get_message()
+                print(message)
+            elif caller.__class__.__name__ == 'GenerateTshape':
+                ui.set_letter("T Shape")
+                handle_letter_shape(graph)
+                message = 'Generated T shaped floorplan.'
+                message += ui.get_message()
+                print(message)
+            elif caller.__class__.__name__ == 'GenerateZshape':
+                ui.set_letter("Z Shape")
+                handle_letter_shape(graph)
+                message = 'Generated Z shaped floorplan.'
+                message += ui.get_message()
+                print(message)
+            elif caller.__class__.__name__ == 'GenerateStaircaseshape':
+                handle_staircase_shaped(graph)
+                message = 'Generated Staircase shaped floorplan.'
+                message += ui.get_message()
+                print(message)
+            # elif caller.__class__.__name__ == 'GeneratePentagonal': #Support Not added yet
+            #     Pentagonal.PentagonalFloorplan(graph, nodes_list)
+            # elif caller.__class__.__name__ == 'GenerateHexagonal': #Support Not added yet
+            #     Hexagonal.HexagonalFloorplan(graph, nodes_list)
+            # elif caller.__class__.__name__ == 'GenerateCustomplot': #Support Not added yet
+                # Customplot.CustomplotFloorplan(graph, nodes_list)
+            else:
+                print("Generating Rectangular/Irregular shape")
+                if rectangular:
+                    handle_single_oc(graph)
+                else:
+                    handle_single(graph)
+        else:
+            if caller.__class__.__name__ == 'GenerateLshape':
+                print("Generating Multiple L shape")
+                ui.set_letter("L Shape")
+                for node in nodes_list:
+                    node_obj = gui.gui_class.Nodes(node['id'], node['x'], node['y'])
+                    nodes_data.append(node_obj)
+                handle_multiple_l(graph, nodes_data=nodes_data)
+                message = 'Generated L shaped floorplan.'
+                message += ui.get_message()
+                print(message)
+            elif rectangular:
+                handle_multiple_oc(graph)
+            else:
+                handle_multiple(graph)
+
+        outputData = graph.final_traversal
+        offset = 0
+        hasMore = graph.fpcnt-offset-1>0
+        for index in range(min(len(outputData), limit)):
+            floorplanData = outputData[index]
+            rooms = []
+            room = None
+            k = 0
+            for roomData in floorplanData:
+                x1 = roomData[0][0]
+                y1 = roomData[0][1]
+                wallValues = []
+                for i in range(1,len(roomData)):
+                    x2 = roomData[i][0]
+                    y2 = roomData[i][1]
+                    wall = Wall(str(uuid.uuid4()), x1,y1,x2,y2)
+                    wallValues.append(wall)
+                    x1 = x2
+                    y1 = y2
+                room = Room(str(uuid.uuid4()),nodes_list[k]["label"],nodes_list[k]["color"],wallValues, roomData) #To add handling of node index starting from 0 then 1 then 2. It should be a unique no and GPLAN should map
+                k = k + 1
+            rooms.append(room)
+        floorplans = FloorPlans(hasMore, offset,rooms)
+
+        return floorplans, message

@@ -10,6 +10,7 @@ packages = [
 'djangorestframework==3.14.0',
 'djangorestframework-api-key==2.3.0',
 'djangorestframework-simplejwt==5.3.0',
+'fpdf==1.7.2',
 'fonttools==4.42.1',
 'gunicorn==21.2.0',
 'importlib-resources==6.1.0',

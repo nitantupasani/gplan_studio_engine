@@ -11,6 +11,7 @@ import pickle
 import random
 import sys
 import tkinter as tk
+from tkinter import messagebox
 import tkinter.ttk as ttk
 import turtle
 import warnings
@@ -253,7 +254,7 @@ class gui_class:
         while ((self.value[0] == 0) and done):
             self.root.wait_variable(self.end)
             self.value = self.app.return_everything()
-            tk.messagebox.showinfo("error", "The graph is empty , please draw a graph")
+            messagebox.showinfo("error", "The graph is empty , please draw a graph")
 
     class Nodes:
         def __init__(self, id, x, y):
@@ -389,7 +390,7 @@ class gui_class:
             final.run()
 
         def instructions(self):
-            tk.messagebox.showinfo("Instructions",
+            messagebox.showinfo("Instructions",
                                    "--------User Instructrions--------\n 1. Draw the input graph. \n 2. Use right mouse click to create a new room. \n 3. left click on one node then left click on another to create an edge between them. \n 4. You can give your own room names by clicking on the room name in the graph or the table on the right. \n 5. After creating a graph you can choose one of the option to create it's corresponding RFP or multiple RFPs with or without dimension. You can also get the corridor connecting all the rooms by selecting 'circultion' or click on 'RFPchecker' to check if RFP exists for the given graph. \n 6. You can also select multiple options .You can also add rooms after creating RFP and click on RFP to re-create a new RFP. \n 7.Reset button is used to clear the input graph. \n 8. Press 'Exit' if you want to close the application or Press 'Restart' if you want to restart the application")
 
         def addH(self, event):
@@ -405,7 +406,7 @@ class gui_class:
                 self.canvas.itemconfig(self.oval[self.abc], outline='black')
                 self.connection = []
             if len(self.nodes_data) <= 1:
-                tk.messagebox.showinfo("Connect Nodes", "Please make 2 or more nodes")
+                messagebox.showinfo("Connect Nodes", "Please make 2 or more nodes")
                 return
             x, y = event.x, event.y
             value = self.get_id(x, y)
@@ -422,7 +423,7 @@ class gui_class:
                 return
             else:
                 if value in self.connection:
-                    tk.messagebox.showinfo("Connect Nodes", "You have clicked on same node. Please try again")
+                    messagebox.showinfo("Connect Nodes", "You have clicked on same node. Please try again")
                     return
                 self.connection.append(value)
 
@@ -556,7 +557,7 @@ class gui_class:
                             y >= i.pos_y and y <= j.pos_y)) and epsi < 10 and epsi > -10:
                         ans.append((i_no, j_no))
             if not ans:
-                tk.messagebox.showinfo("Connect Nodes",
+                messagebox.showinfo("Connect Nodes",
                                        "You have clicked outside all the circles and edges. Please try again")
                 return -1
             else:
@@ -567,7 +568,7 @@ class gui_class:
                 distance = ((i.pos_x - x) ** 2 + (i.pos_y - y) ** 2) ** (1 / 2)
                 if distance <= self.radius_circle:
                     return j
-            # tk.messagebox.showinfo("Connect Nodes","You have clicked outside all the circles. Please try again")
+            # messagebox.showinfo("Connect Nodes","You have clicked outside all the circles. Please try again")
             return -1
 
         def remove_node(self, event):
@@ -736,7 +737,7 @@ class gui_class:
                 self.endvar.set(self.endvar.get() + 1)
                 self.master.end.set(self.master.end.get() + 1)
             else:
-                tk.messagebox.showinfo("error", "Please make a dissection of two or more rooms")
+                messagebox.showinfo("error", "Please make a dissection of two or more rooms")
 
         def start(self, canvas):
             global type
@@ -1759,7 +1760,7 @@ class gui_class:
 
     def save_JSON(self):
         if not self.output_found:
-            tk.messagebox.showinfo("error", "Output not yet found")
+            messagebox.showinfo("error", "Output not yet found")
 
         else:
             # self.end.set(self.end.get()+1)
@@ -1767,16 +1768,17 @@ class gui_class:
             f = filedialog.asksaveasfile(defaultextension=".JSON", title="Select location to Save file as JSON",
                                          filetypes=(("JSON files", "*.JSON"), ("all files", "*.*")),
                                          initialfile="_latest_JSON.JSON")
-            f.write(json.dumps(self.json_data))
-            fauto = open(".\saved_files\RFP_latest.txt", "w")
-            jstr = json.dumps(self.json_data, indent=4)
-            fauto.write(jstr)
-            fauto.close()
-            f.close()
+            if f is not None:
+                f.write(json.dumps(self.json_data))
+                fauto = open(".\saved_files\RFP_latest.txt", "w")
+                jstr = json.dumps(self.json_data, indent=4)
+                fauto.write(jstr)
+                fauto.close()
+                f.close()
 
     def download_catalogue(self):
         if not self.multiple_output_found:
-            tk.messagebox.showinfo("error", "Output not yet found")
+            messagebox.showinfo("error", "Output not yet found")
         if self.value[4] == 0:
             generate_catalogue(self.app.edges, self.num_rfp, self.time_taken, self.output_data,
                                    self.dimensional_constraints)
@@ -1847,7 +1849,7 @@ class gui_class:
         ex = tk.Button(root, text="Submit", command=self.choiceFunction)
         ex.grid(row=6)
         # else: 
-        #     tk.messagebox.showerror("Error", "ERROR!! THE INITIAL GRAPH IS NON PLANAR, START AGAIN")
+        #     messagebox.showerror("Error", "ERROR!! THE INITIAL GRAPH IS NON PLANAR, START AGAIN")
         # TODO NOt working if error
 
     def letter_inputbox(self):
@@ -2388,7 +2390,7 @@ class gui_class:
         f.close()
 
     def show_warning(self, str):
-        tk.messagebox.showinfo("Warning", str)
+        messagebox.showinfo("Warning", str)
     
     def remove_selected_rooms (self):
         for i, room_var in enumerate(self.room_vars):
