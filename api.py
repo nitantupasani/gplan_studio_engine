@@ -118,7 +118,7 @@ class FloorPlans:
         nodes_data = []
         floorplans = []
         if count==1:
-            if caller.__class__.__name__ == 'GenerateLshape':
+            if caller == 'lshape':
                 print("Generating L shape")
                 ui.set_letter("L Shape")
                 for node in nodes_list:
@@ -128,43 +128,46 @@ class FloorPlans:
                 message = 'Generated L shaped floorplan.'
                 message += ui.get_message()
                 print(message)
-            elif caller.__class__.__name__ == 'GenerateUshape':
+            elif caller == 'ushaoe':
                 ui.set_letter("U Shape")
                 handle_letter_shape(graph)
                 message = 'Generated U shaped floorplan.'
                 message += ui.get_message()
                 print(message)
-            elif caller.__class__.__name__ == 'GenerateTshape':
+            elif caller == 'tshape':
                 ui.set_letter("T Shape")
                 handle_letter_shape(graph)
                 message = 'Generated T shaped floorplan.'
                 message += ui.get_message()
                 print(message)
-            elif caller.__class__.__name__ == 'GenerateZshape':
+            elif caller == 'zshape':
                 ui.set_letter("Z Shape")
                 handle_letter_shape(graph)
                 message = 'Generated Z shaped floorplan.'
                 message += ui.get_message()
                 print(message)
-            elif caller.__class__.__name__ == 'GenerateStaircaseshape':
+            elif caller == 'staircaseshape':
                 handle_staircase_shaped(graph)
                 message = 'Generated Staircase shaped floorplan.'
                 message += ui.get_message()
                 print(message)
-            # elif caller.__class__.__name__ == 'GeneratePentagonal': #Support Not added yet
+            # elif caller == 'pentagonal': #Support Not added yet
             #     Pentagonal.PentagonalFloorplan(graph, nodes_list)
-            # elif caller.__class__.__name__ == 'GenerateHexagonal': #Support Not added yet
+            # elif caller == 'hexagonal': #Support Not added yet
             #     Hexagonal.HexagonalFloorplan(graph, nodes_list)
-            # elif caller.__class__.__name__ == 'GenerateCustomplot': #Support Not added yet
+            # elif caller == 'custom': #Support Not added yet
                 # Customplot.CustomplotFloorplan(graph, nodes_list)
-            else:
+            elif caller == 'rectangular' or caller == 'irregular':
                 print("Generating Rectangular/Irregular shape")
                 if rectangular:
                     handle_single_oc(graph)
                 else:
                     handle_single(graph)
+            else:
+                message = f"Support for {caller} Not yet Handled from Backend for Single Floorplan"
+                print(message)
         else:
-            if caller.__class__.__name__ == 'GenerateLshape':
+            if caller == 'lshape':
                 print("Generating Multiple L shape")
                 ui.set_letter("L Shape")
                 for node in nodes_list:
@@ -174,11 +177,13 @@ class FloorPlans:
                 message = 'Generated L shaped floorplan.'
                 message += ui.get_message()
                 print(message)
-            elif rectangular:
+            elif caller == 'rectangular':
                 handle_multiple_oc(graph)
-            else:
+            elif caller == 'irregular':
                 handle_multiple(graph)
-
+            else:
+                message = f"Support for {caller} Not yet Handled from Backend for Multiple Floorplan"
+                print(message)
         outputData = graph.final_traversal
         offset = 0
         hasMore = graph.fpcnt-offset-1>0

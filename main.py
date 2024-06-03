@@ -28,12 +28,12 @@ import json
 from source.graphoperations.operations import get_encoded_matrix
 from system_functions.os_functions import delete_file
 import source.dimensioning.minimum_dimensioning as min_dim
-import source.lettershape.lshape.Lshaped as Lshaped
-import source.lettershape.tshape.tshape as Tshaped
-import source.lettershape.ushape.ushape as Ushaped
-import source.lettershape.zshape.zshape as Zshaped
-import source.polygonal.limits as lim
-import source.polygonal.newcoord as nc
+import GPLAN.source.lettershape.lshape.Lshaped as Lshaped
+import GPLAN.source.lettershape.tshape.tshape as Tshaped
+import GPLAN.source.lettershape.ushape.ushape as Ushaped
+import GPLAN.source.lettershape.zshape.zshape as Zshaped
+import GPLAN.source.polygonal.limits as lim
+import GPLAN.source.polygonal.newcoord as nc
 # import checker
 # from tkinter import messagebox
 # import dimension_gui as dimgui
@@ -291,8 +291,8 @@ class GuiParameters:
 
 
 origin = 0
-gclass: gui.gui_class = gui.gui_class()
-ui = GuiParameters(gclass)
+gclass: gui.gui_class
+ui: GuiParameters
 
 def drawFunction(graph, origin, roomName, isPoly = False):
     if not isPoly:
@@ -1363,6 +1363,8 @@ def handle_door_connectivity(graph, drawGUI = False, gclass = None):
     ui._set_output_found(1)
 
 if __name__ == "__main__":
+    gclass: gui.gui_class = gui.gui_class()
+    ui = GuiParameters(gclass)
     run()
                                                     
 def show_warning(str):
