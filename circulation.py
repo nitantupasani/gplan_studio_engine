@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from copy import deepcopy
 import itertools
-import bdy
+import GPLAN.bdy
 from typing import List, Tuple
 import random
 

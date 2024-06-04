@@ -1,4 +1,3 @@
-
 """API
 
 Generates floorplamns for given graph data as input.
@@ -7,15 +6,17 @@ A running example is available.
 
 """
 import re
-from source.inputgraph import InputGraph, OCError, BCNError
-import source.lettershape.lshape.Lshaped as Lshaped
-import source.lettershape.tshape.tshape as Tshaped
-import source.lettershape.ushape.ushape as Ushaped
-import source.lettershape.zshape.zshape as Zshaped
-import pythongui.gui as gui
+from GPLAN.source.inputgraph import InputGraph, OCError, BCNError
+import GPLAN.source.lettershape.lshape.Lshaped as Lshaped
+import GPLAN.source.lettershape.tshape.tshape as Tshaped
+import GPLAN.source.lettershape.ushape.ushape as Ushaped
+import GPLAN.source.lettershape.zshape.zshape as Zshaped
+import GPLAN.pythongui.gui as gui
 import uuid
 
-from main import GuiParameters, handle_letter_shape, handle_multiple, handle_multiple_l, handle_multiple_oc, handle_single, handle_single_oc, handle_staircase_shaped
+from GPLAN.main import GuiParameters, handle_letter_shape, handle_multiple, handle_multiple_l, handle_multiple_oc, \
+    handle_single, handle_single_oc, handle_staircase_shaped
+
 
 class Asset:
     def __init__(self, _id, properties, asset_type):
@@ -32,7 +33,7 @@ class Asset:
 
 
 class Wall:
-    def __init__(self, _id, x1, y1, x2, y2, assets = None):
+    def __init__(self, _id, x1, y1, x2, y2, assets=None):
         self._id = _id
         self.x1 = x1
         self.y1 = y1
@@ -53,7 +54,7 @@ class Wall:
 
 
 class Room:
-    def __init__(self, _id, name,color, walls = None, assets = None, circular_coordinates = None):
+    def __init__(self, _id, name, color, walls=None, assets=None, circular_coordinates=None):
         self._id = _id
         self.name = name
         if assets:
@@ -73,10 +74,12 @@ class Room:
             "circular_coordinates": self.circular_coordinates
         }
 
+
 FLOORPLAN_LIMIT = 10
 
+
 class FloorPlans:
-    def __init__(self, hasMore, offset, values = None):
+    def __init__(self, hasMore, offset, values=None):
         self.hasMore = hasMore
         self.offset = offset
         if values:
@@ -90,15 +93,18 @@ class FloorPlans:
                 "values": self.values
             }
         }
-    
-    def get_floorplans(self, starting_from: int, count: int, caller, nodes_list: list, graph: InputGraph, rectangular: bool, corridor=False,
+
+    @staticmethod
+    def get_floorplans(starting_from: int, count: int, caller, nodes_list: list, graph: InputGraph, rectangular: bool, corridor=False,
                          dimensioned = False, dimensionedCirculation =False , minDimEnabled = False, removeAddCirculation = False, publicEnabled = False,normalize_const=40, limit=FLOORPLAN_LIMIT, corridor_thickness=None):
         isDimensioned = 1 if dimensioned == True else 0
         isDimensionedCirculation = 1 if dimensionedCirculation == True else 0
         isMinDimensioned = 1 if minDimEnabled == True else 0
         isRemoveAddCirculation = 1 if removeAddCirculation == True else 0
         isPublic = 1 if publicEnabled == True else 0
-        ui = GuiParameters(graph = graph).set_isDimensioned(isDimensioned).set_isDimensionedCirculation(isDimensionedCirculation).set_isMinDimensioned(isMinDimensioned).set_isRemoveAddCirculation(isRemoveAddCirculation).set_isPublic(isPublic)
+        ui = GuiParameters(graph=graph).set_isDimensioned(isDimensioned).set_isDimensionedCirculation(
+            isDimensionedCirculation).set_isMinDimensioned(isMinDimensioned).set_isRemoveAddCirculation(
+            isRemoveAddCirculation).set_isPublic(isPublic)
         ui.set_message("")
         roomColors = []
         roomNames = []
@@ -107,7 +113,7 @@ class FloorPlans:
             roomNames.append(node["label"])
         ui.set_roomNames(roomNames)
         ui.set_roomColors(roomColors)
-        if corridor_thickness is not None: 
+        if corridor_thickness is not None:
             ui.set_corridor_thickness(corridor_thickness)
         if corridor:
             ui.set_command('circulation')
@@ -117,7 +123,7 @@ class FloorPlans:
             count = 1
         nodes_data = []
         floorplans = []
-        if count==1:
+        if count == 1:
             if caller == 'lshape':
                 print("Generating L shape")
                 ui.set_letter("L Shape")
@@ -128,7 +134,7 @@ class FloorPlans:
                 message = 'Generated L shaped floorplan.'
                 message += ui.get_message()
                 print(message)
-            elif caller == 'ushaoe':
+            elif caller == 'ushape':
                 ui.set_letter("U Shape")
                 handle_letter_shape(ui, graph)
                 message = 'Generated U shaped floorplan.'
@@ -156,7 +162,7 @@ class FloorPlans:
             # elif caller == 'hexagonal': #Support Not added yet
             #     Hexagonal.HexagonalFloorplan(ui, graph, nodes_list)
             # elif caller == 'custom': #Support Not added yet
-                # Customplot.CustomplotFloorplan(ui, graph, nodes_list)
+            # Customplot.CustomplotFloorplan(graph, nodes_list)
             elif caller == 'rectangular' or caller == 'irregular':
                 print("Generating Rectangular/Irregular shape")
                 if rectangular:
@@ -186,7 +192,7 @@ class FloorPlans:
                 print(message)
         outputData = graph.final_traversal
         offset = 0
-        hasMore = graph.fpcnt-offset-1>0
+        hasMore = graph.fpcnt - offset - 1 > 0
         for index in range(min(len(outputData), limit)):
             floorplanData = outputData[index]
             rooms = []
@@ -196,16 +202,17 @@ class FloorPlans:
                 x1 = roomData[0][0]
                 y1 = roomData[0][1]
                 wallValues = []
-                for i in range(1,len(roomData)):
+                for i in range(1, len(roomData)):
                     x2 = roomData[i][0]
                     y2 = roomData[i][1]
-                    wall = Wall(str(uuid.uuid4()), x1,y1,x2,y2)
+                    wall = Wall(str(uuid.uuid4()), x1, y1, x2, y2)
                     wallValues.append(wall)
                     x1 = x2
                     y1 = y2
-                room = Room(str(uuid.uuid4()),nodes_list[k]["label"],nodes_list[k]["color"],wallValues, roomData) #To add handling of node index starting from 0 then 1 then 2. It should be a unique no and GPLAN should map
+                room = Room(str(uuid.uuid4()), nodes_list[k]["label"], nodes_list[k]["color"], wallValues,
+                            roomData)  # To add handling of node index starting from 0 then 1 then 2. It should be a unique no and GPLAN should map
                 k = k + 1
             rooms.append(room)
-        floorplans = FloorPlans(hasMore, offset,rooms)
+        floorplans = FloorPlans(hasMore, offset, rooms)
 
         return floorplans, message

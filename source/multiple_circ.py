@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from copy import deepcopy
 import itertools
-import source.trial.bdy as bdy
+import GPLAN.source.trial.bdy as bdy
 import circulation
 
 class multiple_circ:

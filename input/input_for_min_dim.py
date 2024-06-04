@@ -1,6 +1,6 @@
-from input.input_template import nodes
-from input.input_template import edges
-from input.input_template import boundary_rooms
+from GPLAN.input.input_template import nodes
+from GPLAN.input.input_template import edges
+from GPLAN.input.input_template import boundary_rooms
 
 class floorplan:
     def __init__(self, fp_type, dim_set, dim_circ_set, add_del_corr_set, corr_thick):

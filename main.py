@@ -13,21 +13,21 @@ from webbrowser import get
 import networkx as nx
 import numpy as np
 from numpy import true_divide
-import pythongui.gui as gui
-import source.inputgraph as inputgraph
-import pythongui.drawing as draw
-import pythongui.dimensiongui as dimgui
-import pythongui.mindimensiongui as mindimgui
-import circulation as cir
+import GPLAN.pythongui.gui as gui
+import GPLAN.source.inputgraph as inputgraph
+import GPLAN.pythongui.drawing as draw
+import GPLAN.pythongui.dimensiongui as dimgui
+import GPLAN.pythongui.mindimensiongui as mindimgui
+import GPLAN.circulation as cir
 import matplotlib.pyplot as plt
 import copy
-import source.polygonal.poly as poly
-import input.input_for_min_dim as input_for_min_dim
+import GPLAN.source.polygonal.poly as poly
+import GPLAN.input.input_for_min_dim as input_for_min_dim
 import json
 # from system_functions.os_functions import delete_fileimport input.input_for_min_dim as input_for_min_dim
-from source.graphoperations.operations import get_encoded_matrix
-from system_functions.os_functions import delete_file
-import source.dimensioning.minimum_dimensioning as min_dim
+from GPLAN.source.graphoperations.operations import get_encoded_matrix
+from GPLAN.system_functions.os_functions import delete_file
+import GPLAN.source.dimensioning.minimum_dimensioning as min_dim
 import GPLAN.source.lettershape.lshape.Lshaped as Lshaped
 import GPLAN.source.lettershape.tshape.tshape as Tshaped
 import GPLAN.source.lettershape.ushape.ushape as Ushaped
@@ -228,7 +228,7 @@ class GuiParameters:
             self.set_graph(graph)
             self.set_edgeCount(graph.edgecnt)
             self.set_noOfNodes(graph.nodecnt)
-            self.set_edges(graph.edges)
+            # self.set_edges(graph.edges)
             self.set_nodeCoordinates(graph.coordinates)
             self.set_isGui(False)
     
