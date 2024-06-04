@@ -336,27 +336,27 @@ def run():
             ui.set_graph(graph)
             origin = 0
             if gclass.command == "circulation":
-                handle_circulation(graph, True, gclass)
+                handle_circulation(ui, graph, True, gclass)
             elif gclass.command == "single":  # Single Irregular Dual/Floorplan
-                handle_single(graph, True, gclass)
+                handle_single(ui, graph, True, gclass)
             elif gclass.command == "letter_shape":
-                handle_letter_shape(graph, True, gclass)
+                handle_letter_shape(ui, graph, True, gclass)
             elif gclass.command == "multiple_l":
-                handle_multiple_l(graph, gclass)
+                handle_multiple_l(ui, graph, gclass)
             elif gclass.command == "staircase_shaped":
-                handle_staircase_shaped(graph, True, gclass)
+                handle_staircase_shaped(ui, graph, True, gclass)
             elif gclass.command == "multiple":
-                handle_multiple(graph, gclass)
+                handle_multiple(ui, graph, gclass)
             elif gclass.command == "single_oc":
-                handle_single_oc(graph, True, gclass)
+                handle_single_oc(ui, graph, True, gclass)
             elif gclass.command == "multiple_oc":
-                handle_multiple_oc(graph, True, gclass)
+                handle_multiple_oc(ui, graph, True, gclass)
             elif gclass.command == "poly":
-                handle_poly(graph, True, gclass)
+                handle_poly(ui, graph, True, gclass)
             elif gclass.command == "limits":
-                handle_limits(graph, True, gclass)
+                handle_limits(ui, graph, True, gclass)
             elif gclass.command == "door_connectivity":
-                handle_door_connectivity(graph, True, gclass)
+                handle_door_connectivity(ui, graph, True, gclass)
         gclass.root.wait_variable(gclass.end)
         gclass.graph_ret()
         gclass.ocan.add_tab()
@@ -558,7 +558,7 @@ def plot(graph: nx.Graph,m: int) -> None:
                     alpha=1)
     plt.show()
 
-def handle_circulation(graph, drawGUI = False, gclass = None):
+def handle_circulation(ui, graph, drawGUI = False, gclass = None):
     is_dimensioned = False
     remove_corridor = False
     public_private = False
@@ -680,7 +680,7 @@ def handle_circulation(graph, drawGUI = False, gclass = None):
             if drawGUI:
                 drawFunction(new_graph, origin-300, [])
 
-def handle_single(graph, drawGUI = False, gclass = None):
+def handle_single(ui, graph, drawGUI = False, gclass = None):
     if (ui.get_isDimensioned() == 0):  # Non-Dimensioned single dual
         start = time.time()
         graph.irreg_single_dual()
@@ -718,7 +718,7 @@ def handle_single(graph, drawGUI = False, gclass = None):
         if drawGUI:
             drawFunction(graph, origin, [])
 
-def handle_letter_shape(graph, drawGUI = False, gclass = None, nodes_data = None):
+def handle_letter_shape(ui, graph, drawGUI = False, gclass = None, nodes_data = None):
     assert ui.get_letter is not None
     node_data = nodes_data if nodes_data is not None else gclass.app.nodes_data 
     if(ui.get_isDimensioned() == 0): #Non-Dimensioned Letter Shape
@@ -794,7 +794,7 @@ def handle_letter_shape(graph, drawGUI = False, gclass = None, nodes_data = None
         if drawGUI:
             drawFunction(graph, origin, [])
 
-def handle_multiple_l(graph, gclass = None, nodes_data = None):
+def handle_multiple_l(ui, graph, gclass = None, nodes_data = None):
     node_data = nodes_data if nodes_data is not None else gclass.app.nodes_data 
     if(ui.get_isDimensioned() == 0):#Non-Dimensioned multiple dual
         start = time.time()
@@ -820,7 +820,7 @@ def handle_multiple_l(graph, gclass = None, nodes_data = None):
             # gclass.pen = gclass.ocan.getpen()
             # gclass.pen.speed(0)
     
-def handle_staircase_shaped(graph, drawGUI = False, gclass = None):
+def handle_staircase_shaped(ui, graph, drawGUI = False, gclass = None):
     start = time.time()
     inputgraph.staircaseshaped(graph)
     end = time.time()
@@ -829,7 +829,7 @@ def handle_staircase_shaped(graph, drawGUI = False, gclass = None):
         drawFunction(graph, origin, [])
     return graph
     
-def handle_multiple(graph, gclass = None):
+def handle_multiple(ui, graph, gclass = None):
     if(ui.get_isDimensioned() == 0):#Non-Dimensioned multiple dual
         start = time.time()
         graph.irreg_multiple_dual()
@@ -860,7 +860,7 @@ def handle_multiple(graph, gclass = None):
             graph_new = graph.graph_list[idx]
             ui._append_output_data(graph_new)
 
-def handle_single_oc(graph, drawGUI = False, gclass = None):
+def handle_single_oc(ui, graph, drawGUI = False, gclass = None):
     if(ui.get_isDimensioned() == 0 and ui.get_isMinDimensioned() == 0): #Non-Dimensioned single rectangular dual
         start = time.time()
         try:
@@ -1076,7 +1076,7 @@ def handle_single_oc(graph, drawGUI = False, gclass = None):
         gclass.ptpg = graph
         ui._set_dim_constraints([min_width, min_height, plot_width, plot_height])
     
-def handle_multiple_oc(graph, drawGUI = False, gclass = None):
+def handle_multiple_oc(ui, graph, drawGUI = False, gclass = None):
     if (ui.get_isDimensioned() == 0):  # Non-Dimensioned multiple dual
         start = time.time()
         try:
@@ -1144,7 +1144,7 @@ def handle_multiple_oc(graph, drawGUI = False, gclass = None):
                 if drawGUI:
                     drawFunction(graph_new, origin, room_name)
 
-def handle_poly(graph, drawGUI = False, gclass = None):
+def handle_poly(ui, graph, drawGUI = False, gclass = None):
     start = time.time()
     # graph.irreg_single_dual()
     graph.polyonalinput(gclass.canonicalObject, gclass.v1, gclass.v2, gclass.vn, gclass.po, ui.get_edges(),
@@ -1154,7 +1154,7 @@ def handle_poly(graph, drawGUI = False, gclass = None):
         drawFunction(graph, origin, [], isPoly=True )
         
 
-def handle_limits(graph, drawGUI = False, gclass = None):
+def handle_limits(ui, graph, drawGUI = False, gclass = None):
     input_json = {}
     graph_data = {}
     start = time.time()
@@ -1331,7 +1331,7 @@ def handle_limits(graph, drawGUI = False, gclass = None):
         print("Limit Exceeded")
         # show_warning(newCoordsInstance.error_message)
 
-def handle_door_connectivity(graph, drawGUI = False, gclass = None):
+def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
     start = time.time()
     graph2 = inputgraph.InputGraph(ui.get_noOfNodes() 
                                 , ui.get_edgeCount()

@@ -124,45 +124,45 @@ class FloorPlans:
                 for node in nodes_list:
                     node_obj = gui.gui_class.Nodes(node['id'], node['x'], node['y'])
                     nodes_data.append(node_obj)
-                handle_letter_shape(graph, nodes_data=nodes_data)
+                handle_letter_shape(ui, graph, nodes_data=nodes_data)
                 message = 'Generated L shaped floorplan.'
                 message += ui.get_message()
                 print(message)
             elif caller == 'ushaoe':
                 ui.set_letter("U Shape")
-                handle_letter_shape(graph)
+                handle_letter_shape(ui, graph)
                 message = 'Generated U shaped floorplan.'
                 message += ui.get_message()
                 print(message)
             elif caller == 'tshape':
                 ui.set_letter("T Shape")
-                handle_letter_shape(graph)
+                handle_letter_shape(ui, graph)
                 message = 'Generated T shaped floorplan.'
                 message += ui.get_message()
                 print(message)
             elif caller == 'zshape':
                 ui.set_letter("Z Shape")
-                handle_letter_shape(graph)
+                handle_letter_shape(ui, graph)
                 message = 'Generated Z shaped floorplan.'
                 message += ui.get_message()
                 print(message)
             elif caller == 'staircaseshape':
-                handle_staircase_shaped(graph)
+                handle_staircase_shaped(ui, graph)
                 message = 'Generated Staircase shaped floorplan.'
                 message += ui.get_message()
                 print(message)
             # elif caller == 'pentagonal': #Support Not added yet
-            #     Pentagonal.PentagonalFloorplan(graph, nodes_list)
+            #     Pentagonal.PentagonalFloorplan(ui, graph, nodes_list)
             # elif caller == 'hexagonal': #Support Not added yet
-            #     Hexagonal.HexagonalFloorplan(graph, nodes_list)
+            #     Hexagonal.HexagonalFloorplan(ui, graph, nodes_list)
             # elif caller == 'custom': #Support Not added yet
-                # Customplot.CustomplotFloorplan(graph, nodes_list)
+                # Customplot.CustomplotFloorplan(ui, graph, nodes_list)
             elif caller == 'rectangular' or caller == 'irregular':
                 print("Generating Rectangular/Irregular shape")
                 if rectangular:
-                    handle_single_oc(graph)
+                    handle_single_oc(ui, graph)
                 else:
-                    handle_single(graph)
+                    handle_single(ui, graph)
             else:
                 message = f"Support for {caller} Not yet Handled from Backend for Single Floorplan"
                 print(message)
@@ -173,14 +173,14 @@ class FloorPlans:
                 for node in nodes_list:
                     node_obj = gui.gui_class.Nodes(node['id'], node['x'], node['y'])
                     nodes_data.append(node_obj)
-                handle_multiple_l(graph, nodes_data=nodes_data)
+                handle_multiple_l(ui, graph, nodes_data=nodes_data)
                 message = 'Generated L shaped floorplan.'
                 message += ui.get_message()
                 print(message)
             elif caller == 'rectangular':
-                handle_multiple_oc(graph)
+                handle_multiple_oc(ui, graph)
             elif caller == 'irregular':
-                handle_multiple(graph)
+                handle_multiple(ui, graph)
             else:
                 message = f"Support for {caller} Not yet Handled from Backend for Multiple Floorplan"
                 print(message)
