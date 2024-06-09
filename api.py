@@ -39,7 +39,8 @@ class Wall:
         self.y1 = y1
         self.x2 = x2
         self.y2 = y2
-        if assets:
+        self.assets = []
+        if assets is not None:
             self.assets = [asset.to_dict() for asset in assets]
 
     def to_dict(self):
@@ -57,10 +58,11 @@ class Room:
     def __init__(self, _id, name, color, walls=None, assets=None, circular_coordinates=None):
         self._id = _id
         self.name = name
-        if assets:
+        self.assets = []
+        if assets is not None:
             self.assets = [asset.to_dict() for asset in assets]
         self.color = color
-        if walls:
+        if walls is not None:
             self.walls = [wall.to_dict() for wall in walls]
         self.circular_coordinates = circular_coordinates
 
@@ -97,6 +99,7 @@ class FloorPlans:
     @staticmethod
     def get_floorplans(starting_from: int, count: int, caller, nodes_list: list, graph: InputGraph, rectangular: bool, corridor=False,
                          dimensioned = False, dimensionedCirculation =False , minDimEnabled = False, removeAddCirculation = False, publicEnabled = False,normalize_const=40, limit=FLOORPLAN_LIMIT, corridor_thickness=None):
+        message = ""
         isDimensioned = 1 if dimensioned == True else 0
         isDimensionedCirculation = 1 if dimensionedCirculation == True else 0
         isMinDimensioned = 1 if minDimEnabled == True else 0
@@ -191,6 +194,8 @@ class FloorPlans:
                 message = f"Support for {caller} Not yet Handled from Backend for Multiple Floorplan"
                 print(message)
         outputData = graph.final_traversal
+        if count == 1:
+            outputData = [outputData]
         offset = 0
         hasMore = graph.fpcnt - offset - 1 > 0
         for index in range(min(len(outputData), limit)):
@@ -210,7 +215,7 @@ class FloorPlans:
                     x1 = x2
                     y1 = y2
                 room = Room(str(uuid.uuid4()), nodes_list[k]["label"], nodes_list[k]["color"], wallValues,
-                            roomData)  # To add handling of node index starting from 0 then 1 then 2. It should be a unique no and GPLAN should map
+                            circular_coordinates=roomData)  # To add handling of node index starting from 0 then 1 then 2. It should be a unique no and GPLAN should map
                 k = k + 1
             rooms.append(room)
         floorplans = FloorPlans(hasMore, offset, rooms)

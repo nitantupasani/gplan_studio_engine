@@ -43,7 +43,7 @@ import GPLAN.source.polygonal.newcoord as nc
 # import triangularity as trng
 class GuiParameters:
     
-    __gclass: gui.gui_class
+    __gclass: gui.gui_class = None
     __graph: inputgraph.InputGraph
     __isGui: bool
     __noOfNodes: int
@@ -233,7 +233,7 @@ class GuiParameters:
             self.set_isGui(False)
     
     def print_gui(self, string):
-        ui.set_message(string)
+        self.set_message(string)
         if self.get_gclass() is not None:
             self.get_gclass().textbox.insert(tk.END, string) # type: ignore
             self.get_gclass().textbox.insert(tk.END, "\n") # type: ignore
