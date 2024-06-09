@@ -5,11 +5,11 @@ import networkx as nx
 import numpy as np 
 import turtle
 # import ptpg
-import GPLAN.source.floorplangen.dual as dual
+from ..source.floorplangen import dual as dual
 import math
-import GPLAN.source.polygonal.poly as poly
-from GPLAN.source.polygonal.draw import DrawOuterBoundary
-import GPLAN.source.inputgraph as inputgraph
+from ..source.polygonal import poly as poly
+from ..source.polygonal.draw import DrawOuterBoundary
+from ..source import inputgraph as inputgraph
 
 
 scale = 300

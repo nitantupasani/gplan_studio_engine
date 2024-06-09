@@ -6,15 +6,15 @@ A running example is available.
 
 """
 import re
-from GPLAN.source.inputgraph import InputGraph, OCError, BCNError
-import GPLAN.source.lettershape.lshape.Lshaped as Lshaped
-import GPLAN.source.lettershape.tshape.tshape as Tshaped
-import GPLAN.source.lettershape.ushape.ushape as Ushaped
-import GPLAN.source.lettershape.zshape.zshape as Zshaped
-import GPLAN.pythongui.gui as gui
+from .source.inputgraph import InputGraph as InputGraph
+from .source.lettershape.lshape import Lshaped as Lshaped
+from .source.lettershape.tshape import tshape as Tshaped
+from .source.lettershape.ushape import ushape as Ushaped
+from .source.lettershape.zshape import zshape as Zshaped
+from .pythongui import gui as gui
 import uuid
 
-from GPLAN.main import GuiParameters, handle_letter_shape, handle_multiple, handle_multiple_l, handle_multiple_oc, \
+from .main import GuiParameters, handle_letter_shape, handle_multiple, handle_multiple_l, handle_multiple_oc, \
     handle_single, handle_single_oc, handle_staircase_shaped
 
 

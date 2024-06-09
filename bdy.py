@@ -3,22 +3,22 @@
 import numpy as np
 import networkx as nx
 from random import randint
-from GPLAN.source.graphoperations import biconnectivity as bcn
-from GPLAN.source.graphoperations import oneconnectivity as onc
-from GPLAN.source.graphoperations import operations as opr
-from GPLAN.source.graphoperations import graph_crossings as gc
-from GPLAN.source.graphoperations import triangularity as trng
-from GPLAN.source.irregular import shortcutresolver as sr
-from GPLAN.source.irregular import septri as st
-from GPLAN.source.floorplangen import contraction as cntr
-from GPLAN.source.floorplangen import expansion as exp
-from GPLAN.source.floorplangen import rdg as rdg
-from GPLAN.source.floorplangen import transformation as transform
-from GPLAN.source.floorplangen import flippable as flp
-from GPLAN.source.dimensioning import floorplan_to_st as fpts
-from GPLAN.source.dimensioning import block_checker as bc
-from GPLAN.source.boundary import cip as cip
-from GPLAN.source.boundary import news as news
+from .source.graphoperations import biconnectivity as bcn
+from .source.graphoperations import oneconnectivity as onc
+from .source.graphoperations import operations as opr
+from .source.graphoperations import graph_crossings as gc
+from .source.graphoperations import triangularity as trng
+from .source.irregular import shortcutresolver as sr
+from .source.irregular import septri as st
+from .source.floorplangen import contraction as cntr
+from .source.floorplangen import expansion as exp
+from .source.floorplangen import rdg as rdg
+from .source.floorplangen import transformation as transform
+from .source.floorplangen import flippable as flp
+from .source.dimensioning import floorplan_to_st as fpts
+from .source.dimensioning import block_checker as bc
+from .source.boundary import cip as cip
+from .source.boundary import news as news
 
 class Boundary:
     """A Boundary class for boundary identification of the graph.

@@ -1,5 +1,5 @@
 import tkinter as tk
-# import GPLAN.source.polygonal.poly as poly
+# import .poly as poly
 trace = 0 
 
 class DrawOuterBoundary:

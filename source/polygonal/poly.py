@@ -1,9 +1,9 @@
 # from ssl import create_default_context
 import tkinter as tk
 # import turtle
-# from GPLAN.source.polygonal.draw import DrawOuterBoundary
-from GPLAN.source.polygonal.polygui import PolyGUI 
-# from GPLAN.source.polygonal.limits import find_limits 
+# from .draw import DrawOuterBoundary
+from .polygui import PolyGUI 
+# from .limits import find_limits 
 # import time
 
 
