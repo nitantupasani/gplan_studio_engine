@@ -201,9 +201,9 @@ class FloorPlans:
         for index in range(min(len(outputData), limit)):
             floorplanData = outputData[index]
             rooms = []
-            room = None
             k = 0
             for roomData in floorplanData:
+                room = None
                 x1 = roomData[0][0]
                 y1 = roomData[0][1]
                 wallValues = []
@@ -214,10 +214,11 @@ class FloorPlans:
                     wallValues.append(wall)
                     x1 = x2
                     y1 = y2
+                wallValues.append(Wall(str(uuid.uuid4()), x1, y1, roomData[0][0], roomData[0][1]))
                 room = Room(str(uuid.uuid4()), nodes_list[k]["label"], nodes_list[k]["color"], wallValues,
                             circular_coordinates=roomData)  # To add handling of node index starting from 0 then 1 then 2. It should be a unique no and GPLAN should map
                 k = k + 1
-            rooms.append(room)
+                rooms.append(room)
         floorplans = FloorPlans(hasMore, offset, rooms)
 
         return floorplans, message
