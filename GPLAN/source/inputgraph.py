@@ -12,28 +12,28 @@ import copy
 import numpy as np
 import networkx as nx
 from random import randint
-from .lettershape.ushape.ushape import *
-from .lettershape.zshape.zshape import *
-from .lettershape.tshape.tshape import *
-from .staircaseshape.staircaseshape import *
+from GPLAN.source.lettershape.ushape.ushape import *
+from GPLAN.source.lettershape.zshape.zshape import *
+from GPLAN.source.lettershape.tshape.tshape import *
+from GPLAN.source.staircaseshape.staircaseshape import *
 
-from .graphoperations import biconnectivity as bcn
-from .graphoperations import oneconnectivity as onc
-from .graphoperations import operations as opr
-from .graphoperations import graph_crossings1 as gc
-from .irregular import shortcutresolver as sr
-from .boundary import cip as cip
-from .boundary import news as news
-from .floorplangen import contraction as cntr
-from .floorplangen import expansion as exp
-from .floorplangen import rdg as rdg
-from .floorplangen import dual as dual
-from .graphoperations import triangularity as trng
-from .floorplangen import transformation as transform
-from .dimensioning import floorplan_to_st as fpts
-from .floorplangen import flippable as flp
-from .irregular import septri as st
-from .dimensioning import block_checker as bc
+from GPLAN.source.graphoperations import biconnectivity as bcn
+from GPLAN.source.graphoperations import oneconnectivity as onc
+from GPLAN.source.graphoperations import operations as opr
+from GPLAN.source.graphoperations import graph_crossings1 as gc
+from GPLAN.source.irregular import shortcutresolver as sr
+from GPLAN.source.boundary import cip as cip
+from GPLAN.source.boundary import news as news
+from GPLAN.source.floorplangen import contraction as cntr
+from GPLAN.source.floorplangen import expansion as exp
+from GPLAN.source.floorplangen import rdg as rdg
+from GPLAN.source.floorplangen import dual as dual
+from GPLAN.source.graphoperations import triangularity as trng
+from GPLAN.source.floorplangen import transformation as transform
+from GPLAN.source.dimensioning import floorplan_to_st as fpts
+from GPLAN.source.floorplangen import flippable as flp
+from GPLAN.source.irregular import septri as st
+from GPLAN.source.dimensioning import block_checker as bc
 
 
 class OCError(Exception):
