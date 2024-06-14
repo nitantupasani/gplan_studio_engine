@@ -6,7 +6,7 @@ import numpy as np
 from copy import deepcopy
 from .source.trial import bdy as bdy
 from typing import List, Tuple
-import circulation
+import GPLAN.GPLAN.circulation as circulation
 
 class custom_circ:
     def __init__(self, graph) -> None:
