@@ -23,14 +23,14 @@ import sys
 
 from networkx import edges
 sys.path.append("..")
-from .tablenoscroll import *
-from .final import run as final_run
+from GPLAN.pythongui import tablenoscroll as tablenoscroll
+from GPLAN.pythongui import final as final
 import numpy as np
 import datetime
 from fpdf import FPDF
 
 from .catalogue_maker import generate_catalogue, generate_catalogue_dimensioned, generate_mindim_catalogue
-from ..source.polygonal import canonical as cano
+from GPLAN.source.polygonal import canonical as cano
 
 
 if os.environ.get('DISPLAY','') == '':
@@ -284,7 +284,7 @@ class gui_class:
             self.rnames = []
             self.master = master
             self.command = "Null"
-            self.table = Table(self.master.frame5, ["Index", "Room Name"], column_minwidths=[None, None])
+            self.table = tablenoscroll.Table(self.master.frame5, ["Index", "Room Name"], column_minwidths=[None, None])
             self.table.pack(padx=10, pady=10)
             self.table.config(bg="#F4A5AE")
             self.table.pack_forget()
@@ -387,7 +387,7 @@ class gui_class:
 
         def switch(self):
             self.master.root.quit()
-            final_run()
+            final.run()
 
         def instructions(self):
             messagebox.showinfo("Instructions",

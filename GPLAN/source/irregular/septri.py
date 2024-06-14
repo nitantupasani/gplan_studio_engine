@@ -21,7 +21,7 @@ import networkx as nx
 import numpy as np
 from shapely.geometry import Point, Polygon
 import random, copy
-from ..graphoperations import operations as opr
+from GPLAN.source.graphoperations import operations as opr
 
 def sign(x1, y1, x2, y2, x3, y3):
     """Calculates value of (x1 - x3) * (y2 - y3) - (x2 - x3) * (y1 - y3)

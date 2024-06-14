@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from copy import deepcopy
 import itertools
-from .bdy import *
+import GPLAN.bdy
 from typing import List, Tuple
 import random
 
@@ -109,7 +109,7 @@ class circulation:
             for j in range(i+1, len(graph1)):
                 if(adj[i,j] == 1):
                     edgeset.append((i,j))
-        bdy_obj = Boundary(len(graph1), edgecnt, edgeset, coord)
+        bdy_obj = bdy.Boundary(len(graph1), edgecnt, edgeset, coord)
         boundary = bdy_obj.identify_bdy()
         for x in boundary:
             if len(x) == 2:

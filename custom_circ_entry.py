@@ -4,7 +4,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import numpy as np
 from copy import deepcopy
-from .source.trial import bdy as bdy
+import GPLAN.source.trial.bdy as bdy
 from typing import List, Tuple
 import GPLAN.GPLAN.circulation as circulation
 

@@ -14,31 +14,27 @@ from webbrowser import get
 import networkx as nx
 import numpy as np
 from numpy import true_divide
-from pythongui import gui as gui
-from .source import inputgraph as inputgraph
-from .pythongui import drawing as draw
-from .pythongui import dimensiongui as dimgui
-from .pythongui import mindimensiongui as mindimgui
-from .circulation import circulation as cir
-from .circulation import plot as cir_plot
-from .circulation import Room as cir_room
-from .circulation import RFP as cir_rfp
-
+import GPLAN.pythongui.gui as gui
+import GPLAN.source.inputgraph as inputgraph
+import GPLAN.pythongui.drawing as draw
+import GPLAN.pythongui.dimensiongui as dimgui
+import GPLAN.pythongui.mindimensiongui as mindimgui
+import GPLAN.circulation as cir
 import matplotlib.pyplot as plt
 import copy
-from .source.polygonal import poly as poly
-from .input import input_for_min_dim as input_for_min_dim
+import GPLAN.source.polygonal.poly as poly
+import GPLAN.input.input_for_min_dim as input_for_min_dim
 import json
 # from system_functions.os_functions import delete_fileimport input.input_for_min_dim as input_for_min_dim
-from .source.graphoperations.operations import get_encoded_matrix
-from .system_functions.os_functions import delete_file
-from .source.dimensioning import minimum_dimensioning as min_dim
-from .source.lettershape.lshape import Lshaped as Lshaped
-from .source.lettershape.tshape import tshape as Tshaped
-from .source.lettershape.ushape import ushape as Ushaped
-from .source.lettershape.zshape import zshape as Zshaped
-from .source.polygonal import limits as lim
-from .source.polygonal import newcoord as nc
+from GPLAN.source.graphoperations.operations import get_encoded_matrix
+from GPLAN.system_functions.os_functions import delete_file
+import GPLAN.source.dimensioning.minimum_dimensioning as min_dim
+import GPLAN.source.lettershape.lshape.Lshaped as Lshaped
+import GPLAN.source.lettershape.tshape.tshape as Tshaped
+import GPLAN.source.lettershape.ushape.ushape as Ushaped
+import GPLAN.source.lettershape.zshape.zshape as Zshaped
+import GPLAN.source.polygonal.limits as lim
+import GPLAN.source.polygonal.newcoord as nc
 # import checker
 # from tkinter import messagebox
 # import dimension_gui as dimgui
@@ -403,13 +399,13 @@ def call_circulation(graph, gclass, coord, is_dimensioned, dim_constraints, remo
 
     rooms = []
     for i in range(n):
-        rooms.append(cir_room(i, graph.room_x[i], graph.room_y[i] + graph.room_height[i], graph.room_x[i] + graph.room_width[i], graph.room_y[i]))
+        rooms.append(cir.Room(i, graph.room_x[i], graph.room_y[i] + graph.room_height[i], graph.room_x[i] + graph.room_width[i], graph.room_y[i]))
 
     
-    rfp = cir_rfp(g, rooms)
+    rfp = cir.RFP(g, rooms)
 
-    cir_plot(g,n)
-    circulation_obj = circulation(g, ui.get_corridor_thickness(), rfp, gclass.rem)
+    cir.plot(g,n)
+    circulation_obj = cir.circulation(g, ui.get_corridor_thickness(), rfp, gclass.rem)
     
     # Add dimensional constraints if chosen option is "dimensioned circulation"
     if is_dimensioned == True:
@@ -418,7 +414,7 @@ def call_circulation(graph, gclass, coord, is_dimensioned, dim_constraints, remo
     
     # Apply circulation algorithm
     circulation_result = circulation_obj.circulation_algorithm(entry[0],entry[1])
-    cir_plot(circulation_obj.circulation_graph, len(circulation_obj.circulation_graph))
+    cir.plot(circulation_obj.circulation_graph, len(circulation_obj.circulation_graph))
     if circulation_result == 0:
         return None
     if public_private == True:
