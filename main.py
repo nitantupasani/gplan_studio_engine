@@ -26,6 +26,10 @@ import source.lettershape.tshape.tshape as Tshaped
 import source.lettershape.ushape.ushape as Ushaped
 import source.lettershape.zshape.zshape as Zshaped
 
+import cProfile
+import pstats
+
+
 # import checker
 # from tkinter import messagebox
 # import dimension_gui as dimgui
@@ -705,6 +709,10 @@ def run():
                     gclass.dimensional_constraints = [min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height]
 
                 elif(gclass.value[10] == 1):
+
+                    profiler = cProfile.Profile()
+                    profiler.enable()
+
                     old_dims = [[3] * gclass.value[0]
                         , [3] * gclass.value[0]]
                     
@@ -837,6 +845,22 @@ def run():
 
                     end = time.time()
                     printe("Time taken: " + str((end - start) * 1000) + " ms")
+
+                    profiler.disable()
+
+                    #stats = pstats.Stats(profiler)
+                    #stats.sort_stats(pstats.SortKey.TIME)
+                    #stats.print_stats()
+
+                    # Save the profiling data to a file
+                    '''with open("profile_output.prof", "w") as f:
+                        stats = pstats.Stats(profiler, stream=f)
+                        stats.sort_stats(pstats.SortKey.TIME)
+                        stats.print_stats()'''
+                    
+                    # Save the profiling data to a file
+                    profiler.dump_stats("profile_output.prof")
+
 
                     # Sets the ptpg object to the current graph to use for download catalogue and also stores the dimensional constraints of the graph
                     gclass.multiple_output_found = 1
