@@ -86,7 +86,7 @@ def input_adjacency():
         else :
             adj_type_input=3
         if adj_type_input < 1 or adj_type_input > 4:
-            print("WRONG TYPE OF ADJACENCY")
+            # print("WRONG TYPE OF ADJACENCY")
             exit(1)
 
         adj_type[(ri, rj)] = adj_type_input
@@ -348,7 +348,7 @@ def pos_longest_path(placement, edge_set, edge_weights):
     edge_visited = [False] * len(edge_set)
     is_pushed = [False] * (2 * rooms + 1)
     is_pushed[0] = True
-    print(edge_set)
+    # print(edge_set)
     while stack:
         v = stack.pop()
         for i in range(len(edge_set)):
@@ -368,12 +368,12 @@ def pos_longest_path(placement, edge_set, edge_weights):
 
                     if b == j and edge_weights[a][b] >= 0 and not edge_visited[k]:
                         if edge_weights[a][b] == 0:
-                            print(a)
-                            print(b)
+                            # print(a)
+                            # print(b)
                             x = int((a + 1) / 2)
                             y = int((b + 1) / 2)
-                            print(x)
-                            print(y)
+                            # print(x)
+                            # print(y)
                             if x==0 or adj_type[(x, y)] == 2 or adj_type[(x, y)] == 3:
                                 all_vis = False
                         else:
@@ -483,11 +483,11 @@ def compute_placement():
     placementy.append(-1) #ty    
 
     if not longest_path(placementx, edges_setx, edgesX):
-        print("Not able to assign placement in horizontal constraint graph")
+        # print("Not able to assign placement in horizontal constraint graph")
         return False
     
     if not longest_path(placementy, edges_sety, edgesY):
-        print("Not able to assign placement in vertical constraint graph")
+        # print("Not able to assign placement in vertical constraint graph")
         return False
     
     return True
@@ -625,13 +625,13 @@ def edit_placements():
         j = data['boundary_rooms']['west'][i]
         if rotx2[2*j-2] > placementx[2*j-1]:
             placementx[2*j-1] = rotx2[2*j-2]
-            print('changing x position of wall', j*2-1, 'to ', placementx[2*j-1])
+            # print('changing x position of wall', j*2-1, 'to ', placementx[2*j-1])
     
     for i in range(len(data['boundary_rooms']['south'])):
         j = data['boundary_rooms']['south'][i]
         if roty2[2*j-1] > placementy[2*j]:
             placementy[2*j] = roty2[2*j-1]
-            print('changing y position of wall ', j*2, 'to ', placementy[2*j])
+            # print('changing y position of wall ', j*2, 'to ', placementy[2*j])
     
     
 # the final file to be given to gplan to show in UI
@@ -711,16 +711,16 @@ def main(input, plot_width, plot_height):
     globals()['plot_height'] = plot_height
         
     input_data()  # Take all the necessary inputs
-    print_input()
+    # print_input()
     construct_constraintgraphX()  # Using the inputs, construct X constraint graph
     construct_constraintgraphY()  # Construct Y constraint graph
-    print_edges()  # Print edges for X and Y constraints
+    # print_edges()  # Print edges for X and Y constraints
     if not compute_placement():  # Compute placements using longest path algorithm and return false if no legal placement found
-        print_placements()
+        # print_placements()
         return [False, None]
-    print_placements()  # Print computed placements
+    # print_placements()  # Print computed placements
     compute_rot()
-    print_rot()
+    # print_rot()
     edit_placements()
     out_data = return_output()
     return [True, out_data]
