@@ -5,18 +5,12 @@ Current support only for rectangular floorplans.
 A running example is available.
 
 """
-import re
-from GPLAN.source.inputgraph import InputGraph, OCError, BCNError
-import GPLAN.source.lettershape.lshape.Lshaped as Lshaped
-import GPLAN.source.lettershape.tshape.tshape as Tshaped
-import GPLAN.source.lettershape.ushape.ushape as Ushaped
-import GPLAN.source.lettershape.zshape.zshape as Zshaped
+from GPLAN.source.inputgraph import InputGraph
 import GPLAN.pythongui.gui as gui
 import uuid
 
-from GPLAN.main import GuiParameters, handle_letter_shape, handle_multiple, handle_multiple_l, handle_multiple_oc, \
-    handle_single, handle_single_oc, handle_staircase_shaped
-
+from GPLAN.handlers import * 
+from GPLAN.pythongui.GuiParameters import GuiParameters
 
 class Asset:
     def __init__(self, _id, properties, asset_type):
@@ -100,14 +94,9 @@ class FloorPlans:
     def get_floorplans(starting_from: int, count: int, caller, nodes_list: list, graph: InputGraph, rectangular: bool, corridor=False,
                          dimensioned = False, dimensionedCirculation =False , minDimEnabled = False, removeAddCirculation = False, publicEnabled = False,normalize_const=40, limit=FLOORPLAN_LIMIT, corridor_thickness=None):
         message = ""
-        isDimensioned = 1 if dimensioned == True else 0
-        isDimensionedCirculation = 1 if dimensionedCirculation == True else 0
-        isMinDimensioned = 1 if minDimEnabled == True else 0
-        isRemoveAddCirculation = 1 if removeAddCirculation == True else 0
-        isPublic = 1 if publicEnabled == True else 0
-        ui = GuiParameters(graph=graph).set_isDimensioned(isDimensioned).set_isDimensionedCirculation(
-            isDimensionedCirculation).set_isMinDimensioned(isMinDimensioned).set_isRemoveAddCirculation(
-            isRemoveAddCirculation).set_isPublic(isPublic)
+        ui = GuiParameters(graph=graph).set_isDimensioned(dimensioned).set_isDimensionedCirculation(
+            dimensionedCirculation).set_isMinDimensioned(minDimEnabled).set_isRemoveAddCirculation(
+            removeAddCirculation).set_isPublic(publicEnabled)
         ui.set_message("")
         roomColors = []
         roomNames = []

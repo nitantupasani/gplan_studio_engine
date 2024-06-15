@@ -10,6 +10,7 @@ __pycache__\
 *saved_files*
 myenv/
 gplan_test_env
+gp_env
 GPLAN.egg-info/
 input_provided.json
 input_to_min_dim.json
@@ -19,4 +20,4 @@ output_from_min_dim.json
 *.egg-info
 dist/
 build/
-
+*.egg
