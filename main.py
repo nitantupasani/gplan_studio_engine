@@ -886,29 +886,89 @@ def run():
                                           , gclass.value[1]
                                           , gclass.value[2]
                                           , gclass.value[7])
-                graph.door_connectivity()
+                graph,checkPTPG = graph.door_connectivity()
+                
+                if (checkPTPG) :
+                    print("PTPG going with RFP")
+                    try:
+                        graph.oneconnected_dual("single")
+                    except inputgraph.OCError:
+                        gclass.show_warning("Can not generate rectangular floorplan.")
+                        graph.irreg_single_dual()
+                    except inputgraph.BCNError:
+                        graph.irreg_single_dual()
+                    
+                    temp_graph_data = {}
+                    temp_graph_data["nodecnt"] = gclass.value[0]
+                    temp_graph_data["edgecnt"] = gclass.value[1]
+                    temp_graph_data["edgeset"] = gclass.value[2]
+                    temp_graph_data["node_coordinate"] = gclass.value[7]
+                    graph_data = {
+                        'room_x': graph.room_x,
+                        'room_y': graph.room_y,
+                        'room_width': graph.room_width,
+                        'room_height': graph.room_height,
+                        'area': graph.area,
+                        'extranodes': graph.extranodes,
+                        'mergednodes': graph.mergednodes,
+                        'irreg_nodes': graph.irreg_nodes1
+                    }
+
+                    for key, value in graph_data.items():
+                        if isinstance(value, np.ndarray):
+                            temp_graph_data[key] = value.tolist()
+                        else:
+                            temp_graph_data[key] = value
+
+                    end = time.time()
+                    print_gui("Time taken: " + str((end - start) * 1000) + " ms")
+                    room_name = []
+                    if len(gclass.value[5]) > 0:
+                        room_name = gclass.value[5]
+                    graph.final_traversal=inputgraph.get_final_traversal(graph)
+                    draw.draw_rdg(graph
+                                    , 1
+                                    , gclass.pen
+                                    , 1
+                                    , gclass.value[6]
+                                    , room_name
+                                    , origin)
+                else:
+                    #use irregular because not ptpg
+                    graph.irreg_single_dual()
+                    end = time.time()
+                    print_gui("Time taken: " + str((end - start) * 1000) + " ms")
+                    gclass.output_data.append(graph) 
+                    graph.final_traversal=inputgraph.get_final_traversal(graph)
+                    draw.draw_rdg(graph
+                                  , 1
+                                  , gclass.pen
+                                  , 1
+                                  , gclass.value[6]
+                                  , []
+                                  , origin)
+
                 end = time.time()
                 print_gui("Time taken: " + str((end - start) * 1000) + " ms")
-                gclass.output_data.append(graph)
-                graph.final_traversal=inputgraph.get_final_traversal(graph)
-                draw.draw_rdg(graph
-                                , 1
-                                , gclass.pen
-                                , 1
-                                , gclass.value[6]
-                                ,[]
-                                , origin)
+
+                # draw.draw_rdg(graph
+                #                 , 1
+                #                 , gclass.pen
+                #                 , 1
+                #                 , gclass.value[6]
+                #                 ,[]
+                #                 , origin)
                 
 
-                graph2.door_connectivity2()
-                graph2.final_traversal=inputgraph.get_final_traversal(graph2)
-                draw.draw_rdg(graph2
-                                , 1
-                                , gclass.pen
-                                , 1
-                                , gclass.value[6]
-                                ,[]
-                                , origin- 300)
+                # graph2.door_connectivity2()
+                # graph2.final_traversal=inputgraph.get_final_traversal(graph2)
+                # draw.draw_rdg(graph2
+                #                 , 1
+                #                 , gclass.pen
+                #                 , 1
+                #                 , gclass.value[6]
+                #                 ,[]
+                #                 , origin- 300)
                 
 
             gclass.time_taken = (end-start)*1000

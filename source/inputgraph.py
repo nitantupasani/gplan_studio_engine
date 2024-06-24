@@ -11,6 +11,7 @@ This module contains the following functions:
 import copy
 import numpy as np
 import networkx as nx
+import matplotlib.pyplot as plt
 from random import randint
 from .lettershape.ushape.ushape import *
 from .lettershape.zshape.zshape import *
@@ -246,7 +247,6 @@ class InputGraph:
                                                                                            self.mergednodes,
                                                                                            self.irreg_nodes1)
 
-
     def door_connectivity(self):
         """Generates an single dual for a door connectivity input graph.
 
@@ -269,6 +269,7 @@ class InputGraph:
             # Biconnectivity Augmentation
         bcn_edges = []
         if (not bcn.is_biconnected(self.matrix)):
+            print("biconnected ")
             bcn_edges = bcn.biconnect(self.matrix)
         for edge in bcn_edges:
             self.matrix[edge[0]][edge[1]] = 1
@@ -290,88 +291,134 @@ class InputGraph:
         if (len(bcn_edges) != 0 or len(trng_edges) != 0):
             self.nonrect = True
 
-        # Edge to vertex transformation
-        # for edge in bcn_edges:
-        #     # self.extranodes.append(self.nodecnt)
-        #     self.matrix, tri_faces, positions, extra_edges_cnt = transform.transform_edges(
-        #         self.matrix, edge, tri_faces, positions)
-        #     self.nodecnt += 1  # Extra node added
-        #     self.edgecnt += extra_edges_cnt
+      
 
-        # for edge in trng_edges:
-        #     self.extranodes.append(self.nodecnt)
-        #     self.matrix, tri_faces, positions, extra_edges_cnt = transform.transform_edges(
-        #         self.matrix, edge, tri_faces, positions)
-        #     self.nodecnt += 1  # Extra node added
-        #     self.edgecnt += extra_edges_cnt
+        plt.figure()
+        graphtemp = nx.from_numpy_array(self.matrix)
+        nx.draw_networkx(graphtemp,positions, label='After Triangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+        plt.show()
 
+        
+
+        def check_ptpg(tri_faces,nxgraph):
+            """Checks if the given graph satisfies ptpg conditions or not.
+
+            Args:
+                self
+
+            Returns:
+                True or false value
+            """
+            print(tri_faces)
+            tri_edges = []
+            for face in tri_faces:
+                for edge in face:
+                    if edge[0] > edge[1]:
+                        edge = (edge[1], edge[0])
+                    tri_edges.append(edge)
+            print(tri_edges)
+            #actual function to just keep the boundary edges and remove all the other edges
+            def find_unique_edge(edges):
+                edge_set = set()
+
+                for edge in edges:
+                    if edge in edge_set:
+                        edge_set.remove(edge)
+                    else:
+                        edge_set.add(edge)
+                
+                return edge_set
+
+            unique_edges = find_unique_edge(tri_edges)#unique edges are the exterior edges
+            print(unique_edges)
+            if(len(unique_edges) == 0):
+                print("Not PTPG because length of exterior face is 3")
+                return False
+            
+            #Now checking for degree of internal vertices
+            external_vertices = set()
+            for edge in unique_edges:
+                external_vertices.add(edge[0])
+                external_vertices.add(edge[1])
+
+            for node in nxgraph.nodes():
+                if node in external_vertices:
+                    continue
+                elif nxgraph.degree(node) == 3:
+                        print("Not PTPG because degree of internal vertex is 3")
+                        return False
+
+            return True
+
+        self.coordinates = positions
+        return self,check_ptpg(tri_faces,graphtemp)
         # Separating Triangle Elimination
-        if (self.nodecnt - self.edgecnt + len(opr.get_trngls(self.matrix)) != 1):
+        # if (self.nodecnt - self.edgecnt + len(opr.get_trngls(self.matrix)) != 1):
             
-            ptpg_matrices, extra_nodes = st.handle_STs_with_edge_selection(one_connected, self.matrix, positions)
+        #     ptpg_matrices, extra_nodes = st.handle_STs_with_edge_selection(one_connected, self.matrix, positions)
             
-            # ptpg_matrices, extra_nodes = st.handle_STs(
-            #     self.matrix, positions, 1)
+        #     # ptpg_matrices, extra_nodes = st.handle_STs(
+        #     #     self.matrix, positions, 1)
             
 
-            self.matrix = ptpg_matrices[0]
-            self.nodecnt = self.matrix.shape[0]
-            self.edgecnt = int(np.count_nonzero(self.matrix == 1) / 2)
-            if(len(extra_nodes)):
-                for key in extra_nodes[0]:
-                    self.mergednodes.append(key)
-                    self.irreg_nodes1.append(extra_nodes[0][key][0])
-                    self.irreg_nodes2.append(extra_nodes[0][key][1])
+        #     self.matrix = ptpg_matrices[0]
+        #     self.nodecnt = self.matrix.shape[0]
+        #     self.edgecnt = int(np.count_nonzero(self.matrix == 1) / 2)
+        #     if(len(extra_nodes)):
+        #         for key in extra_nodes[0]:
+        #             self.mergednodes.append(key)
+        #             self.irreg_nodes1.append(extra_nodes[0][key][0])
+        #             self.irreg_nodes2.append(extra_nodes[0][key][1])
 
-        # Boundary Identification
-        triangular_cycles = opr.get_trngls(self.matrix)
-        digraph = opr.get_directed(self.matrix)
-        self.bdy_nodes, self.bdy_edges = opr.get_bdy(
-            triangular_cycles, digraph)
-        shortcuts = sr.get_shortcut(
-            self.matrix, self.bdy_nodes, self.bdy_edges)
-        bdys = []
-        if (self.edgecnt == 3 and self.nodecnt == 3):
-            bdys = [[0], [0, 1], [1, 2], [2, 0]]
-        else:
-            bdy_ordered = opr.ordered_bdy(self.bdy_nodes, self.bdy_edges)
-            cips = cip.find_cip(bdy_ordered, shortcuts)
-            if (len(cips) <= 4):
-                bdys = news.bdy_path(news.find_bdy(cips), bdy_ordered)
-            else:
-                while (len(shortcuts) > 4):
-                    index = randint(0, len(shortcuts) - 1)
-                    self.matrix = sr.remove_shortcut(
-                        shortcuts[index], triangular_cycles, self.matrix)
-                    self.irreg_nodes1.append(shortcuts[index][0])
-                    self.irreg_nodes2.append(shortcuts[index][1])
-                    self.mergednodes.append(self.nodecnt)
-                    self.nodecnt += 1  # Extra vertex added to remove shortcut
-                    self.edgecnt += 3  # Extra edges added to remove shortcut
-                    shortcuts.pop(index)
-                    triangular_cycles = opr.get_trngls(self.matrix)
-                bdy_ordered = opr.ordered_bdy(self.bdy_nodes, self.bdy_edges)
-                cips = cip.find_cip(bdy_ordered, shortcuts)
-                bdys = news.bdy_path(news.find_bdy(cips), bdy_ordered)
+        # # Boundary Identification
+        # triangular_cycles = opr.get_trngls(self.matrix)
+        # digraph = opr.get_directed(self.matrix)
+        # self.bdy_nodes, self.bdy_edges = opr.get_bdy(
+        #     triangular_cycles, digraph)
+        # shortcuts = sr.get_shortcut(
+        #     self.matrix, self.bdy_nodes, self.bdy_edges)
+        # bdys = []
+        # if (self.edgecnt == 3 and self.nodecnt == 3):
+        #     bdys = [[0], [0, 1], [1, 2], [2, 0]]
+        # else:
+        #     bdy_ordered = opr.ordered_bdy(self.bdy_nodes, self.bdy_edges)
+        #     cips = cip.find_cip(bdy_ordered, shortcuts)
+        #     if (len(cips) <= 4):
+        #         bdys = news.bdy_path(news.find_bdy(cips), bdy_ordered)
+        #     else:
+        #         while (len(shortcuts) > 4):
+        #             index = randint(0, len(shortcuts) - 1)
+        #             self.matrix = sr.remove_shortcut(
+        #                 shortcuts[index], triangular_cycles, self.matrix)
+        #             self.irreg_nodes1.append(shortcuts[index][0])
+        #             self.irreg_nodes2.append(shortcuts[index][1])
+        #             self.mergednodes.append(self.nodecnt)
+        #             self.nodecnt += 1  # Extra vertex added to remove shortcut
+        #             self.edgecnt += 3  # Extra edges added to remove shortcut
+        #             shortcuts.pop(index)
+        #             triangular_cycles = opr.get_trngls(self.matrix)
+        #         bdy_ordered = opr.ordered_bdy(self.bdy_nodes, self.bdy_edges)
+        #         cips = cip.find_cip(bdy_ordered, shortcuts)
+        #         bdys = news.bdy_path(news.find_bdy(cips), bdy_ordered)
 
-        # 4-completion
-        self.matrix, self.edgecnt = news.add_news(
-            bdys, self.matrix, self.nodecnt, self.edgecnt)
-        self.nodecnt += 4
+        # # 4-completion
+        # self.matrix, self.edgecnt = news.add_news(
+        #     bdys, self.matrix, self.nodecnt, self.edgecnt)
+        # self.nodecnt += 4
 
-        # Contraction
-        self.degrees = cntr.degrees(self.matrix)
-        goodnodes = cntr.goodnodes(self.matrix, self.degrees)
-        self.matrix, self.degrees, goodnodes, cntrs = cntr.contract(
-            self.matrix, goodnodes, self.degrees)
+        # # Contraction
+        # self.degrees = cntr.degrees(self.matrix)
+        # goodnodes = cntr.goodnodes(self.matrix, self.degrees)
+        # self.matrix, self.degrees, goodnodes, cntrs = cntr.contract(
+        #     self.matrix, goodnodes, self.degrees)
 
-        # Expansion
-        self.matrix = exp.basecase(self.matrix, self.nodecnt)
-        while len(cntrs) != 0:
-            self.matrix = exp.expand(self.matrix, self.nodecnt, cntrs)
-        [self.room_x, self.room_y, self.room_width, self.room_height] = rdg.construct_dual(self.matrix, self.nodecnt,
-                                                                                           self.mergednodes,
-                                                                                           self.irreg_nodes1)
+        # # Expansion
+        # self.matrix = exp.basecase(self.matrix, self.nodecnt)
+        # while len(cntrs) != 0:
+        #     self.matrix = exp.expand(self.matrix, self.nodecnt, cntrs)
+        # [self.room_x, self.room_y, self.room_width, self.room_height] = rdg.construct_dual(self.matrix, self.nodecnt,
+        #                                                                                    self.mergednodes,
+        #                                                                                    self.irreg_nodes1)
 
     def door_connectivity2(self):
         """Generates an single dual for a door connectivity input graph.
