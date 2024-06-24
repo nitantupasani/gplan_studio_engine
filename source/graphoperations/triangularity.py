@@ -260,10 +260,10 @@ def triangulate(matrix,bcn_edges_added,pos):
     else:
         positions = nx.planar_layout(nxgraph)
     non_tri_faces = get_nontriangular_face(positions, nxgraph)
+    print(non_tri_faces)
     tri_edges = get_tri_edges(non_tri_faces,positions)
     tri_faces = get_faces_after_triangulation(tri_edges,nxgraph,positions)
     return tri_edges,positions,tri_faces
-
     
 
 # Old triangularity code based on chordality

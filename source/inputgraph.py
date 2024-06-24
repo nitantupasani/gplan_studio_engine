@@ -308,7 +308,7 @@ class InputGraph:
         # Separating Triangle Elimination
         if (self.nodecnt - self.edgecnt + len(opr.get_trngls(self.matrix)) != 1):
             
-            ptpg_matrices, extra_nodes = st.handle_STs_with_edge_selection(one_connected, self.matrix, positions, 1)
+            ptpg_matrices, extra_nodes = st.handle_STs_with_edge_selection(one_connected, self.matrix, positions)
             
             # ptpg_matrices, extra_nodes = st.handle_STs(
             #     self.matrix, positions, 1)
