@@ -934,6 +934,7 @@ def run():
                                     , room_name
                                     , origin)
                 else:
+                    tk.messagebox.showwarning("Warning", "The given graph is not PTPG.Currently using irregular correctness not garunteed.")
                     #use irregular because not ptpg
                     graph.irreg_single_dual()
                     end = time.time()

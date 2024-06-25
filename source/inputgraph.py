@@ -300,7 +300,7 @@ class InputGraph:
 
         
 
-        def check_ptpg(tri_faces,nxgraph):
+        def check_ptpg(tri_faces,nxgraph,separating_triangles):
             """Checks if the given graph satisfies ptpg conditions or not.
 
             Args:
@@ -347,11 +347,15 @@ class InputGraph:
                 elif nxgraph.degree(node) == 3:
                         print("Not PTPG because degree of internal vertex is 3")
                         return False
-
+            
+            if(len(separating_triangles) != 0):
+                return False
             return True
 
         self.coordinates = positions
-        return self,check_ptpg(tri_faces,graphtemp)
+        separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
+        print("Doing separating triangles lists test",separating_triangles1)
+        return self,check_ptpg(tri_faces,graphtemp,separating_triangles1)
         # Separating Triangle Elimination
         # if (self.nodecnt - self.edgecnt + len(opr.get_trngls(self.matrix)) != 1):
             
