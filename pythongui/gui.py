@@ -99,16 +99,6 @@ class gui_class:
         self.command = "Null"
         self.value = []
         self.root =tk.Tk()
-        # For entry to start circulation
-        self.entry_door = []
-        self.l = tk.IntVar(None)
-        self.l.set(0)
-        self.r = tk.IntVar(None)
-        self.r.set(1)
-        self.left = 0
-        self.right = 1
-        self.entry_door.append(self.l)
-        self.entry_door.append(self.r)
 
         # Circ_gui
         self.circ_choice = tk.IntVar(None)
@@ -152,10 +142,8 @@ class gui_class:
         self.canvasForOuterBoundary = None
         self.initialPoint = []
         self.finalPoint = []
-        self.l = tk.IntVar(None)
-        self.l.set(0)
-        self.r = tk.IntVar(None)
-        self.r.set(1)
+        self.l = tk.StringVar(None)
+        self.r = tk.StringVar(None)
         self.left = 0
         self.right = 1
         self.entry_door.append(self.l)
@@ -2069,9 +2057,19 @@ class gui_class:
             if(self.circ_choice.get() == 2):
                 self.checkvar2.set(1)
                 self.checkvar3.set(0)
+                self.checkvar4.set(0)
             elif(self.circ_choice.get() == 3):
                 self.checkvar2.set(0)
                 self.checkvar3.set(1)
+                self.checkvar4.set(0)
+            elif (self.circ_choice.get() == 4):
+                self.checkvar2.set(0)
+                self.checkvar3.set(0)
+                self.checkvar4.set(1)
+            elif (self.circ_choice.get() == 5):
+                self.checkvar2.set(0)
+                self.checkvar3.set(1)
+                self.checkvar4.set(1)
         elif mode=="redundant":
             self.rem = self.opti.get()
             print("The redundant corridors will be removed")
@@ -2098,7 +2096,9 @@ class gui_class:
 
         self.top = tk.Toplevel(self.root, width=300, height=300)
         root = self.top
-        root.geometry("600x100")
+        root.geometry("1500x100")
+        self.radio_desel("menu") # Clears previously chosen option
+
         sub_text = tk.Label(root, text="""Choose the circulation choice:""", justify=tk.LEFT, padx=20)
         sub_text.grid(row=3)
 
@@ -2110,6 +2110,12 @@ class gui_class:
 
         btn3 = tk.Radiobutton(root, text="Remove corridors", padx=20, variable=self.circ_choice, value=3, command=lambda: self.radio_sel("menu"))
         btn3.grid(row=4, column=2)
+
+        btn4 = tk.Radiobutton(root, text="Minimum dimensioned circulation", padx=20, variable=self.circ_choice, value=4, command=lambda: self.radio_sel("menu"))
+        btn4.grid(row=4, column=3)
+
+        btn5 = tk.Radiobutton(root, text="Remove minimum dimensioned corridors", padx=20, variable=self.circ_choice, value=5, command=lambda: self.radio_sel("menu"))
+        btn5.grid(row=4, column=4)
 
         clear_button = tk.Button(root, text="Clear Selection", command=lambda: self.radio_desel("menu"))
         clear_button.grid(row = 7, column = 2, pady=10)
@@ -2177,8 +2183,9 @@ class gui_class:
         """This function concludes user input for corridor thickness and entry door
             and transfers control to the background functions
         """
-        self.left = self.l.get() + 1
-        self.right = self.r.get() + 1
+        room_names = self.app.return_everything()[5]
+        self.left = room_names.index(self.l.get()) + 1
+        self.right = room_names.index(self.r.get()) + 1
         self.entry_door = [self.left, self.right]
         self.corridor_thickness = self.ct.get()
         self.end.set(self.end.get()+1)
