@@ -309,7 +309,7 @@ def run():
 
 
             elif (gclass.command == "single"):  # Single Irregular Dual/Floorplan
-                if (gclass.value[4] == 0):  # Non-Dimensioned single dual
+                if (gclass.value[4] == 0 and gclass.value[10] == 0):  # Non-Dimensioned single dual
                     start = time.time()
                     graph.irreg_single_dual()
                     end = time.time()
@@ -332,6 +332,107 @@ def run():
                                   , gclass.value[6]
                                   , gclass.value[5]
                                   , origin)
+                elif (gclass.value[10] == 1): # Minimum dimensioned floorplan
+                    old_dims = [[3] * gclass.value[0]
+                        , [3] * gclass.value[0]]
+                    
+                    # If the graph came from an input file, the default values are set
+                    if gclass.open and len(gclass.dimensional_constraints) > 0:
+                        [old_min_width, old_min_height, plot_width, plot_height] = gclass.dimensional_constraints
+                        print("Dim Constraints before old dims:", gclass.dimensional_constraints)
+                        for i in range(len(old_min_height)):
+                            old_dims[0][i] = old_min_width[i]
+                            old_dims[1][i] = old_min_height[i]
+                        old_dims.extend([plot_width, plot_height])
+                        gclass.open = False
+                    min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(old_dims, gclass.value[0], gclass.value[5])
+                    dimensional_constraints = [min_width, min_height, plot_width, plot_height]
+                    gclass.dimensional_constraints = dimensional_constraints
+                    start = time.time()
+                    graph.irreg_single_dual()
+                    number_of_floorplans = graph.fpcnt
+                    floorplan_found = False
+
+                    # Resets the data already present for downloading catalogues
+                    gclass.output_data = []
+                    gclass.multiple_output_found = 0
+                    
+                    floorplan_obj = input_for_min_dim.floorplan(gclass.value[3], gclass.value[4],
+                                                        gclass.value[8], gclass.value[9], gclass.corridor_thickness)
+                    enc_mat = get_encoded_matrix(gclass.value[0], graph.room_x, graph.room_y, graph.room_width, graph.room_height)
+                    floorplan_data = floorplan_obj.get_floorplan_details(
+                        gclass.value[5], gclass.value[6], gclass.value[7], min_width, min_height, graph.room_x, graph.room_y, graph.room_width, graph.room_height,
+                        gclass.value[2], enc_mat
+                    )
+
+                    # Storing the dummy merge nodes, and the irregular room they will be adjacent to
+                    dummy_node_data = {'mergednodes':graph.mergednodes, 'irreg_nodes1':graph.irreg_nodes1, 'irreg_nodes2':graph.irreg_nodes2, 'dummy_node_adj':graph.dummy_node_adjacencies}
+                    floorplan_data.update(dummy_node_data)
+
+                    # If floorplan satisfying the given constraints is satisfied
+                    [status, out_data] = min_dim.main(floorplan_data, plot_width, plot_height)
+                    if status == True:
+                        room_x = [] 
+                        room_y = [] 
+                        room_width = [] 
+                        room_height = [] 
+                        room_area = []
+                        room_name = []
+                        for room_detail in out_data["nodes"]:
+                            room_x.append(room_detail["room_x"])
+                            room_y.append(room_detail["room_y"])
+                            room_width.append(room_detail["width"])
+                            room_height.append(room_detail["height"])
+                            room_area.append(room_detail["width"] * room_detail["height"])
+
+                        # Store the room labels if they have been entered
+                        for room_id in range(len(out_data["nodes"])):
+                            if "label" not in out_data["nodes"][room_id]:
+                                room_name.append(str(room_id))
+                            else:
+                                room_name.append(out_data["nodes"][room_id]["label"])
+                        
+                        room_x = np.array(room_x)
+                        room_y = np.array(room_y)
+                        room_width = np.array(room_width)
+                        room_height = np.array(room_height)
+                        
+                        graph_data = {
+                            'room_x': room_x,
+                            'room_y': room_y,
+                            'room_width': room_width,
+                            'room_height': room_height,
+                            'area': room_area,
+                            'extranodes': graph.extranodes,
+                            'mergednodes': graph.mergednodes,
+                            'irreg_nodes': graph.irreg_nodes1
+                        }
+                        
+                        '''
+                        Adds the graph data to output_data for downloading the catalogue and 
+                        multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
+                        '''
+                        gclass.output_data.append(graph_data)
+                        gclass.multiple_output_found = 1
+                        
+                        floorplan_found = True
+                        draw.draw_rdg(graph_data
+                                    , 1
+                                    , gclass.pen
+                                    , 1
+                                    , gclass.value[6]
+                                    , room_name
+                                    , origin)
+                            
+                    if not floorplan_found:
+                        print("No floorplan found which satisfies the minimum dimensions input by user.")
+
+                    end = time.time()
+                    printe("Time taken: " + str((end - start) * 1000) + " ms")
+
+                    # Sets the ptpg object to the current graph to use for download catalogue and also stores the dimensional constraints of the graph
+                    gclass.ptpg = graph
+
                 else:  # Dimensioned single floorplan
                     old_dims = [[0] * gclass.value[0]
                         , [0] * gclass.value[0]
