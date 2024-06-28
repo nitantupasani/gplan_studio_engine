@@ -9,6 +9,8 @@ import source.floorplangen.dual as dual
 import math
 import source.polygonal.poly as poly
 from source.polygonal.draw import DrawOuterBoundary
+import source.inputgraph as inputgraph
+
 
 scale = 300
 origin = {'x': 300, 'y': -150}
@@ -40,7 +42,91 @@ def find_points(x1, y1, x2, y2,
     return [(x7,y7), (x8,y8)],first_rect,second_rect
 
 # Draw rectangular dual of graph
-def draw_rdg(graph_data,count,pen,mode,color_list,room_names,origin):
+# import turtle as pen
+def find_areas(graph):
+    for shape in graph.final_traversal:
+        area = 0
+        for j in range(len(shape) ):
+            x1, y1 = shape[j]
+            x2, y2 = shape[(j + 1)%len(shape)]
+            area += x1 * y2 - x2 * y1
+        graph.area.append(abs(area)/2)
+
+def draw_rdg(graph,count,pen,mode,color_list,room_names,origin,scale=True):
+
+    pen.width(1.5)
+    pen.color('black')
+    pen.hideturtle()
+    pen.penup()
+    shapes=graph.final_traversal
+    graph.area=[]
+    find_areas(graph)
+    print(graph.area)
+    max_area=np.amax(graph.area)
+    plot_area=np.sum(graph.area)
+    scale=100*(math.exp(-0.3*math.sqrt(max_area)+math.log(0.8))+0.1)
+    # dim gives the bounding box for the rfp
+    dim=[0,0]
+    dim[0] = max(coord[0] for shape in shapes for coord in shape)
+    dim[1] = max(coord[1] for shape in shapes for coord in shape)
+    origin = {'x': origin - 100, 'y': -100}
+    #Drawing the rooms
+    for i, shape_coords in enumerate(shapes):
+        pen.fillcolor(color_list[i%len(color_list)])
+        pen.begin_fill()
+        start_x, start_y = shape_coords[0]
+        pen.setposition(start_x * scale + origin['x'], start_y * scale + origin['y'])
+        pen.pendown()
+
+        for coord in shape_coords:
+            x, y = coord
+            pen.setposition(x * scale + origin['x'], y * scale + origin['y'])
+            pen.pendown()
+
+        pen.setposition(start_x * scale + origin['x'], start_y * scale + origin['y'])
+        pen.penup()
+
+        pen.end_fill()
+    #Writing the Room numbers
+    for i in range(len(shapes)):
+        pen.setposition(((2 * shapes[i][0][0] ) * scale / 2) + origin['x'] + 5,
+                        ((shapes[i][0][1] + shapes[i][1][1]) * scale / 2) + origin['y'])
+        pen.write(i)
+        pen.penup()
+    value = 1
+    #Writing areas of each room and height width for rectangular rooms
+    if(len(graph.area) != 0):
+        pen.setposition(dim[0]* scale + origin['x']+50, dim[1]* scale + origin['y']-30)
+        pen.write('Area of Each Room' ,font=("Arial", 20, "normal"))
+        for i in range(0,len(graph.area)):
+            shape=shapes[i]
+            heigt=shape[1][1] - shape[0][1]
+            width=shape[3][0] - shape[0][0]
+            pen.setposition(dim[0]* scale + origin['x']+50, dim[1]* scale + origin['y']-30-value*30)
+            if(len(shape)==4):
+                if not room_names:
+                    pen.write('Room ' + str(i)+ ': '+
+                              'Area: '+ str(graph.area[i])+
+                              ' H: ' + str(heigt)+
+                              ' W: ' + str(width)
+                              ,font=("Arial", 15, "normal"))
+                else:
+                    pen.write(str(room_names[i]) + ': '+
+                              'Area: '+ str(graph.area[i])+
+                              ' H: ' + str(heigt)+
+                              ' W: ' + str(width),
+                              font=("Arial", 15, "normal"))
+            else:
+                if not room_names:
+                    pen.write('Room ' + str(i)+ ': ' +
+                              'Area: '+ str(graph.area[i]),
+                              font=("Arial", 15, "normal"))
+                else:
+                    pen.write(str(room_names[i]) + ': ' + str(graph.area[i]),font=("Arial", 15, "normal"))
+            pen.penup()
+            value+=1
+
+def draw_rdg2(graph_data,count,pen,mode,color_list,room_names,origin):
     coordinates = {}
     for i in range(graph_data['room_x'].shape[0]):
         data = []
@@ -53,6 +139,9 @@ def draw_rdg(graph_data,count,pen,mode,color_list,room_names,origin):
         data.append([(graph_data['room_x'][i],graph_data['room_y'][i] + graph_data['room_height'][i]),
                         (graph_data['room_x'][i],graph_data['room_y'][i])])
         coordinates[i] = data
+        print(data)
+        #find_limits(self.adj_mat,self.rooms)     #temporary, to be erased, as it will run everytime
+                                                 #button for finding limits needs to be made
     
     for i in range(len(graph_data['mergednodes'])):
         node_1 = graph_data['mergednodes'][i]
@@ -177,7 +266,7 @@ def draw_rdg(graph_data,count,pen,mode,color_list,room_names,origin):
             pen.penup()
             value+=1
 
-def draw_poly(graph_data,count,pen,mode,color_list,room_names,origin,outer_boundary,shape):
+def draw_poly(graph_data,count,pen,mode,color_list,room_names,origin,outer_boundary,shape,adj_mat):
     innerBoundary = []
     if(outer_boundary!=[]): #To take active front as input first in the drawing
         temp = outer_boundary[0]
@@ -195,6 +284,6 @@ def draw_poly(graph_data,count,pen,mode,color_list,room_names,origin,outer_bound
         corner1.append(outer_boundary[0][1])    
         innerBoundary.append(corner1)
     
-    db = poly.dissected(graph_data,pen,color_list,shape,innerBoundary)
+    db = poly.dissected(graph_data,pen,color_list,shape,adj_mat,innerBoundary)
     # obj = DrawOuterBoundary(graph_data,pen,color_list)
     

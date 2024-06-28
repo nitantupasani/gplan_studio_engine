@@ -3,6 +3,7 @@ import tkinter as tk
 # import turtle
 # from source.polygonal.draw import DrawOuterBoundary
 from source.polygonal.polygui import PolyGUI 
+# from source.polygonal.limits import find_limits 
 # import time
 
 
@@ -13,16 +14,18 @@ class Room:
         self.rightDisecDone = False
         self.disecAllowed = True
         self.noOfSides = 0
+    def coord(self):
+        return self.coords
 
 class dissected:
 
-    def __init__(self,graph_data,pen,color_list,shape,innerBoundary = [[200,400],[400,200],[200,0],[-200,0],[-400,200],[-200,400]]):
+    def __init__(self,graph_data,pen,color_list,shape,adj_mat,innerBoundary = [[200,400],[400,200],[200,0],[-200,0],[-400,200],[-200,400]]):
         pen.width(1.5)
         pen.color('black')
         # pen.write(1,font=("Arial", 20, "normal"))
         print("\nReceieved Inner Boundary = {}\n".format(innerBoundary))
         print("\nReceieved Shape = {}\n".format(shape))
-
+        self.adj_mat = adj_mat
         self.graph_data = graph_data
         self.pen = pen
         self.noOfNodes = len(self.graph_data['iteration'])
@@ -48,7 +51,7 @@ class dissected:
             self.lowestPointIndex= polygui.createCustom(self.outerBoundary)
         self.mainDisectionFunction()
         polygui.startDisection()
-        # pen.hideturtle()
+        # find_limits(self.adj_mat,self.rooms)
 
 
     def createDefaultDisectionsforPentagon(self):
@@ -426,7 +429,6 @@ class dissected:
 
             # self.pen.penup()
             # time.sleep(1)
-
 
 
 

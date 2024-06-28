@@ -698,6 +698,7 @@ def reinitialize():
 def main(input, plot_width, plot_height):
     global data, irreg_nodes_map
     reinitialize()
+# <<<<<<< main
     data = input
 
     # Store the all dummy nodes as the value of the irregular rooms they are adjacent to
@@ -732,6 +733,15 @@ def main(input, plot_width, plot_height):
         for a in data['edges']:
             a['source']=a['source']+1
             a['target']=a['target']+1
+# =======
+#     f = open(file_path)
+#     data = json.load(f)
+#     # print(data)
+#     # print(data['edges'][0])
+#     for a in data['edges']:
+#         a['source']=a['source']+1
+#         a['target']=a['target']+1
+# >>>>>>> Door_connectivity_cleanup
     for i in range(len(data['boundary_rooms']['north'])):
         data['boundary_rooms']['north'][i]= data['boundary_rooms']['north'][i]+1
     for i in range(len(data['boundary_rooms']['south'])):
@@ -745,6 +755,7 @@ def main(input, plot_width, plot_height):
         
     input_data()  # Take all the necessary inputs
     # print_input()
+
     construct_constraintgraphX()  # Using the inputs, construct X constraint graph
     construct_constraintgraphY()  # Construct Y constraint graph
     # print_edges()  # Print edges for X and Y constraints

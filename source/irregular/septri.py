@@ -354,3 +354,76 @@ def handle_STs(adjacency, positions, num_expected_outputs):
 
     adjacencies = [nx.to_numpy_array(graph).astype(int) for graph in graphs]
     return adjacencies, extra_nodes_pair
+
+def handle_STs_Door_connectivity(adjacency, positions):
+    """Handles separating triangles in a given adjacency matrix.
+
+    Args:
+        adjacency: A matrix representing the adjacency matrix.
+        positions: A list representing coordinates of each node.
+        num_expected_outputs: An integer representing the expected number of solutions.
+
+    Returns:
+        adjacencies: A list containing the multiple modified adjacency matrices.
+        extra_nodes_pair: A list containing the extra nodes added.
+    """
+    ## Remove separating triangles by finding a cover of separating edges, bisecting them and retriangulating the graph
+
+    ## Input display
+    graph = nx.Graph()
+    num_nodes = len(adjacency)
+    for i in range(num_nodes):
+        graph.add_node(i, pos = positions[i])
+    for row in range(num_nodes):
+        for column in range(num_nodes):
+            if(adjacency[row][column]):
+                graph.add_edge(row, column)
+    origin_pos = positions
+
+    ## Get all cycles of length 3
+    all_cliques = list(nx.enumerate_all_cliques(graph))
+    all_triangles = [sorted(i) for i in all_cliques if len(i) == 3]
+    all_triangles = [list(triangle) for triangle in np.unique(all_triangles, axis=0)]
+
+    trianlular_faces = []
+    separating_triangles = []
+    separating_edges = []       ## edges of separating triangles
+    separating_edge_to_triangles = dict()
+    edge_to_faces = dict()
+
+    for face in all_triangles:
+        flag = False
+        for NodeID in range(num_nodes):
+            if NodeID in face:
+                continue
+
+            ## Search for node within triangle
+            if (point_in_triangle(origin_pos[face[0]][0], origin_pos[face[0]][1], origin_pos[face[1]][0],
+                                origin_pos[face[1]][1], origin_pos[face[2]][0],
+                                origin_pos[face[2]][1], origin_pos[NodeID][0], origin_pos[NodeID][1])):
+                flag = True
+                break
+
+        if not flag:
+            ## Add face information to edge_to_faces
+            trianlular_faces.append(face)
+            for edge in get_edges(face):
+                if(edge not in edge_to_faces):
+                    edge_to_faces[edge] = []
+                edge_to_faces[edge].append(face)
+
+        else:
+            ## Add ST information to separating_triangles, separating_edges and separating_edge_to_triangles
+            separating_triangle = tuple(sorted([face[0], face[1], face[2]]))
+            separating_triangles.append(separating_triangle)
+
+            edges = get_edges(face)
+            separating_edges.extend(edges)
+
+            for edge in edges:
+                if(edge not in separating_edge_to_triangles):
+                    separating_edge_to_triangles[edge] = []
+                separating_edge_to_triangles[edge].append(separating_triangle)
+        
+    ## Get unique separating edges, handle STs
+    return separating_triangles

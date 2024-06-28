@@ -3,10 +3,13 @@ from random import randint, triangular
 #from networkx.algorithms.centrality.betweenness_subset import betweenness_centrality_source
 from networkx.algorithms.core import core_number
 from networkx.classes import graph
+import networkx as nx
+
 
 from .modifiedCanonical import canonical
 from ..lshape import canonicalTransition as Canonical_LShaped
 
+from ...inputgraph import InputGraph as inputgraph
 from ...floorplangen import rdg 
 from ...boundary import cip  
 from ...graphoperations import operations as opr
@@ -150,31 +153,30 @@ def multipleLshapedFloorplans(graph, nodes_data):
         my_rel = Canonical_LShaped.Canonical_L_Shaped(can.graph_data['indexToCanOrd'], graph)
         # graph.rel = my_rel
 
+        g = nx.from_numpy_array(graph.matrix, create_using=nx.DiGraph)
+        edgeset = g.edges()
+        
+        new_graph = inputgraph(graph.nodecnt, graph.edgecnt, edgeset, graph.coordinates)
+        
         graph.fpcnt += 1
         graph.rel_matrix_list.append(my_rel)
-        graph.mergednodes.append([])
-        graph.irreg_nodes1.append([])
-        graph.irreg_nodes2.append([])
-        graph.extranodes.append([graph.northeast])
-        graph.nodecnt_list.append(graph.nodecnt)
+        new_graph.rel_matrix_list = my_rel
+        new_graph.mergednodes= []
+        new_graph.irreg_nodes1 = []
+        new_graph.irreg_nodes2 = []
+        new_graph.extranodes= [graph.northeast]
+        new_graph.nodecnt_list = graph.nodecnt
+        graph.graph_list.append(new_graph)
         
         graph.matrix = original_matrix
         graph.nodecnt = original_nodecnt
 
-    graph.room_x = []
-    graph.room_y = []
-    graph.room_width = []
-    graph.room_height = []
-    graph.area = []
     for cnt in range(graph.fpcnt):
-        [room_x, room_y, room_width, room_height] = rdg.construct_dual(graph.rel_matrix_list[cnt],
-                                                                        graph.nodecnt_list[cnt],
-                                                                        graph.mergednodes[cnt],
-                                                                        graph.irreg_nodes1[cnt])
-        graph.room_x.append(room_x)
-        graph.room_y.append(room_y)
-        graph.room_width.append(room_width)
-        graph.room_height.append(room_height)
+        [graph.graph_list[cnt].room_x, graph.graph_list[cnt].room_y, graph.graph_list[cnt].room_width, graph.graph_list[cnt].room_height] = rdg.construct_dual(graph.graph_list[cnt].rel_matrix_list,
+                                                                        graph.graph_list[cnt].nodecnt_list,
+                                                                        graph.graph_list[cnt].mergednodes,
+                                                                        graph.graph_list[cnt].irreg_nodes1)
+
 
     print("check", graph.room_x)
 

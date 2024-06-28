@@ -10,7 +10,7 @@ import numpy as np
 import sys
 sys.path.append("..")
 
-from source.graphoperations.operations import get_encoded_matrix
+from GPLAN.source.graphoperations.operations import get_encoded_matrix
 
 pdf_w=210
 pdf_h=297
@@ -114,7 +114,7 @@ def get_scale(rfp_data, grid_w=100, grid_h=100): #Calculates the scaling factor 
     return scale
 
 def draw_one_rfp(pdf: PDF, x, y, rfp_data, room_name = [], grid_w=100, grid_h=100, dimensioned = 0, scale_val = 1, is_rb = False):
-    em = make_encoded_matrix(len(rfp_data['room_x']), rfp_data['room_x'], rfp_data['room_y'], rfp_data['room_width'], rfp_data['room_height'])
+    em = make_encoded_matrix(len(rfp_data.room_x), rfp_data.room_x, rfp_data.room_y, rfp_data.room_width, rfp_data.room_height)
 
     # scale = get_scale(rfp_data, grid_w, grid_h)
     scale = scale_val
@@ -122,23 +122,23 @@ def draw_one_rfp(pdf: PDF, x, y, rfp_data, room_name = [], grid_w=100, grid_h=10
     
     flag = 0
     i=0
-    for each_room in range(len(rfp_data['room_x'])):
-        if each_room in rfp_data['extranodes']:
+    for each_room in range(len(rfp_data.room_x)):
+        if each_room in rfp_data.extranodes:
             continue
-        if each_room in rfp_data['mergednodes']:
+        if each_room in rfp_data.mergednodes:
             rgb_colors[each_room] = rgb_colors[
-                int (rfp_data['irreg_nodes'][
-                    rfp_data['mergednodes'].index(each_room)
+                int (rfp_data.irreg_nodes[
+                    rfp_data.mergednodes.index(each_room)
                     ])
                     ]
             flag = 1      
         pdf.set_fill_color(*rgb_colors[each_room])
         pdf.set_draw_color(0,0,0)
         pdf.rect( 
-        x + scale * round(rfp_data['room_x'][each_room], 1) ,
-        y + scale * round(rfp_data['room_y'][each_room], 1) , 
-        scale * round(rfp_data['room_width'][each_room], 1) , 
-        scale * round(rfp_data['room_height'][each_room], 1) ,
+        x + scale * round(rfp_data.room_x[each_room], 1) ,
+        y + scale * round(rfp_data.room_y[each_room], 1) , 
+        scale * round(rfp_data.room_width[each_room], 1) , 
+        scale * round(rfp_data.room_height[each_room], 1) ,
         'DF')
 
         if flag == 1:
@@ -173,18 +173,18 @@ def draw_one_rfp(pdf: PDF, x, y, rfp_data, room_name = [], grid_w=100, grid_h=10
                     if e != each_room:
                         bm.append(e)
             
-            i = rfp_data['mergednodes'].index(each_room)
-            irreg = rfp_data['irreg_nodes'][i]
+            i = rfp_data.mergednodes.index(each_room)
+            irreg = rfp_data.irreg_nodes[i]
 
-            x_m = rfp_data['room_x'][each_room]
-            y_m = rfp_data['room_y'][each_room]
-            w_m = rfp_data['room_width'][each_room]
-            h_m = rfp_data['room_height'][each_room]
+            x_m = rfp_data.room_x[each_room]
+            y_m = rfp_data.room_y[each_room]
+            w_m = rfp_data.room_width[each_room]
+            h_m = rfp_data.room_height[each_room]
 
-            x_i = rfp_data['room_x'][irreg]
-            y_i = rfp_data['room_y'][irreg]
-            w_i = rfp_data['room_width'][irreg]
-            h_i = rfp_data['room_height'][irreg]
+            x_i = rfp_data.room_x[irreg]
+            y_i = rfp_data.room_y[irreg]
+            w_i = rfp_data.room_width[irreg]
+            h_i = rfp_data.room_height[irreg]
 
             a,b,c = rgb_colors[each_room]
             pdf.set_draw_color(a,b,c)
@@ -212,15 +212,15 @@ def draw_one_rfp(pdf: PDF, x, y, rfp_data, room_name = [], grid_w=100, grid_h=10
             pdf.set_draw_color(0,0,0)             
 
         if dimensioned == 1:
-            if each_room not in rfp_data['mergednodes']:
+            if each_room not in rfp_data.mergednodes:
                 
                 if scale<1.5:
                     pdf.set_font_size(3*scale)
-                    if (rfp_data['room_y'][each_room]/rfp_data['room_x'][each_room]>0.8 
-                        and rfp_data['room_y'][each_room]/rfp_data['room_x'][each_room]<=1.2):
+                    if (rfp_data.room_y[each_room]/rfp_data.room_x[each_room]>0.8 
+                        and rfp_data.room_y[each_room]/rfp_data.room_x[each_room]<=1.2):
                         x_disp = 0.8
                         y_disp = 5*scale*0.9
-                    elif (rfp_data['room_y'][each_room]/rfp_data['room_x'][each_room]>1.2):    
+                    elif (rfp_data.room_y[each_room]/rfp_data.room_x[each_room]>1.2):    
                         x_disp = 0.8
                         y_disp = 7*scale*0.9
                     else:
@@ -232,9 +232,9 @@ def draw_one_rfp(pdf: PDF, x, y, rfp_data, room_name = [], grid_w=100, grid_h=10
                 pdf.set_font_size(0.8*scale)
                     
                 print(x,y)
-                print(rfp_data['room_x'][each_room], rfp_data['room_y'][each_room])
-                print("X={0}, Y={1}".format(x + scale * int(rfp_data['room_x'][each_room]) + x_disp,
-                    y + scale * int(rfp_data['room_y'][each_room]) + y_disp,))
+                print(rfp_data.room_x[each_room], rfp_data.room_y[each_room])
+                print("X={0}, Y={1}".format(x + scale * int(rfp_data.room_x[each_room]) + x_disp,
+                    y + scale * int(rfp_data.room_y[each_room]) + y_disp,))
                 
                 # Displays the area covered by each room
                 pdf.text(
@@ -245,10 +245,21 @@ def draw_one_rfp(pdf: PDF, x, y, rfp_data, room_name = [], grid_w=100, grid_h=10
                 if is_rb == True:
                     # Displays the room labels if they have been entered
                     pdf.text(
-                        x + scale * int(rfp_data['room_x'][each_room]) + x_disp + scale,
-                        y + scale * int(rfp_data['room_y'][each_room]) + y_disp + scale,
-                        txt = str(room_name[each_room]))
+                        x + scale * int(rfp_data.room_x[each_room]) + x_disp,
+                        y + scale * int(rfp_data.room_y[each_room]) + y_disp,
+                        txt = str(room_name[i]))
+                    i += 1
+                    pdf.text(
+                        x + scale * int(rfp_data.room_x[each_room]) + x_disp,
+                        y + scale * int(rfp_data.room_y[each_room]) + y_disp + scale,
+                        txt = str(round(rfp_data.area[each_room], 1)))
+                    
                 else:
+                    pdf.text(	
+                    x + scale * int(rfp_data['room_x'][each_room]) + x_disp,	
+                    y + scale * int(rfp_data['room_y'][each_room]) + y_disp,	
+                    txt = str(round(rfp_data['area'][each_room], 1)))
+                    
                     # Displays the room number in the floorplans where room names are default, while storing the floorplan catalogue
                     pdf.text(
                         x + scale * int(rfp_data['room_x'][each_room]) + x_disp + scale,
@@ -425,6 +436,7 @@ def generate_catalogue(edges, num_rfp, time_taken, output_data, dimensional_cons
                 j += 1
     # pdf.output('latest_catalogue.pdf','F')
     save(pdf)
+    
 
 def generate_catalogue_dimensioned(num_rfp, output_data, dimensional_constraints, is_rb = False, edges=None, time_taken=None, fpcnt = None, room_name = None):
     print("[LOG] Downloading Dimensioned Catalogue")
