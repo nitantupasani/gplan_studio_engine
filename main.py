@@ -879,7 +879,7 @@ def run():
 #                                 gclass.output_data.append(graph_data)
 #                                 draw.draw_rdg(graph_data
 # =======
-                                graph.final_traversal=inputgraph.get_final_traversal(graph.graph_list[i])
+                                graph.graph_list[i].final_traversal=inputgraph.get_final_traversal(graph.graph_list[i])
                                 draw.draw_rdg(graph.graph_list[i]
                                             , 1
                                             , gclass.pen
