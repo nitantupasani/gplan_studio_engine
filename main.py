@@ -879,7 +879,7 @@ def run():
 #                                 gclass.output_data.append(graph_data)
 #                                 draw.draw_rdg(graph_data
 # =======
-                                graph.graph_list[i].final_traversal=inputgraph.get_final_traversal(graph.graph_list[i])
+                                graph.final_traversal=inputgraph.get_final_traversal(graph.graph_list[i])
                                 draw.draw_rdg(graph.graph_list[i]
                                             , 1
                                             , gclass.pen
@@ -1082,16 +1082,16 @@ def run():
                     gclass.dimensional_constraints = [min_width, min_height, plot_width, plot_height]
 #                     Hrere might be some errors compare carefully in case of errors because of merge conflicts
                 else: # Dimensioned rectangular floorplan
-                        graph_new = graph.graph_list[idx]
-                        gclass.multiple_output_found = 1
-                        gclass.output_data.append(graph_new)
+                    graph_new = graph.graph_list[idx]
+                    gclass.multiple_output_found = 1
+                    gclass.output_data.append(graph_new)
                     old_dims = [[0] * gclass.value[0]
-                        , [0] * gclass.value[0]
-                        , [0] * gclass.value[0]
-                        , [0] * gclass.value[0]
-                        , ""
-                        , [0] * gclass.value[0]
-                        , [0] * gclass.value[0]]
+                    , [0] * gclass.value[0]
+                    , [0] * gclass.value[0]
+                    , [0] * gclass.value[0]
+                    , ""
+                    , [0] * gclass.value[0]
+                    , [0] * gclass.value[0]]
                     min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(
                         old_dims, gclass.value[0], gclass.value[5])
                     dimensional_constraints = [min_width, max_width, min_height, max_height, symm_string, min_aspect,

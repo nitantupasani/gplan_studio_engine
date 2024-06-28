@@ -17,7 +17,7 @@ from .lettershape.ushape.ushape import *
 from .lettershape.zshape.zshape import *
 from .lettershape.tshape.tshape import *
 from .staircaseshape.staircaseshape import *
-from .lettershape.lshape.Lshaped import *
+# from .lettershape.lshape.Lshaped import *
 import logging
 import time
 
@@ -776,37 +776,37 @@ class InputGraph:
                         new_graph.rel_matrix_list = i
                         self.rel_matrix_list.append(i)
 # <<<<<<< main
-                        self.mergednodes.append(mergednodes)
-                        self.irreg_nodes1.append(irreg_nodes1)
-                        self.irreg_nodes2.append(irreg_nodes2)
-                        self.extranodes.append(extranodes)
-                        self.nodecnt_list.append(self.nodecnt)
-                        # new_graph.mergednodes= mergednodes
-                        # new_graph.irreg_nodes1= irreg_nodes1
-                        # new_graph.irreg_nodes2= irreg_nodes2
-                        # new_graph.extranodes= extranodes
-                        # new_graph.nodecnt_list= self.nodecnt
-                        # self.graph_list.append(new_graph)
+#                         self.mergednodes.append(mergednodes)
+#                         self.irreg_nodes1.append(irreg_nodes1)
+#                         self.irreg_nodes2.append(irreg_nodes2)
+#                         self.extranodes.append(extranodes)
+#                         self.nodecnt_list.append(self.nodecnt)
+#                         # new_graph.mergednodes= mergednodes
+#                         # new_graph.irreg_nodes1= irreg_nodes1
+#                         # new_graph.irreg_nodes2= irreg_nodes2
+#                         # new_graph.extranodes= extranodes
+#                         # new_graph.nodecnt_list= self.nodecnt
+#                         # self.graph_list.append(new_graph)
 
                                     
-                    end_time = time.time()
-                    elapsed_time = end_time - start_time
-                    logger.info(f"{__name__} for i in rel_matrices: took {elapsed_time:.5f} seconds to execute.")
+#                     end_time = time.time()
+#                     elapsed_time = end_time - start_time
+#                     logger.info(f"{__name__} for i in rel_matrices: took {elapsed_time:.5f} seconds to execute.")
                 
-                end_time1 = time.time()
-                elapsed_time = end_time1 - start_time1
-                logger.info(f"{__name__} for bdys in cip_list: took {elapsed_time:.5f} seconds to execute.")
-            end_time0 = time.time()
-            elapsed_time = end_time0 - start_time0
-            logger.info(f"{__name__} cnt in range(len(ptpg_matrices)): took {elapsed_time:.5f} seconds to execute.")
-# =======
-#                         new_graph.mergednodes= mergednodes
-#                         new_graph.irreg_nodes1= irreg_nodes1
-#                         new_graph.irreg_nodes2= irreg_nodes2
-#                         new_graph.extranodes= extranodes
-#                         new_graph.nodecnt_list= self.nodecnt
-#                         self.graph_list.append(new_graph)
-# >>>>>>> Door_connectivity_cleanup
+#                 end_time1 = time.time()
+#                 elapsed_time = end_time1 - start_time1
+#                 logger.info(f"{__name__} for bdys in cip_list: took {elapsed_time:.5f} seconds to execute.")
+#             end_time0 = time.time()
+#             elapsed_time = end_time0 - start_time0
+#             logger.info(f"{__name__} cnt in range(len(ptpg_matrices)): took {elapsed_time:.5f} seconds to execute.")
+# # =======
+                        new_graph.mergednodes= mergednodes
+                        new_graph.irreg_nodes1= irreg_nodes1
+                        new_graph.irreg_nodes2= irreg_nodes2
+                        new_graph.extranodes= extranodes
+                        new_graph.nodecnt_list= self.nodecnt
+                        self.graph_list.append(new_graph)
+    # >>>>>>> Door_connectivity_cleanup
 
         else:
             mergednodes = []
@@ -856,17 +856,17 @@ class InputGraph:
                     new_graph.rel_matrix_list = i
                     self.rel_matrix_list.append(i)
 # <<<<<<< main
-                    self.mergednodes.append([])
-                    self.irreg_nodes1.append([])
-                    self.irreg_nodes2.append([])
-                    self.extranodes.append(extranodes)
-                    self.nodecnt_list.append(self.nodecnt)
-                    # new_graph.mergednodes = []
-                    # new_graph.irreg_nodes1 = []
-                    # new_graph.irreg_nodes2 = []
-                    # new_graph.extranodes = extranodes
-                    # new_graph.nodecnt_list = self.nodecnt
-                    # self.graph_list.append(new_graph)
+                    # self.mergednodes.append([])
+                    # self.irreg_nodes1.append([])
+                    # self.irreg_nodes2.append([])
+                    # self.extranodes.append(extranodes)
+                    # self.nodecnt_list.append(self.nodecnt)
+                    new_graph.mergednodes = []
+                    new_graph.irreg_nodes1 = []
+                    new_graph.irreg_nodes2 = []
+                    new_graph.extranodes = extranodes
+                    new_graph.nodecnt_list = self.nodecnt
+                    self.graph_list.append(new_graph)
 
 
                                 
@@ -878,32 +878,32 @@ class InputGraph:
             elapsed_time = end_time1 - start_time1
             logger.info(f"{__name__} for bdys in cip_list: took {elapsed_time:.5f} seconds to execute.")
 
-        self.room_x = []
-        self.room_y = []
-        self.room_width = []
-        self.room_height = []
-        self.area = []
+        # self.room_x = []
+        # self.room_y = []
+        # self.room_width = []
+        # self.room_height = []
+        # self.area = []
                     
-        for cnt in range(self.fpcnt):
-            # [self.graph_list[cnt].room_x, self.graph_list[cnt].room_y, self.graph_list[cnt].room_width, self.graph_list[cnt].room_height] = rdg.construct_dual(self.graph_list[cnt].rel_matrix_list,
-            #                                                                self.graph_list[cnt].nodecnt_list + 4,
-            #                                                                self.graph_list[cnt].mergednodes,
-            #                                                                self.graph_list[cnt].irreg_nodes1)
-            [room_x, room_y, room_width, room_height] = rdg.construct_dual(self.rel_matrix_list[cnt],
-                                                                           self.nodecnt_list[cnt] + 4,
-                                                                           self.mergednodes[cnt],
-                                                                           self.irreg_nodes1[cnt])
-            self.room_x.append(room_x)
-            self.room_y.append(room_y)
-            self.room_width.append(room_width)
-            self.room_height.append(room_height)
+        # for cnt in range(self.fpcnt):
+        #     [self.graph_list[cnt].room_x, self.graph_list[cnt].room_y, self.graph_list[cnt].room_width, self.graph_list[cnt].room_height] = rdg.construct_dual(self.graph_list[cnt].rel_matrix_list,
+        #                                                                    self.graph_list[cnt].nodecnt_list + 4,
+        #                                                                    self.graph_list[cnt].mergednodes,
+        #                                                                    self.graph_list[cnt].irreg_nodes1)
+            # [room_x, room_y, room_width, room_height] = rdg.construct_dual(self.rel_matrix_list[cnt],
+            #                                                                self.nodecnt_list[cnt] + 4,
+            #                                                                self.mergednodes[cnt],
+            #                                                                self.irreg_nodes1[cnt])
+            # self.room_x.append(room_x)
+            # self.room_y.append(room_y)
+            # self.room_width.append(room_width)
+            # self.room_height.append(room_height)
 # =======
-#                     new_graph.mergednodes = []
-#                     new_graph.irreg_nodes1 = []
-#                     new_graph.irreg_nodes2 = []
-#                     new_graph.extranodes = extranodes
-#                     new_graph.nodecnt_list = self.nodecnt
-#                     self.graph_list.append(new_graph)
+                    # new_graph.mergednodes = []
+                    # new_graph.irreg_nodes1 = []
+                    # new_graph.irreg_nodes2 = []
+                    # new_graph.extranodes = extranodes
+                    # new_graph.nodecnt_list = self.nodecnt
+                    # self.graph_list.append(new_graph)
 
 
 #         # self.room_x = []
@@ -912,11 +912,11 @@ class InputGraph:
 #         # self.room_height = []
 #         # self.area = []
                     
-#         for cnt in range(self.fpcnt):
-#             [self.graph_list[cnt].room_x, self.graph_list[cnt].room_y, self.graph_list[cnt].room_width, self.graph_list[cnt].room_height] = rdg.construct_dual(self.graph_list[cnt].rel_matrix_list,
-#                                                                            self.graph_list[cnt].nodecnt_list + 4,
-#                                                                            self.graph_list[cnt].mergednodes,
-#                                                                            self.graph_list[cnt].irreg_nodes1)
+        for cnt in range(self.fpcnt):
+            [self.graph_list[cnt].room_x, self.graph_list[cnt].room_y, self.graph_list[cnt].room_width, self.graph_list[cnt].room_height] = rdg.construct_dual(self.graph_list[cnt].rel_matrix_list,
+                                                                           self.graph_list[cnt].nodecnt_list + 4,
+                                                                           self.graph_list[cnt].mergednodes,
+                                                                           self.graph_list[cnt].irreg_nodes1)
             
 # >>>>>>> Door_connectivity_cleanup
 
@@ -1235,16 +1235,16 @@ def generate_multiple_bdy(matrix, nodecnt, edgecnt, bcn_edges, trng_edges, merge
             news.all_boundaries(corner_pts, outer_boundary), outer_boundary)
     return matrix, cip_list, nodecnt, edgecnt, mergednodes, irreg_nodes1, irreg_nodes2
 
-from .lettershape.lshape.Lshaped import *
-def lettershape(graph, node_data, letter):
-    if(letter == "L Shape"):
-        LShapedFloorplan(graph, node_data)
-    elif(letter == "T Shape"):
-        TShapedFloorplan(graph)
-    elif(letter == "Z Shape"):
-        ZShapedFloorplan(graph)
-    elif(letter == "U Shape"):
-        UShapedFloorplan(graph)
+# from .lettershape.lshape.Lshaped import *
+# def lettershape(graph, node_data, letter):
+#     if(letter == "L Shape"):
+#         LShapedFloorplan(graph, node_data)
+#     elif(letter == "T Shape"):
+#         TShapedFloorplan(graph)
+#     elif(letter == "Z Shape"):
+#         ZShapedFloorplan(graph)
+#     elif(letter == "U Shape"):
+#         UShapedFloorplan(graph)
 
 def staircaseshaped(graph):
     StaircaseShapedFloorplan(graph)
