@@ -871,14 +871,6 @@ def run():
 
                             # If optimal area not required, display floorplan
                             if optimal_floorplan == 0:
-# <<<<<<< main check here also for merge conflict
-#                                 '''
-#                                 Adds the graph data to output_data for downloading the catalogue and 
-#                                 multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
-#                                 '''
-#                                 gclass.output_data.append(graph_data)
-#                                 draw.draw_rdg(graph_data
-# =======
                                 graph.graph_list[i].final_traversal=inputgraph.get_final_traversal(graph.graph_list[i])
                                 draw.draw_rdg(graph.graph_list[i]
                                             , 1
@@ -892,6 +884,7 @@ def run():
                             # Store graph data if graph area is less than current minimal area
                             area_sum = sum(room_area)
                             areas.append(area_sum)
+                            graph.graph_list[i].area = area_sum
                             if min_area < 0 or area_sum < min_area:
                                 min_area = area_sum
                                 min_graph = graph.graph_list[i]
@@ -906,6 +899,7 @@ def run():
 #                         gclass.output_data.append(min_graph_data)
 #                         draw.draw_rdg(min_graph_data
 # =======
+                        min_graph.final_traversal=inputgraph.get_final_traversal(min_graph)
                         draw.draw_rdg(min_graph
                                     , 1
                                     , gclass.pen
