@@ -1633,7 +1633,7 @@ class gui_class:
 
     def graph_ret(self):
         # value is set here, dimensioned and mindim flags are set for graphs from input file
-        if self.open == True and len(self.value) > 0:
+        if self.open == True and len(self.value) > 0 and len(self.value) > 10: #No one should change self.value add variables differently
             isDimensioned, isMindim = self.value[4], self.value[10]
             self.value = self.app.return_everything()
             self.value[4], self.value[10] = isDimensioned, isMindim
@@ -1776,7 +1776,8 @@ class gui_class:
         node_data = self.open_ret[1]
         edge_data = self.open_ret[2]
         con_data = self.open_ret[3]
-        self.dimensional_constraints = self.open_ret[4]
+        if(len(self.open_ret) >= 5 ):
+            self.dimensional_constraints = self.open_ret[4]
         self.app.retreive_graph(node_data, edge_data, con_data)
         self.open = True
 

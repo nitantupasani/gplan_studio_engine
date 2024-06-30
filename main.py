@@ -947,27 +947,10 @@ def run():
                     print_gui("Number of floorplans: " + str(graph.fpcnt))
 # CHeck the underneath 100ish lines for merge conflicts
                     for idx in range(graph.fpcnt):
-                        graph_data = {
-                            'room_x': graph.room_x[idx],
-                            'room_y': graph.room_y[idx],
-                            'room_width': graph.room_width[idx],
-                            'room_height': graph.room_height[idx],
-                            'area': graph.area,
-                            'extranodes': graph.extranodes[idx],
-                            'mergednodes': graph.mergednodes[idx],
-                            'irreg_nodes': graph.irreg_nodes1[idx]
-                        }
-                        gclass.output_data.append(graph_data)
-                        # draw.draw_rdg(graph_data
-                        #     ,idx+1
-                        #     ,gclass.pen
-                        #     ,1
-                        #     ,gclass.value[6]
-                        #     ,[]
-                        #     ,origin)
-                        # gclass.ocan.add_tab()
-                        # gclass.pen = gclass.ocan.getpen()
-                        # gclass.pen.speed(0)
+                        graph_new = graph.graph_list[idx]
+                        gclass.multiple_output_found = 1
+                        gclass.output_data.append(graph_new)
+                      
                 elif (gclass.value[10] == 1): # Minimum dimensioned rectangular floorplans
                     old_dims = [[3] * gclass.value[0]
                         , [3] * gclass.value[0]]
@@ -1076,9 +1059,6 @@ def run():
                     gclass.dimensional_constraints = [min_width, min_height, plot_width, plot_height]
 #                     Hrere might be some errors compare carefully in case of errors because of merge conflicts
                 else: # Dimensioned rectangular floorplan
-                    graph_new = graph.graph_list[idx]
-                    gclass.multiple_output_found = 1
-                    gclass.output_data.append(graph_new)
                     old_dims = [[0] * gclass.value[0]
                     , [0] * gclass.value[0]
                     , [0] * gclass.value[0]
@@ -1479,11 +1459,11 @@ def make_dissection_corridor(gclass):
 # #     # draw.draw_rdg(G,1,gclass.pen,G.to_be_merged_vertices,G.rdg_vertices,0,gclass.value[6],gclass.value[5])
 # #     G.circulation(gclass.pen,gclass.ocan.canvas, C, 1, 2)
 
-# Check here for merge conflicts
+# Check here for merge conflicts #KARAN
 # # def call_circulation(graph_data, edge_set, entry):
-# def call_circulation(graph_data, gclass, coord, is_dimensioned, dim_constraints, remove_corridor, is_minimum_dimensioned = False, is_optimal = False):
+def call_circulation(graph_data, gclass, coord, is_dimensioned, dim_constraints, remove_corridor, is_minimum_dimensioned = False, is_optimal = False):
 # =======
-def call_circulation(graph, gclass, coord, is_dimensioned, dim_constraints, remove_corridor,public_private):
+def call_circulation(graph, gclass, coord, is_dimensioned, dim_constraints, remove_corridor,public_private, is_minimum_dimensioned = False, is_optimal = False):
 # >>>>>>> Door_connectivity_cleanup
 
     g = nx.Graph()
