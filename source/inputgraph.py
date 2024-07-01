@@ -275,6 +275,19 @@ class InputGraph:
         [self.room_x, self.room_y, self.room_width, self.room_height] = rdg.construct_dual(self.matrix, self.nodecnt,
                                                                                            self.mergednodes,
                                                                                            self.irreg_nodes1)
+    def update_gclass_with_edges(self, gclass):
+        edges = set()
+        n = len(self.matrix)
+        
+        for i in range(n):
+            for j in range(i + 1, n):  # Iterate only the upper triangle to avoid duplicates
+                if self.matrix[i][j] != 0:  # Assuming non-zero entries indicate edges
+                    edges.add((i, j))
+        
+        # Update gclass.value[2] with edges and default color 'black'
+        gclass.value[2] = [[start, end, 'black'] for start, end in edges]
+        print(gclass.value[2])
+        return gclass.value[2]
 
     @timing_decorator
     def door_connectivity(self):
@@ -383,6 +396,7 @@ class InputGraph:
             return True
 
         self.coordinates = positions
+        self.coordinates = [v for v in self.coordinates.values()]
         separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
         print("Doing separating triangles lists test",separating_triangles1)
         return self,check_ptpg(tri_faces,graphtemp,separating_triangles1)
