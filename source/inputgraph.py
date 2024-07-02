@@ -343,7 +343,7 @@ class InputGraph:
 
         
 
-        def check_ptpg(tri_faces,nxgraph,separating_triangles):
+        def check_ptpg(separating_triangles):
             """Checks if the given graph satisfies ptpg conditions or not.
 
             Args:
@@ -352,45 +352,6 @@ class InputGraph:
             Returns:
                 True or false value
             """
-            print(tri_faces)
-            tri_edges = []
-            for face in tri_faces:
-                for edge in face:
-                    if edge[0] > edge[1]:
-                        edge = (edge[1], edge[0])
-                    tri_edges.append(edge)
-            print(tri_edges)
-            #actual function to just keep the boundary edges and remove all the other edges
-            def find_unique_edge(edges):
-                edge_set = set()
-
-                for edge in edges:
-                    if edge in edge_set:
-                        edge_set.remove(edge)
-                    else:
-                        edge_set.add(edge)
-                
-                return edge_set
-
-            unique_edges = find_unique_edge(tri_edges)#unique edges are the exterior edges
-            print(unique_edges)
-            if(len(unique_edges) == 0):
-                print("Not PTPG because length of exterior face is 3")
-                return False
-            
-            #Now checking for degree of internal vertices
-            external_vertices = set()
-            for edge in unique_edges:
-                external_vertices.add(edge[0])
-                external_vertices.add(edge[1])
-
-            for node in nxgraph.nodes():
-                if node in external_vertices:
-                    continue
-                elif nxgraph.degree(node) == 3:
-                        print("Not PTPG because degree of internal vertex is 3")
-                        return False
-            
             if(len(separating_triangles) != 0):
                 return False
             return True
@@ -399,7 +360,48 @@ class InputGraph:
         self.coordinates = [v for v in self.coordinates.values()]
         separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
         print("Doing separating triangles lists test",separating_triangles1)
-        return self,check_ptpg(tri_faces,graphtemp,separating_triangles1)
+
+        one_connected = copy.deepcopy(self.matrix)
+        ptpg_matrices, extra_nodes,final_positions = st.handle_STs_with_edge_selection(one_connected, self.matrix, positions)
+        self.coordinates = final_positions
+        self.coordinates = [v for v in self.coordinates.values()]
+        self.matrix = ptpg_matrices[0]
+        self.edgecnt = int(np.count_nonzero(self.matrix == 1) / 2)
+        if(len(extra_nodes)):
+                for key in extra_nodes[0]:
+                    self.mergednodes.append(key)
+                    self.irreg_nodes1.append(extra_nodes[0][key][0])
+                    self.irreg_nodes2.append(extra_nodes[0][key][1])
+
+        plt.figure()
+        graphtemp = nx.from_numpy_array(self.matrix)
+        nx.draw_networkx(graphtemp,final_positions, label='After removal',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+        plt.show()
+
+        
+        trng_edges, positions, tri_faces = trng.triangulate(self.matrix
+                                                            , bcn_edges_added
+                                                            , self.coordinates)
+
+        for edge in trng_edges:
+            self.matrix[edge[0]][edge[1]] = 1
+            self.matrix[edge[1]][edge[0]] = 1
+            self.edgecnt += 1  # Extra edge added
+
+        self.coordinates = positions
+        self.coordinates = [v for v in self.coordinates.values()]
+        separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
+        print("Doing separating triangles lists test",separating_triangles1)
+
+        return self,check_ptpg(separating_triangles1)
+
+
+
+
+
+
+
+
         # Separating Triangle Elimination
         # if (self.nodecnt - self.edgecnt + len(opr.get_trngls(self.matrix)) != 1):
             

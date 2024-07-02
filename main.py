@@ -686,10 +686,10 @@ def run():
                         else:
                             temp_graph_data[key] = value
 
-                    input_path = "./saved_files/input_to_limits.json"
-                    with open(input_path, 'w') as json_file:
-                        json_data = json.dump(temp_graph_data,json_file, indent=2)
-                    print(f"JSON data has been written to {input_path}")
+                    # input_path = "./saved_files/input_to_limits.json"
+                    # with open(input_path, 'w') as json_file:
+                    #     json_data = json.dump(temp_graph_data,json_file, indent=2)
+                    # print(f"JSON data has been written to {input_path}")
 
                     #min_dim.main(input_path)
                     end = time.time()
