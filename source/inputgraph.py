@@ -373,10 +373,10 @@ class InputGraph:
                     self.irreg_nodes1.append(extra_nodes[0][key][0])
                     self.irreg_nodes2.append(extra_nodes[0][key][1])
 
-        plt.figure()
-        graphtemp = nx.from_numpy_array(self.matrix)
-        nx.draw_networkx(graphtemp,final_positions, label='After removal',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
-        plt.show()
+        # plt.figure()
+        # graphtemp = nx.from_numpy_array(self.matrix)
+        # nx.draw_networkx(graphtemp,final_positions, label='After removal',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+        # plt.show()
 
         
         trng_edges, positions, tri_faces = trng.triangulate(self.matrix
@@ -392,6 +392,11 @@ class InputGraph:
         self.coordinates = [v for v in self.coordinates.values()]
         separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
         print("Doing separating triangles lists test",separating_triangles1)
+
+        plt.figure()
+        graphtemp = nx.from_numpy_array(self.matrix)
+        nx.draw_networkx(graphtemp,positions, label='After retriangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+        plt.show()
 
         return self,check_ptpg(separating_triangles1)
 
