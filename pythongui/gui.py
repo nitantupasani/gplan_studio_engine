@@ -248,6 +248,8 @@ class gui_class:
         self.num_rfp = 0
         self.pdf_colors = []
         self.multiple_output_found = 0
+        self.dimensional_constraints = []
+
 
         while ((self.value[0] == 0) and done):
             self.root.wait_variable(self.end)
