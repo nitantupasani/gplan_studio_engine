@@ -118,7 +118,7 @@ def run():
                     gclass.dimensional_constraints = [min_width, min_height, plot_width, plot_height]
 
                     mindim_graph_data = gclass.output_data[0]
-                    (new_graph_data, success) = call_circulation(mindim_graph_data, gclass, node_coord, is_dimensioned, gclass.dimensional_constraints, remove_corridor, is_minimum_dimensioned = True, is_optimal = optimal_floorplan)
+                    (new_graph_data, success) = call_circulation_new(mindim_graph_data,graph, gclass, node_coord, is_dimensioned, gclass.dimensional_constraints, remove_corridor, is_minimum_dimensioned = True, is_optimal = optimal_floorplan)
                     print("Constraints: ", dim_constraints)
                     print("New graph data: ", new_graph_data)
                     print("success: ", success)
@@ -163,7 +163,7 @@ def run():
                             'irreg_nodes': graph.irreg_nodes1
                         }
                     # new_graph_data = call_circulation(graph_data, gclass.value[2], gclass.entry_door, gclass.corridor_thickness)
-                    (new_graph_data, success) = call_circulation(graph_data, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor)
+                    (new_graph_data, success) = call_circulation_new(graph_data,graph, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor)
                     # If there was some error in algorithm execution new_graph_data will be empty
                     # we display the pop-up error message
                     if new_graph_data == None:
@@ -212,7 +212,7 @@ def run():
                     print_gui("Time taken: " + str((end-start)*1000) + " ms")
 
                     dim_constraints = [min_width, max_width, min_height, max_height, min_aspect, max_aspect]
-                    (new_graph, success) = call_circulation_cleanup(graph, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor,public_private)
+                    (new_graph, success) = call_circulation_new(None,graph, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor,public_private)
                     print("Constraints: ", dim_constraints)
                     print("New graph data: ", new_graph)
                     print("success: ", success)                        
@@ -258,7 +258,7 @@ def run():
                     gclass.dimensional_constraints = [min_width, min_height, plot_width, plot_height]
 
                     mindim_graph_data = gclass.output_data[0]
-                    (new_graph_data, success) = call_circulation(mindim_graph_data, gclass, node_coord, is_dimensioned, gclass.dimensional_constraints, remove_corridor, is_minimum_dimensioned = True, is_optimal = optimal_floorplan)
+                    (new_graph_data, success) = call_circulation_new(mindim_graph_data,graph, gclass, node_coord, is_dimensioned, gclass.dimensional_constraints, remove_corridor, is_minimum_dimensioned = True, is_optimal = optimal_floorplan)
                     print("Constraints: ", dim_constraints)
                     print("New graph data: ", new_graph_data)
                     print("success: ", success)
@@ -287,7 +287,7 @@ def run():
                     print_gui("Time taken: " + str((end-start)*1000) + " ms")
                     print("type of roomx " + str(type(graph.room_x)))
                     
-                    (new_graph, success) = call_circulation_cleanup(graph, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor, public_private)
+                    (new_graph, success) = call_circulation_new(None,graph, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor, public_private)
                     
                     # If there was some error in algorithm execution new_graph will be empty
                     # we display the pop-up error message
@@ -305,7 +305,7 @@ def run():
                     end = time.time()
                     print_gui("Time taken: " + str((end-start)*1000) + " ms")
 
-                    (new_graph, success) = call_circulation_cleanup(graph, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor,public_private)
+                    (new_graph, success) = call_circulation_new(None,graph, gclass, node_coord, is_dimensioned, dim_constraints, remove_corridor,public_private)
 
                     # If there was some error in algorithm execution new_graph will be empty
                     # we display the pop-up error message
@@ -1569,7 +1569,311 @@ def make_dissection_corridor(gclass):
 # Check here for merge conflicts #KARAN
 # def call_circulation(graph_data, gclass, coord, is_dimensioned, dim_constraints, remove_corridor, is_minimum_dimensioned = False, is_optimal = False):
 # =======
-def call_circulation(graph_data, gclass, coord, is_dimensioned, dim_constraints, remove_corridor, is_minimum_dimensioned = False, is_optimal = False):
+# def call_circulation(graph_data, gclass, coord, is_dimensioned, dim_constraints, remove_corridor, is_minimum_dimensioned = False, is_optimal = False):
+
+#     g = nx.Graph()
+#     edge_set = gclass.value[2]
+#     entry = gclass.entry_door
+
+#     for x in edge_set:
+#         g.add_edge(x[0], x[1])
+    
+#     n = len(g)
+
+#     rooms = []
+#     for i in range(n):
+#         rooms.append(cir.Room(i, graph_data.get("room_x")[i], graph_data.get("room_y")[i] + graph_data.get("room_height")[i], graph_data.get("room_x")[i] + graph_data.get("room_width")[i], graph_data.get("room_y")[i]))
+
+    
+#     rfp = cir.RFP(g, rooms)
+
+#     cir.plot(g,n)
+#     circulation_obj = cir.circulation(g, gclass.corridor_thickness, rfp, gclass.rem)
+    
+#     # Add dimensional constraints if chosen option is "dimensioned circulation"
+#     if is_dimensioned == True:
+#         circulation_obj.is_dimensioned = True
+#         circulation_obj.dimension_constraints = dim_constraints
+#     elif is_minimum_dimensioned == True:
+#         circulation_obj.is_minimum_dimensioned = True
+#         circulation_obj.dimension_constraints = dim_constraints
+#         circulation_obj.is_optimal = is_optimal
+    
+#     # Apply circulation algorithm
+#     circulation_result = circulation_obj.circulation_algorithm(entry[0],entry[1])
+#     cir.plot(circulation_obj.circulation_graph, len(circulation_obj.circulation_graph))
+#     if circulation_result == 0:
+#         return None
+    
+#     if remove_corridor == True:
+#         # Created a deepcopy of object to display circulation before
+#         # we display GUI for removing corridor
+#         circ = copy.deepcopy(circulation_obj)
+#         circ.adjust_RFP_to_circulation()
+
+#         # Printing how much shift was done for each room
+#         print("\t\tT\tB\t\L\tR\t\tTarget")
+#         for room in circ.RFP.rooms:
+#             print(f"{room.id}\t{room.rel_push_T}\t{room.rel_push_B}\t{room.rel_push_L}\t{room.rel_push_R}\t\t{room.target}")
+#             # print("Room ",room.id, ":")
+#             # print("Push top edge by: ", room.rel_push_T)
+#             # print("Push bottom edge by: ", room.rel_push_B)
+#             # print("Push left edge by: ", room.rel_push_L)
+#             # print("Push right edge by: ", room.rel_push_R)
+#             # print(room.target)
+#             # print('\n')
+
+#         room_x1 = []
+#         room_y1 = []
+#         room_height1 = []
+#         room_width1 = []
+
+#         # Getting the required values
+#         for room in circ.RFP.rooms:
+#             room_x1.append(room.top_left_x)
+#             room_y1.append(room.bottom_right_y)
+#             room_height1.append(abs(room.top_left_y - room.bottom_right_y))
+#             room_width1.append(abs(room.top_left_x - room.bottom_right_x))
+
+#         graph_data1 = {}
+#         graph_data1['room_x'] = np.array(room_x1)
+#         graph_data1['room_y'] = np.array(room_y1)
+#         graph_data1['room_height'] = np.array(room_height1)
+#         graph_data1['room_width'] = np.array(room_width1)
+#         graph_data1['area'] = np.array(circulation_obj.room_area)
+#         graph_data1['extranodes'] = graph_data['extranodes']
+#         graph_data1['mergednodes'] = graph_data['mergednodes']
+#         graph_data1['irreg_nodes'] = graph_data['irreg_nodes']
+#         draw.draw_rdg(graph_data1, 1, gclass.pen, 1, gclass.value[6], gclass.value[5], origin)
+
+#         # Now going back to flow of removing circulation
+#         corridors = circulation_obj.adjacency
+#         rem_edges = gclass.remove_corridor_gui(corridors)
+
+#         for x in rem_edges:
+#             circulation_obj.remove_corridor(circulation_obj.circulation_graph,x[0],x[1])
+        
+        
+#     # To remove entry corridor alone we are just shifting rooms by looking at second corridor vertex
+#     # Done by shifting the range left bound in for loop of adjust_RFP_to_circulation()
+#     circulation_obj.adjust_RFP_to_circulation()
+
+#     if is_minimum_dimensioned == True:
+#         new_min_width = []
+#         new_min_height = []
+#         for i in range(len(circulation_obj.dimensions)):
+#             min_width = circulation_obj.dimension_constraints[0][i]
+#             min_height = circulation_obj.dimension_constraints[1][i]
+#             width = circulation_obj.dimensions[i][0]
+#             height = circulation_obj.dimensions[i][1]
+#             if width < min_width:
+#                 circulation_obj.dimensions[i][0] = 2 * min_width - width
+#             else:
+#                 circulation_obj.dimensions[i][0] = min(min_width, width)
+#             new_min_width.append(circulation_obj.dimensions[i][0])
+#             if height < min_height:
+#                 circulation_obj.dimensions[i][1] = 2 * min_height - height
+#             else:
+#                 circulation_obj.dimensions[i][0] = min(min_height, height)
+#             new_min_height.append(circulation_obj.dimensions[i][1])
+            
+#         generate_mindim_rfp(gclass.ptpg, gclass, new_min_width, new_min_height, dim_constraints[2], dim_constraints[3], is_optimal)
+#         rooms = []
+
+#         graph_data = gclass.output_data[0]
+#         for i in range(n):
+#             rooms.append(cir.Room(i, graph_data.get("room_x")[i], graph_data.get("room_y")[i] + graph_data.get("room_height")[i], graph_data.get("room_x")[i] + graph_data.get("room_width")[i], graph_data.get("room_y")[i]))
+#         rfp = cir.RFP(g, rooms)
+#         circulation_obj.RFP = rfp
+#         circulation_obj.room_area = []
+#         circulation_obj.adjust_RFP_to_circulation()
+
+#     # Printing how much shift was done for each room
+#     print("\tT\tB\tL\tR")
+#     for room in circulation_obj.RFP.rooms:
+#         print(f"{room.id}\t{room.rel_push_T}\t{room.rel_push_B}\t{room.rel_push_L}\t{room.rel_push_R}")
+#         # print("Room ",room.id, ":")
+#         # print("Push top edge by: ", room.rel_push_T)
+#         # print("Push bottom edge by: ", room.rel_push_B)
+#         # print("Push left edge by: ", room.rel_push_L)
+#         # print("Push right edge by: ", room.rel_push_R)
+#         # print(room.target)
+#         # print('\n')
+
+#     room_x = []
+#     room_y = []
+#     room_height = []
+#     room_width = []
+
+#     # Getting the required values
+#     for room in circulation_obj.RFP.rooms:
+#         room_x.append(room.top_left_x)
+#         room_y.append(room.bottom_right_y)
+#         room_height.append(abs(room.top_left_y - room.bottom_right_y))
+#         room_width.append(abs(room.top_left_x - room.bottom_right_x))
+
+#     graph_data['room_x'] = np.array(room_x)
+#     graph_data['room_y'] = np.array(room_y)
+#     graph_data['room_height'] = np.array(room_height)
+#     graph_data['room_width'] = np.array(room_width)
+#     graph_data['area'] = np.array(circulation_obj.room_area)
+#     return (graph_data, circulation_obj.is_dimensioning_successful)
+
+# def call_circulation_cleanup(graph, gclass, coord, is_dimensioned, dim_constraints, remove_corridor,public_private):
+
+#     g = nx.Graph()
+#     edge_set = gclass.value[2]
+#     entry = gclass.entry_door
+
+#     for x in edge_set:
+#         g.add_edge(x[0], x[1])
+    
+#     n = len(g)
+
+#     rooms = []
+#     for i in range(n):
+#         rooms.append(cir.Room(i, graph.room_x[i], graph.room_y[i] + graph.room_height[i], graph.room_x[i] + graph.room_width[i], graph.room_y[i]))
+
+    
+#     rfp = cir.RFP(g, rooms)
+
+#     cir.plot(g,n)
+#     circulation_obj = cir.circulation(g, gclass.corridor_thickness, rfp, gclass.rem)
+    
+#     # Add dimensional constraints if chosen option is "dimensioned circulation"
+#     if is_dimensioned == True:
+#         circulation_obj.is_dimensioned = True
+#         circulation_obj.dimension_constraints = dim_constraints
+    
+#     # Apply circulation algorithm
+#     circulation_result = circulation_obj.circulation_algorithm(entry[0],entry[1])
+#     cir.plot(circulation_obj.circulation_graph, len(circulation_obj.circulation_graph))
+#     if circulation_result == 0:
+#         return None
+#     if public_private == True:
+#         circ = copy.deepcopy(circulation_obj)
+#         circ.adjust_RFP_to_circulation()
+
+#         # Printing how much shift was done for each room
+#         for room in circ.RFP.rooms:
+#             print("Room ",room.id, ":")
+#             print("Push top edge by: ", room.rel_push_T)
+#             print("Push bottom edge by: ", room.rel_push_B)
+#             print("Push left edge by: ", room.rel_push_L)
+#             print("Push right edge by: ", room.rel_push_R)
+#             print(room.target)
+#             print('\n')
+
+#         room_x1 = []
+#         room_y1 = []
+#         room_height1 = []
+#         room_width1 = []
+
+#         # Getting the required values
+#         for room in circ.RFP.rooms:
+#             room_x1.append(room.top_left_x)
+#             room_y1.append(room.bottom_right_y)
+#             room_height1.append(abs(room.top_left_y - room.bottom_right_y))
+#             room_width1.append(abs(room.top_left_x - room.bottom_right_x))
+
+#         new_graph=copy.deepcopy(graph)
+#         new_graph.room_x=room_x1
+#         new_graph.room_y=room_y1
+#         new_graph.room_height=room_height1
+#         new_graph.room_width=room_width1
+#         new_graph.final_traversal=inputgraph.get_final_traversal(new_graph)
+#         draw.draw_rdg(new_graph, 1, gclass.pen, 1, gclass.value[6], [], origin)
+
+#         # Now going back to flow of removing circulation
+#         corridors = circulation_obj.adjacency
+#         rem_edges = gclass.public_rooms(corridors)
+
+#         for x in rem_edges:
+#             circulation_obj.remove_corridor(circulation_obj.circulation_graph,x[0],x[1])
+    
+#     if remove_corridor == True:
+#         # Created a deepcopy of object to display circulation before
+#         # we display GUI for removing corridor
+#         circ = copy.deepcopy(circulation_obj)
+#         circ.adjust_RFP_to_circulation()
+
+#         # Printing how much shift was done for each room
+#         print("\t\tT\tB\t\L\tR\t\tTarget")
+#         for room in circ.RFP.rooms:
+#             print(f"{room.id}\t{room.rel_push_T}\t{room.rel_push_B}\t{room.rel_push_L}\t{room.rel_push_R}\t\t{room.target}")
+#             # print("Room ",room.id, ":")
+#             # print("Push top edge by: ", room.rel_push_T)
+#             # print("Push bottom edge by: ", room.rel_push_B)
+#             # print("Push left edge by: ", room.rel_push_L)
+#             # print("Push right edge by: ", room.rel_push_R)
+#             # print(room.target)
+#             # print('\n')
+
+#         room_x1 = []
+#         room_y1 = []
+#         room_height1 = []
+#         room_width1 = []
+
+#         # Getting the required values
+#         for room in circ.RFP.rooms:
+#             room_x1.append(room.top_left_x)
+#             room_y1.append(room.bottom_right_y)
+#             room_height1.append(abs(room.top_left_y - room.bottom_right_y))
+#             room_width1.append(abs(room.top_left_x - room.bottom_right_x))
+
+#         new_graph=copy.deepcopy(graph)
+#         new_graph.room_x=room_x1
+#         new_graph.room_y=room_y1
+#         new_graph.room_height=room_height1
+#         new_graph.room_width=room_width1
+
+#         new_graph.final_traversal=inputgraph.get_final_traversal(new_graph)
+#         draw.draw_rdg(new_graph, 1, gclass.pen, 1, gclass.value[6], [], origin)
+
+#         # Now going back to flow of removing circulation
+#         corridors = circulation_obj.adjacency
+#         rem_edges = gclass.remove_corridor_gui(corridors)
+
+#         for x in rem_edges:
+#             circulation_obj.remove_corridor(circulation_obj.circulation_graph,x[0],x[1])
+        
+        
+#     # To remove entry corridor alone we are just shifting rooms by looking at second corridor vertex
+#     # Done by shifting the range left bound in for loop of adjust_RFP_to_circulation()
+#     circulation_obj.adjust_RFP_to_circulation()
+
+#     # Printing how much shift was done for each room
+#     print("\tT\tB\tL\tR")
+#     for room in circulation_obj.RFP.rooms:
+#         print(f"{room.id}\t{room.rel_push_T}\t{room.rel_push_B}\t{room.rel_push_L}\t{room.rel_push_R}")
+#         # print("Room ",room.id, ":")
+#         # print("Push top edge by: ", room.rel_push_T)
+#         # print("Push bottom edge by: ", room.rel_push_B)
+#         # print("Push left edge by: ", room.rel_push_L)
+#         # print("Push right edge by: ", room.rel_push_R)
+#         # print(room.target)
+#         # print('\n')
+
+#     room_x = []
+#     room_y = []
+#     room_height = []
+#     room_width = []
+
+#     # Getting the required values
+#     for room in circulation_obj.RFP.rooms:
+#         room_x.append(room.top_left_x)
+#         room_y.append(room.bottom_right_y)
+#         room_height.append(abs(room.top_left_y - room.bottom_right_y))
+#         room_width.append(abs(room.top_left_x - room.bottom_right_x))
+
+#     graph.room_x=room_x
+#     graph.room_y=room_y
+#     graph.room_height=room_height
+#     graph.room_width=room_width
+#     graph.area=circulation_obj.room_area
+#     return (graph, circulation_obj.is_dimensioning_successful)
+
+def call_circulation_new(graph_data,graph, gclass, coord, is_dimensioned, dim_constraints, remove_corridor,public_private = False,is_minimum_dimensioned = False, is_optimal = False):
 
     g = nx.Graph()
     edge_set = gclass.value[2]
@@ -1581,8 +1885,12 @@ def call_circulation(graph_data, gclass, coord, is_dimensioned, dim_constraints,
     n = len(g)
 
     rooms = []
-    for i in range(n):
-        rooms.append(cir.Room(i, graph_data.get("room_x")[i], graph_data.get("room_y")[i] + graph_data.get("room_height")[i], graph_data.get("room_x")[i] + graph_data.get("room_width")[i], graph_data.get("room_y")[i]))
+    if graph_data is not None:
+        for i in range(n):
+            rooms.append(cir.Room(i, graph_data.get("room_x")[i], graph_data.get("room_y")[i] + graph_data.get("room_height")[i], graph_data.get("room_x")[i] + graph_data.get("room_width")[i], graph_data.get("room_y")[i]))
+    else:
+        for i in range(n):
+            rooms.append(cir.Room(i, graph.room_x[i], graph.room_y[i] + graph.room_height[i], graph.room_x[i] + graph.room_width[i], graph.room_y[i]))
 
     
     rfp = cir.RFP(g, rooms)
@@ -1598,153 +1906,7 @@ def call_circulation(graph_data, gclass, coord, is_dimensioned, dim_constraints,
         circulation_obj.is_minimum_dimensioned = True
         circulation_obj.dimension_constraints = dim_constraints
         circulation_obj.is_optimal = is_optimal
-    
-    # Apply circulation algorithm
-    circulation_result = circulation_obj.circulation_algorithm(entry[0],entry[1])
-    cir.plot(circulation_obj.circulation_graph, len(circulation_obj.circulation_graph))
-    if circulation_result == 0:
-        return None
-    
-    if remove_corridor == True:
-        # Created a deepcopy of object to display circulation before
-        # we display GUI for removing corridor
-        circ = copy.deepcopy(circulation_obj)
-        circ.adjust_RFP_to_circulation()
 
-        # Printing how much shift was done for each room
-        print("\t\tT\tB\t\L\tR\t\tTarget")
-        for room in circ.RFP.rooms:
-            print(f"{room.id}\t{room.rel_push_T}\t{room.rel_push_B}\t{room.rel_push_L}\t{room.rel_push_R}\t\t{room.target}")
-            # print("Room ",room.id, ":")
-            # print("Push top edge by: ", room.rel_push_T)
-            # print("Push bottom edge by: ", room.rel_push_B)
-            # print("Push left edge by: ", room.rel_push_L)
-            # print("Push right edge by: ", room.rel_push_R)
-            # print(room.target)
-            # print('\n')
-
-        room_x1 = []
-        room_y1 = []
-        room_height1 = []
-        room_width1 = []
-
-        # Getting the required values
-        for room in circ.RFP.rooms:
-            room_x1.append(room.top_left_x)
-            room_y1.append(room.bottom_right_y)
-            room_height1.append(abs(room.top_left_y - room.bottom_right_y))
-            room_width1.append(abs(room.top_left_x - room.bottom_right_x))
-
-        graph_data1 = {}
-        graph_data1['room_x'] = np.array(room_x1)
-        graph_data1['room_y'] = np.array(room_y1)
-        graph_data1['room_height'] = np.array(room_height1)
-        graph_data1['room_width'] = np.array(room_width1)
-        graph_data1['area'] = np.array(circulation_obj.room_area)
-        graph_data1['extranodes'] = graph_data['extranodes']
-        graph_data1['mergednodes'] = graph_data['mergednodes']
-        graph_data1['irreg_nodes'] = graph_data['irreg_nodes']
-        draw.draw_rdg(graph_data1, 1, gclass.pen, 1, gclass.value[6], gclass.value[5], origin)
-
-        # Now going back to flow of removing circulation
-        corridors = circulation_obj.adjacency
-        rem_edges = gclass.remove_corridor_gui(corridors)
-
-        for x in rem_edges:
-            circulation_obj.remove_corridor(circulation_obj.circulation_graph,x[0],x[1])
-        
-        
-    # To remove entry corridor alone we are just shifting rooms by looking at second corridor vertex
-    # Done by shifting the range left bound in for loop of adjust_RFP_to_circulation()
-    circulation_obj.adjust_RFP_to_circulation()
-
-    if is_minimum_dimensioned == True:
-        new_min_width = []
-        new_min_height = []
-        for i in range(len(circulation_obj.dimensions)):
-            min_width = circulation_obj.dimension_constraints[0][i]
-            min_height = circulation_obj.dimension_constraints[1][i]
-            width = circulation_obj.dimensions[i][0]
-            height = circulation_obj.dimensions[i][1]
-            if width < min_width:
-                circulation_obj.dimensions[i][0] = 2 * min_width - width
-            else:
-                circulation_obj.dimensions[i][0] = min(min_width, width)
-            new_min_width.append(circulation_obj.dimensions[i][0])
-            if height < min_height:
-                circulation_obj.dimensions[i][1] = 2 * min_height - height
-            else:
-                circulation_obj.dimensions[i][0] = min(min_height, height)
-            new_min_height.append(circulation_obj.dimensions[i][1])
-            
-        generate_mindim_rfp(gclass.ptpg, gclass, new_min_width, new_min_height, dim_constraints[2], dim_constraints[3], is_optimal)
-        rooms = []
-
-        graph_data = gclass.output_data[0]
-        for i in range(n):
-            rooms.append(cir.Room(i, graph_data.get("room_x")[i], graph_data.get("room_y")[i] + graph_data.get("room_height")[i], graph_data.get("room_x")[i] + graph_data.get("room_width")[i], graph_data.get("room_y")[i]))
-        rfp = cir.RFP(g, rooms)
-        circulation_obj.RFP = rfp
-        circulation_obj.room_area = []
-        circulation_obj.adjust_RFP_to_circulation()
-
-    # Printing how much shift was done for each room
-    print("\tT\tB\tL\tR")
-    for room in circulation_obj.RFP.rooms:
-        print(f"{room.id}\t{room.rel_push_T}\t{room.rel_push_B}\t{room.rel_push_L}\t{room.rel_push_R}")
-        # print("Room ",room.id, ":")
-        # print("Push top edge by: ", room.rel_push_T)
-        # print("Push bottom edge by: ", room.rel_push_B)
-        # print("Push left edge by: ", room.rel_push_L)
-        # print("Push right edge by: ", room.rel_push_R)
-        # print(room.target)
-        # print('\n')
-
-    room_x = []
-    room_y = []
-    room_height = []
-    room_width = []
-
-    # Getting the required values
-    for room in circulation_obj.RFP.rooms:
-        room_x.append(room.top_left_x)
-        room_y.append(room.bottom_right_y)
-        room_height.append(abs(room.top_left_y - room.bottom_right_y))
-        room_width.append(abs(room.top_left_x - room.bottom_right_x))
-
-    graph_data['room_x'] = np.array(room_x)
-    graph_data['room_y'] = np.array(room_y)
-    graph_data['room_height'] = np.array(room_height)
-    graph_data['room_width'] = np.array(room_width)
-    graph_data['area'] = np.array(circulation_obj.room_area)
-    return (graph_data, circulation_obj.is_dimensioning_successful)
-
-def call_circulation_cleanup(graph, gclass, coord, is_dimensioned, dim_constraints, remove_corridor,public_private):
-
-    g = nx.Graph()
-    edge_set = gclass.value[2]
-    entry = gclass.entry_door
-
-    for x in edge_set:
-        g.add_edge(x[0], x[1])
-    
-    n = len(g)
-
-    rooms = []
-    for i in range(n):
-        rooms.append(cir.Room(i, graph.room_x[i], graph.room_y[i] + graph.room_height[i], graph.room_x[i] + graph.room_width[i], graph.room_y[i]))
-
-    
-    rfp = cir.RFP(g, rooms)
-
-    cir.plot(g,n)
-    circulation_obj = cir.circulation(g, gclass.corridor_thickness, rfp, gclass.rem)
-    
-    # Add dimensional constraints if chosen option is "dimensioned circulation"
-    if is_dimensioned == True:
-        circulation_obj.is_dimensioned = True
-        circulation_obj.dimension_constraints = dim_constraints
-    
     # Apply circulation algorithm
     circulation_result = circulation_obj.circulation_algorithm(entry[0],entry[1])
     cir.plot(circulation_obj.circulation_graph, len(circulation_obj.circulation_graph))
@@ -1821,14 +1983,33 @@ def call_circulation_cleanup(graph, gclass, coord, is_dimensioned, dim_constrain
             room_height1.append(abs(room.top_left_y - room.bottom_right_y))
             room_width1.append(abs(room.top_left_x - room.bottom_right_x))
 
-        new_graph=copy.deepcopy(graph)
-        new_graph.room_x=room_x1
-        new_graph.room_y=room_y1
-        new_graph.room_height=room_height1
-        new_graph.room_width=room_width1
+        if graph_data is not None:
+            graph_data1 = {}
+            new_graph=copy.deepcopy(graph)
+            graph_data1['room_x'] = np.array(room_x1)
+            new_graph.room_x=room_x1
+            graph_data1['room_y'] = np.array(room_y1)
+            new_graph.room_y=room_y1
+            graph_data1['room_height'] = np.array(room_height1)
+            new_graph.room_height=room_height1
+            graph_data1['room_width'] = np.array(room_width1)
+            new_graph.room_width=room_width1
+            graph_data1['area'] = np.array(circulation_obj.room_area)
+            graph_data1['extranodes'] = graph_data['extranodes']
+            new_graph.final_traversal=inputgraph.get_final_traversal(new_graph)
+            graph_data1['mergednodes'] = graph_data['mergednodes']
+            graph_data1['irreg_nodes'] = graph_data['irreg_nodes']
+            draw.draw_rdg(graph_data1, 1, gclass.pen, 1, gclass.value[6], gclass.value[5], origin)
+        else:
+            new_graph=copy.deepcopy(graph)
+            new_graph.room_x=room_x1
+            new_graph.room_y=room_y1
+            new_graph.room_height=room_height1
+            new_graph.room_width=room_width1
+            new_graph.final_traversal=inputgraph.get_final_traversal(new_graph)
+            draw.draw_rdg(new_graph, 1, gclass.pen, 1, gclass.value[6], gclass.value[5], origin)
 
-        new_graph.final_traversal=inputgraph.get_final_traversal(new_graph)
-        draw.draw_rdg(new_graph, 1, gclass.pen, 1, gclass.value[6], [], origin)
+
 
         # Now going back to flow of removing circulation
         corridors = circulation_obj.adjacency
@@ -1841,6 +2022,35 @@ def call_circulation_cleanup(graph, gclass, coord, is_dimensioned, dim_constrain
     # To remove entry corridor alone we are just shifting rooms by looking at second corridor vertex
     # Done by shifting the range left bound in for loop of adjust_RFP_to_circulation()
     circulation_obj.adjust_RFP_to_circulation()
+
+    if is_minimum_dimensioned == True:
+        new_min_width = []
+        new_min_height = []
+        for i in range(len(circulation_obj.dimensions)):
+            min_width = circulation_obj.dimension_constraints[0][i]
+            min_height = circulation_obj.dimension_constraints[1][i]
+            width = circulation_obj.dimensions[i][0]
+            height = circulation_obj.dimensions[i][1]
+            if width < min_width:
+                circulation_obj.dimensions[i][0] = 2 * min_width - width
+            else:
+                circulation_obj.dimensions[i][0] = min(min_width, width)
+            new_min_width.append(circulation_obj.dimensions[i][0])
+            if height < min_height:
+                circulation_obj.dimensions[i][1] = 2 * min_height - height
+            else:
+                circulation_obj.dimensions[i][0] = min(min_height, height)
+            new_min_height.append(circulation_obj.dimensions[i][1])
+            
+        generate_mindim_rfp(gclass.ptpg, gclass, new_min_width, new_min_height, dim_constraints[2], dim_constraints[3], is_optimal)
+        rooms = []
+        graph_data = gclass.output_data[0]
+        for i in range(n):
+            rooms.append(cir.Room(i, graph_data.get("room_x")[i], graph_data.get("room_y")[i] + graph_data.get("room_height")[i], graph_data.get("room_x")[i] + graph_data.get("room_width")[i], graph_data.get("room_y")[i]))
+        rfp = cir.RFP(g, rooms)
+        circulation_obj.RFP = rfp
+        circulation_obj.room_area = []
+        circulation_obj.adjust_RFP_to_circulation()
 
     # Printing how much shift was done for each room
     print("\tT\tB\tL\tR")
@@ -1866,12 +2076,25 @@ def call_circulation_cleanup(graph, gclass, coord, is_dimensioned, dim_constrain
         room_height.append(abs(room.top_left_y - room.bottom_right_y))
         room_width.append(abs(room.top_left_x - room.bottom_right_x))
 
-    graph.room_x=room_x
-    graph.room_y=room_y
-    graph.room_height=room_height
-    graph.room_width=room_width
-    graph.area=circulation_obj.room_area
-    return (graph, circulation_obj.is_dimensioning_successful)
+    if graph_data is not None:
+        graph_data['room_x'] = np.array(room_x)
+        graph.room_x=room_x
+        graph_data['room_y'] = np.array(room_y)
+        graph.room_y=room_y
+        graph_data['room_height'] = np.array(room_height)
+        graph.room_height=room_height
+        graph_data['room_width'] = np.array(room_width)
+        graph.room_width=room_width
+        graph_data['area'] = np.array(circulation_obj.room_area)
+        graph.area=circulation_obj.room_area
+        return (graph_data, circulation_obj.is_dimensioning_successful)
+    else :
+        graph.room_x=room_x
+        graph.room_y=room_y
+        graph.room_height=room_height
+        graph.room_width=room_width
+        graph.area=circulation_obj.room_area
+        return (graph, circulation_obj.is_dimensioning_successful)
 
 def generate_mindim_rfp(graph, gclass, min_width, min_height, plot_width, plot_height, optimal_floorplan):
     try:
