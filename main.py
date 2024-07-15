@@ -1,32 +1,22 @@
-
 """Main file of the project
 """
 
 import warnings
-from GPLAN.pythongui.GuiParameters import GuiParameters
-import GPLAN.pythongui.gui as gui
-import GPLAN.source.inputgraph as inputgraph
+
 from GPLAN.handlers import *
+from GPLAN.pythongui.GuiParameters import GuiParameters
 
 gclass: gui.gui_class
 ui: GuiParameters
 
+
 def run():
-    """Runs the GPLAN program.
-
-    Args:
-        None
-
-    Returns:
-        None
-    """
-
     warnings.filterwarnings("ignore")
 
-    while (gclass.command!="end"):
+    while (gclass.command != "end"):
         ui = GuiParameters(gclass)
-        gclass.output_data=[]
-        if(gclass.command=="dissection"):
+        gclass.output_data = []
+        if (gclass.command == "dissection"):
             make_dissection_corridor(gclass)
         else:
             graph = inputgraph.InputGraph(ui.get_noOfNodes()
@@ -62,6 +52,7 @@ def run():
         gclass.ocan.add_tab()
         gclass.pen = gclass.ocan.getpen()
         gclass.pen.speed(0)
+
 
 if __name__ == "__main__":
     gclass: gui.gui_class = gui.gui_class()

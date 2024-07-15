@@ -14,7 +14,7 @@ packages = [
     'pyparsing==3.1.1',
     'python-dateutil==2.8.2',
     'scipy==1.11.3',
-    'shapely==2.0.1',
+    'shapely==2.0.5',
     'six==1.16.0',
 ]
 
