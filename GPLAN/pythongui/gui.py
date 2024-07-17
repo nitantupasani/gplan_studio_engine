@@ -92,6 +92,7 @@ class treenode:
 
 class gui_class:
 
+    dimensional_constraints = []
 
     def __init__(self):
         
@@ -99,6 +100,7 @@ class gui_class:
         self.command = "Null"
         self.value = []
         self.root =tk.Tk()
+#         Here check for merge conflicts there might be reptitions
         # For entry to start circulation
         self.entry_door = []
         self.f = tk.IntVar(None)
@@ -179,10 +181,8 @@ class gui_class:
         self.canvasForOuterBoundary = None
         self.initialPoint = []
         self.finalPoint = []
-        self.l = tk.IntVar(None)
-        self.l.set(0)
-        self.r = tk.IntVar(None)
-        self.r.set(1)
+        self.l = tk.StringVar(None)
+        self.r = tk.StringVar(None)
         self.left = 0
         self.right = 1
         self.entry_door.append(self.l)
@@ -250,6 +250,7 @@ class gui_class:
         self.pdf_colors = []
         self.multiple_output_found = 0
         self.dimensional_constraints = []
+
 
         while ((self.value[0] == 0) and done):
             self.root.wait_variable(self.end)
@@ -464,32 +465,53 @@ class gui_class:
                 for eid, connection in self.elines:
                     if (connection[0] == node1_id and connection[1] == node2_id) or (
                             connection[0] == node2_id and connection[1] == node1_id):
-                        if self.canvas.itemcget(eid, "fill") == 'black':
-                            self.canvas.itemconfig(eid, fill='red')
-                            #print("to check whether we ad",connection)
-
+                        # print (self.canvas.itemcget(eid,"fill"))
+                        # if self.canvas.itemcget(eid, "fill") == '#000000':
                             for edge in self.edges:
-                                if (edge[0] == node1_id and edge[1] == node2_id) or (edge[0] == node2_id and edge[1] == node1_id):
+                                if ((edge[0] == node1_id and edge[1] == node2_id) or (edge[0] == node2_id and edge[1] == node1_id)) and edge[2]=="black":
                                     edge[2] = "red"
+                                    self.canvas.itemconfig(eid, fill='red')
+                                    self.connectivity.append(connection)
+                                elif ((edge[0] == node1_id and edge[1] == node2_id) or (edge[0] == node2_id and edge[1] == node1_id)) and edge[2]=="red":
+                                    self.canvas.delete(eid)
+                                    self.elines.remove([eid,connection])
+                                    self.edges.remove(edge)
+                                    self.connectivity.remove(connection)
+                            #print("to check whether we ad",connection)
+                            # print("whether this is executing")
 
-                            self.connectivity.append(connection)
-                        else:
-                            self.canvas.itemconfig(eid, fill='black')
-                            #print("changes",connection)
-                            #print(self.edges)
+                            # for edge in self.edges:
+                            #     if (edge[0] == node1_id and edge[1] == node2_id) or (edge[0] == node2_id and edge[1] == node1_id):
+                            #         edge[2] = "red"
+
+                            # self.connectivity.append(connection)
+
+                        # else:
+                        #     print (self.canvas.itemcget(eid,"fill"))
+                        #     self.canvas.delete(eid)
+                        #     self.elines.remove([eid,connection])
+                        #     # self.canvas.itemconfig(eid, fill='black')
+                            
+                        
+                        #     # self.canvas.itemconfig(eid, fill='black')
+                        #     #print("changes",connection)
+                        #     print("before removing",self.edges)
 
 
-                            for edge in self.edges:
-                                if (edge[0] == node1_id and edge[1] == node2_id) or (edge[0] == node2_id and edge[1] == node1_id):
-                                    edge[2] = "black"
-                            try:
-                                self.connectivity.remove(connection)
-                            except:
-                                pass
+                        #     for edge in self.edges:
+                        #         if ((edge[0] == node1_id and edge[1] == node2_id) or (edge[0] == node2_id and edge[1] == node1_id)) and edge[2]=="red":
+                        #             print(edge[2])
+                        #             self.edges.remove(edge)
+                        #             # edge[2]="black"
+                        #     try:
+                        #         self.connectivity.remove(connection)
+                        #     except:
+                        #         pass
 
-                        #print("changes",self.edges)
+                            print("changes",self.edges)
+                            print("changes in eline",self.elines)
 
-                        return
+            return
             
         def create_new_node(self, x, y, id_node):
             self.random_list.append(0)
@@ -1613,8 +1635,13 @@ class gui_class:
             self.textbox.insert('insert', "\t         Output\n")
 
     def graph_ret(self):
-        # value is set here 
-        self.value = self.app.return_everything()
+        # value is set here, dimensioned and mindim flags are set for graphs from input file
+        if self.open == True and len(self.value) > 0 and len(self.value) > 10: #No one should change self.value add variables differently
+            isDimensioned, isMindim = self.value[4], self.value[10]
+            self.value = self.app.return_everything()
+            self.value[4], self.value[10] = isDimensioned, isMindim
+        else:
+            self.value = self.app.return_everything()
         self.textbox = self.tbox.gettext()
 
     def single_floorplan(self):
@@ -1748,13 +1775,12 @@ class gui_class:
         fname = fname[:-3]
         fname += "png"
         self.open_ret = ast.literal_eval(f)
-        i = 0
-        for val in self.open_ret:
-            i += 1
-        value = self.open_ret[0]
+        self.value = self.open_ret[0]
         node_data = self.open_ret[1]
         edge_data = self.open_ret[2]
         con_data = self.open_ret[3]
+        if(len(self.open_ret) >= 5 ):
+            self.dimensional_constraints = self.open_ret[4]
         self.app.retreive_graph(node_data, edge_data, con_data)
         self.open = True
 
@@ -2026,9 +2052,19 @@ class gui_class:
             if(self.circ_choice.get() == 2):
                 self.checkvar2.set(1)
                 self.checkvar3.set(0)
+                self.checkvar4.set(0)
             elif(self.circ_choice.get() == 3):
                 self.checkvar2.set(0)
                 self.checkvar3.set(1)
+                self.checkvar4.set(0)
+            elif (self.circ_choice.get() == 4):
+                self.checkvar2.set(0)
+                self.checkvar3.set(0)
+                self.checkvar4.set(1)
+            elif (self.circ_choice.get() == 5):
+                self.checkvar2.set(0)
+                self.checkvar3.set(1)
+                self.checkvar4.set(1)
         elif mode=="redundant":
             self.rem = self.opti.get()
             print("The redundant corridors will be removed")
@@ -2173,7 +2209,9 @@ class gui_class:
 
         self.top = tk.Toplevel(self.root, width=300, height=300)
         root = self.top
-        root.geometry("600x100")
+        root.geometry("1500x100")
+        self.radio_desel("menu") # Clears previously chosen option
+
         sub_text = tk.Label(root, text="""Choose the circulation choice:""", justify=tk.LEFT, padx=20)
         sub_text.grid(row=3)
 
@@ -2185,6 +2223,12 @@ class gui_class:
 
         btn3 = tk.Radiobutton(root, text="Remove corridors", padx=20, variable=self.circ_choice, value=3, command=lambda: self.radio_sel("menu"))
         btn3.grid(row=4, column=2)
+
+        btn4 = tk.Radiobutton(root, text="Minimum dimensioned circulation", padx=20, variable=self.circ_choice, value=4, command=lambda: self.radio_sel("menu"))
+        btn4.grid(row=4, column=3)
+
+        btn5 = tk.Radiobutton(root, text="Remove minimum dimensioned corridors", padx=20, variable=self.circ_choice, value=5, command=lambda: self.radio_sel("menu"))
+        btn5.grid(row=4, column=4)
 
         clear_button = tk.Button(root, text="Clear Selection", command=lambda: self.radio_desel("menu"))
         clear_button.grid(row = 7, column = 2, pady=10)
@@ -2250,8 +2294,9 @@ class gui_class:
         """This function concludes user input for corridor thickness and entry door
             and transfers control to the background functions
         """
-        self.left = self.l.get() + 1
-        self.right = self.r.get() + 1
+        room_names = self.app.return_everything()[5]
+        self.left = room_names.index(self.l.get()) + 1
+        self.right = room_names.index(self.r.get()) + 1
         self.entry_door = [self.left, self.right]
         self.corridor_thickness = self.ct.get()
         self.end.set(self.end.get()+1)
@@ -2382,6 +2427,7 @@ class gui_class:
         saved_data.append(node_data)
         saved_data.append(self.app.edges)
         saved_data.append(self.app.connectivity)
+        saved_data.append(self.dimensional_constraints)
         f.write(str(saved_data))
         # f.write(str(node_data))
         l = open(".\saved_files\RFP_latest.txt", "w")

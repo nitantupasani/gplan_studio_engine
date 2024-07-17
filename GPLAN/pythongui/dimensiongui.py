@@ -151,6 +151,10 @@ def gui_fnc(old_dims, nodes, room_name = []):
     plot_height_tbox = tk.Entry(root, textvariable=plot_height)
     plot_height_tbox.place(relx=0.51, rely=0.5+ 0.025 * (nodes+3))
 
+    if len(old_dims) == 9:
+        plot_width.set(old_dims[7])
+        plot_height.set(old_dims[8])
+
     def button_clicked():
         for i in range(0, nodes):
             min_width.append(int(value_width[i].get()))

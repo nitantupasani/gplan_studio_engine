@@ -51,6 +51,9 @@ rotx1=[]
 rotx2=[]
 roty1=[]
 roty2=[]
+
+irreg_nodes_map = {}
+door_connectivity_edges = set()
 """
 LEFT WALL - 1
 TOP WALL - 2
@@ -86,7 +89,7 @@ def input_adjacency():
         else :
             adj_type_input=3
         if adj_type_input < 1 or adj_type_input > 4:
-            print("WRONG TYPE OF ADJACENCY")
+            # print("WRONG TYPE OF ADJACENCY")
             exit(1)
 
         adj_type[(ri, rj)] = adj_type_input
@@ -157,12 +160,12 @@ def input_constraints():
         # print("Lower Length:")
         low_len = float(data['nodes'][i-1]['min_height'])
         # print("Upper Length:")
-        up_len = float(2*data['nodes'][i-1]['min_height'])
+        up_len = float(5*data['nodes'][i-1]['min_height'])
 
         # print("Lower Width:")
         low_width = float(data['nodes'][i-1]['min_width'])
         # print("Upper Width:")
-        up_width = float(2*data['nodes'][i-1]['min_width'])
+        up_width = float(5*data['nodes'][i-1]['min_width'])
 
         lb_len.append(low_len)
         ub_len.append(up_len)
@@ -218,6 +221,8 @@ def construct_constraintgraphX(small_positive = 0.5):
                 if (data['edges'][j]['source'] == x and data['edges'][j]['target'] == i) or (data['edges'][j]['source'] == i and data['edges'][j]['target'] == x) :
                     if(data ['edges'][j]['color'] == 'red') :
                         small_positive = 3
+                    elif(data ['edges'][j]['color'] == 'black') :
+                        small_positive=0.5
 
 
             left_wall_x = 2 * x - 1
@@ -292,6 +297,9 @@ def construct_constraintgraphY(small_positive = 0.5):
                 if (data['edges'][j]['source'] == x and data['edges'][j]['target'] == i) or (data['edges'][j]['source'] == i and data['edges'][j]['target'] == x) :
                     if(data ['edges'][j]['color'] == 'red') :
                         small_positive = 3
+                    elif(data ['edges'][j]['color'] == 'black'):
+                        small_positive=0.5 
+        
 
             left_wall_x = 2 * x - 1
             right_wall_x = 2 * x
@@ -343,7 +351,7 @@ def pos_longest_path(placement, edge_set, edge_weights):
     edge_visited = [False] * len(edge_set)
     is_pushed = [False] * (2 * rooms + 1)
     is_pushed[0] = True
-    print(edge_set)
+    # print(edge_set)
     while stack:
         v = stack.pop()
         for i in range(len(edge_set)):
@@ -363,12 +371,12 @@ def pos_longest_path(placement, edge_set, edge_weights):
 
                     if b == j and edge_weights[a][b] >= 0 and not edge_visited[k]:
                         if edge_weights[a][b] == 0:
-                            print(a)
-                            print(b)
+                            # print(a)
+                            # print(b)
                             x = int((a + 1) / 2)
                             y = int((b + 1) / 2)
-                            print(x)
-                            print(y)
+                            # print(x)
+                            # print(y)
                             if x==0 or adj_type[(x, y)] == 2 or adj_type[(x, y)] == 3:
                                 all_vis = False
                         else:
@@ -478,11 +486,11 @@ def compute_placement():
     placementy.append(-1) #ty    
 
     if not longest_path(placementx, edges_setx, edgesX):
-        print("Not able to assign placement in horizontal constraint graph")
+        # print("Not able to assign placement in horizontal constraint graph")
         return False
     
     if not longest_path(placementy, edges_sety, edgesY):
-        print("Not able to assign placement in vertical constraint graph")
+        # print("Not able to assign placement in vertical constraint graph")
         return False
     
     return True
@@ -510,26 +518,28 @@ def compute_rot(small_positive = 0.5):
         rotx1[2*i-1]=max(rotx1[2*i-1],placementx[2*i-1]+data['nodes'][i-1]['min_width'])
         roty1[2*i-2]=max(roty1[2*i-2],placementy[2*i]+data['nodes'][i-1]['min_height'])
         roty2[2*i-1]=min(roty2[2*i-1],placementy[2*i-1]-data['nodes'][i-1]['min_height'])
-
+    
+    #print("debug",roty2[5])
     for i in range(1,rooms+1):
         for x in adj[i]:
             type_val = adj_type[(i, x)]
-            if type_val==1:#1st wall of ith room will be 
+            if type_val==1:#ith room is on right
                 b=data['nodes'][x-1]['min_width']+placementx[2*x-1]
                 rotx1[2*i-2]=max(rotx1[2*i-2],b)
 
-            elif type_val==2:
+            elif type_val==2:#ith room is on left
                 a=placementx[2*x]-data['nodes'][x-1]['min_width']
                 rotx2[2*i-1]=min(rotx2[2*i-1],a)
 
-            elif type_val==3:
+            elif type_val==3:#ith room is in bottom
                 a=placementy[2*x-1]-data['nodes'][x-1]['min_height']
                 roty2[2*i-2]=min(roty2[2*i-2],a)
 
-            elif type_val==4:
+            elif type_val==4:#ith room is at top
                 a=placementy[2*x]+data['nodes'][x-1]['min_height']
                 roty1[2*i-1]=max(roty1[2*i-1],a)   
-
+    #print("debug",roty2[5])
+    #print("Adjacency list",adj[3])
     for i in range(1,rooms+1):#to handle the small positive 
 
         for x in adj[i]:
@@ -537,6 +547,8 @@ def compute_rot(small_positive = 0.5):
                 if (data['edges'][j]['source'] == x and data['edges'][j]['target'] == i) or (data['edges'][j]['source'] == i and data['edges'][j]['target'] == x) :
                     if(data ['edges'][j]['color'] == 'red') :
                         small_positive = 3
+                    elif(data ['edges'][j]['color'] == 'black'):
+                        small_positive = 0.5
              #print("Change to be noted",small_positive)
              type_val = adj_type[(i, x)]
              if type_val==1 or type_val==2:
@@ -545,6 +557,8 @@ def compute_rot(small_positive = 0.5):
                  if roty1[2*i-2]<a:
                     roty1[2*i-2]=a
                  if roty2[2*i-1]>b:
+                    #print("small positive",small_positive)
+                    #print("change in rot",b,i,x)
                     roty2[2*i-1]=b 
              if type_val==3 or type_val==4:
                  a=placementx[2*x-1]+small_positive
@@ -553,7 +567,7 @@ def compute_rot(small_positive = 0.5):
                     rotx1[2*i-1]=a
                  if rotx2[2*i-2]>b:
                     rotx2[2*i-2]=b 
-
+    #print("debug",roty2[5])
     for i in range(1,rooms+1):#to make sure that same walls have same range of tolerance
         for x in adj[i]:
             type_val=adj_type[(i,x)]
@@ -585,7 +599,7 @@ def compute_rot(small_positive = 0.5):
                 roty1[2*x-2]=a
                 roty2[2*i-1]=b
                 roty2[2*x-2]=b      
-
+    #print("debug",roty2[5])    
                 
 
 
@@ -607,10 +621,24 @@ def print_input():
     print(ub_len)
     print(lb_width)
     print(ub_width)
+
+#updating placement of west and south boundary rooms based on range of tolerance to minimize area
+def edit_placements():
+    for i in range(len(data['boundary_rooms']['west'])):
+        j = data['boundary_rooms']['west'][i]
+        if rotx2[2*j-2] > placementx[2*j-1]:
+            placementx[2*j-1] = rotx2[2*j-2]
+            # print('changing x position of wall', j*2-1, 'to ', placementx[2*j-1])
+    
+    for i in range(len(data['boundary_rooms']['south'])):
+        j = data['boundary_rooms']['south'][i]
+        if roty2[2*j-1] > placementy[2*j]:
+            placementy[2*j] = roty2[2*j-1]
+            # print('changing y position of wall ', j*2, 'to ', placementy[2*j])
     
     
 # the final file to be given to gplan to show in UI
-def create_json():
+def return_output():
     global placementx,placementy,data
     out_data={'nodes':[]}
     for i in range(rooms):
@@ -625,8 +653,7 @@ def create_json():
         out_data['nodes'].append(dic)
     # print(out_data)
 
-    with open('output_from_min_dim.json', 'w') as json_file:
-        json.dump(out_data, json_file,  indent=2)
+    return out_data
 
  
 
@@ -663,21 +690,58 @@ def reinitialize():
     roty1=[]
     roty2=[]
 
-
-
+    irreg_nodes_map.clear()
+    door_connectivity_edges.clear()
 
 
 # main wrapper
-def main(file_path, plot_width, plot_height):
-    global data
+def main(input, plot_width, plot_height):
+    global data, irreg_nodes_map
     reinitialize()
-    f = open(file_path)
-    data = json.load(f)
-    # print(data)
-    # print(data['edges'][0])
-    for a in data['edges']:
-        a['source']=a['source']+1
-        a['target']=a['target']+1
+# <<<<<<< main
+    data = input
+
+    # Store the all dummy nodes as the value of the irregular rooms they are adjacent to
+    if 'mergednodes' in data and 'irreg_nodes1' in data and 'irreg_nodes2' in data:
+        for i in range(0, len(data['mergednodes'])):
+            irreg_nodes_map[(data['irreg_nodes1'][i], data['irreg_nodes2'][i])] = data['mergednodes'][i]
+    
+    # If dummy nodes exist, remove the adjacency between irregular rooms as they are now separated by dummy nodes
+    if 'dummy_node_adj' in data:
+        for a in data['edges']:
+
+            # Add the edges with door connectivity to the door_connectivity_edges set
+            if a['color'] == 'black':
+                continue
+
+            # If there is door connectivity between irregular nodes separated by a dummy node, add a door connectivity between the dummy node and irregular node instead
+            elif (a['source'], a['target']) in irreg_nodes_map:
+                door_connectivity_edges.add((irreg_nodes_map[(a['source'], a['target'])], a['target']))
+            elif (a['target'], a['source']) in irreg_nodes_map:
+                door_connectivity_edges.add((irreg_nodes_map[(a['target'], a['source'])], a['source']))
+            else:
+                door_connectivity_edges.add((a['source'], a['target']))
+        data['edges'].clear()
+
+        # Update modified edge data
+        for a in data['dummy_node_adj']:
+            color = 'black'
+            if ((a[0], a[1]) in door_connectivity_edges or (a[1], a[0]) in door_connectivity_edges):
+                color = 'red'
+            data['edges'].append({'source':a[0] + 1, 'target':a[1] + 1, 'color':color})
+    else:
+        for a in data['edges']:
+            a['source']=a['source']+1
+            a['target']=a['target']+1
+# =======
+#     f = open(file_path)
+#     data = json.load(f)
+#     # print(data)
+#     # print(data['edges'][0])
+#     for a in data['edges']:
+#         a['source']=a['source']+1
+#         a['target']=a['target']+1
+# >>>>>>> Door_connectivity_cleanup
     for i in range(len(data['boundary_rooms']['north'])):
         data['boundary_rooms']['north'][i]= data['boundary_rooms']['north'][i]+1
     for i in range(len(data['boundary_rooms']['south'])):
@@ -690,19 +754,20 @@ def main(file_path, plot_width, plot_height):
     globals()['plot_height'] = plot_height
         
     input_data()  # Take all the necessary inputs
-    print_input()
+    # print_input()
 
     construct_constraintgraphX()  # Using the inputs, construct X constraint graph
     construct_constraintgraphY()  # Construct Y constraint graph
-    print_edges()  # Print edges for X and Y constraints
+    # print_edges()  # Print edges for X and Y constraints
     if not compute_placement():  # Compute placements using longest path algorithm and return false if no legal placement found
-        print_placements()
-        return False
-    print_placements()  # Print computed placements
-    create_json()
+        # print_placements()
+        return [False, None]
+    # print_placements()  # Print computed placements
     compute_rot()
-    print_rot()
-    return True
+    # print_rot()
+    edit_placements()
+    out_data = return_output()
+    return [True, out_data]
 
 # Main execution
 # main(file_path)

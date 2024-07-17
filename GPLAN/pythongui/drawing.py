@@ -91,7 +91,10 @@ def draw_rdg(graph,count,pen,mode,color_list,room_names,origin,scale=True):
     for i in range(len(shapes)):
         pen.setposition(((2 * shapes[i][0][0] ) * scale / 2) + origin['x'] + 5,
                         ((shapes[i][0][1] + shapes[i][1][1]) * scale / 2) + origin['y'])
-        pen.write(i)
+        if not room_names:
+            pen.write(i)
+        else:
+            pen.write(room_names[i])
         pen.penup()
     value = 1
     #Writing areas of each room and height width for rectangular rooms

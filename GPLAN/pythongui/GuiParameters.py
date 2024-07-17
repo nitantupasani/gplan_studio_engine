@@ -7,23 +7,34 @@ class GuiParameters:
     __gclass: gui.gui_class = None
     __graph: inputgraph.InputGraph
     __isGui: bool
-    __noOfNodes: int
-    __edgeCount: int
-    __edges: list
+    __noOfNodes: int #gclass.value[0]
+    __edgeCount: int #gclass.value[1]
+    __edges: list #gclass.value[2]
+    __fptype: str #gclass.value[3]
     __command: str
-    __roomNames: list
-    __isDimensioned: int
-    __isDimensionedCirculation: int
-    __isRemoveAddCirculation: int
-    __isMinDimensioned: int
+    __roomNames: list #gclass.value[5]
+    __isDimensioned: int #gclass.value[4]
+    __isDimensionedCirculation: int #gclass.value[8]
+    __isRemoveAddCirculation: int #gclass.value[9]
+    __isMinDimensioned: int #gclass.value[10]
     __isPublic: int
-    __nodeCoordinates: list
-    __roomColors: list
+    __nodeCoordinates: list #gclass.value[7]
+    __roomColors: list #gclass.value[6]
     __letter: str
     __corridor_thickness: float
-    __message:str = ""
-    
+    __message: str = ""
+
+    def get_fptype(self) -> str:
+        return self.__fptype
+
+    def set_fptype(self, fptype: str):
+        self.__fptype = fptype
+        return self
+
     def get_corridor_thickness(self) -> float:
+        if self.__corridor_thickness is None:
+            if self.get_gclass() is not None:
+                return self.get_gclass().corridor_thickness
         return self.__corridor_thickness
     
     def set_corridor_thickness(self, corridor_thickness: float):
@@ -92,6 +103,8 @@ class GuiParameters:
     
     def set_nodeCoordinates(self, nodeCoordinates: list):
         self.__nodeCoordinates = nodeCoordinates
+        if self.get_gclass() is not None:
+            self.get_gclass().coordinates = nodeCoordinates
         return self
          
     def set_gclass(self, gclass: gui.gui_class):
@@ -110,6 +123,8 @@ class GuiParameters:
 
     def set_noOfNodes(self, noOfNodes):
         self.__noOfNodes = noOfNodes
+        if self.get_gclass() is not None:
+            self.get_gclass().no_of_nodes = noOfNodes
         return self
 
     def get_edgeCount(self) -> int:
@@ -117,6 +132,8 @@ class GuiParameters:
 
     def set_edgeCount(self, edgeCount):
         self.__edgeCount = edgeCount
+        if self.get_gclass() is not None:
+            self.get_gclass().edge_count = edgeCount
         return self
 
     def get_edges(self) -> list:
@@ -124,6 +141,8 @@ class GuiParameters:
 
     def set_edges(self, edges: list):
         self.__edges = edges
+        if self.get_gclass() is not None:
+            self.get_gclass().edges = edges
         return self
 
     def get_command(self) -> str:
@@ -164,14 +183,19 @@ class GuiParameters:
     
     def get_message(self) -> str:
         return self.__message
-    
+
+    def get_dim_constraints(self):
+        if self.get_gclass() is not None:
+            return self.get_gclass().dimensional_constraints
+        return None
+
     def __init__(self, gclass = None, graph = None):
         if gclass is not None:
             self.set_gclass(gclass)
             self.set_noOfNodes(gclass.value[0])
             self.set_edgeCount(gclass.value[1])
             self.set_edges(gclass.value[2])
-            self.set_command(gclass.value[3])
+            self.set_fptype(gclass.value[3])
             self.set_isDimensioned(gclass.value[4])
             self.set_roomNames(gclass.value[5])
             self.set_roomColors(gclass.value[6])
@@ -184,6 +208,7 @@ class GuiParameters:
             self.set_letter(gclass.letter)
             self.set_corridor_thickness(gclass.corridor_thickness)
             self.set_message("")
+            self.set_command(gclass.command)
         
         if graph is not None:
             self.set_graph(graph)
@@ -230,7 +255,7 @@ class GuiParameters:
     def _set_dim_constraints(self, dim_constraints):
         if self.get_gclass() is not None:
             self.get_gclass().dimensional_constraints = dim_constraints
-    
+
     def _set_ptpg(self, graph):
         if self.get_gclass() is not None:
             self.get_gclass().ptpg = graph

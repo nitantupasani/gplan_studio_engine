@@ -267,11 +267,11 @@ def check_intersection(x_coord: list, y_coord: list, A: np.array) -> bool:
             indices = [i for i,x in enumerate(right_pts) if x == p]
             for i in indices:
                 traversed.remove(i)
-                print("Removed index: " + str(i))
+                # print("Removed index: " + str(i))
             if((len(traversed) == 0) and (p == sorted_by_x[-1])):
                 return False
             # prev_index = right_pts.index(p, prev_index)
-            print("here in removal")
+            # print("here in removal")
             
         # if((p in right_pts) and (right_pts.index(p) in traversed)):
         #     traversed.remove(right_pts.index(p))

@@ -11,11 +11,14 @@ This module contains the following functions:
 import copy
 import numpy as np
 import networkx as nx
+import matplotlib.pyplot as plt
 from random import randint
 from GPLAN.source.lettershape.ushape.ushape import *
 from GPLAN.source.lettershape.zshape.zshape import *
 from GPLAN.source.lettershape.tshape.tshape import *
 from GPLAN.source.staircaseshape.staircaseshape import *
+import logging
+import time
 
 from GPLAN.source.graphoperations import biconnectivity as bcn
 from GPLAN.source.graphoperations import oneconnectivity as onc
@@ -51,6 +54,18 @@ class BCNError(Exception):
     """
     pass
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+def timing_decorator(func):
+    def wrapper(*args, **   kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        logger.info(f"{func.__name__} took {elapsed_time:.5f} seconds to execute.")
+        return result
+    return wrapper
 
 class InputGraph:
     """A InputGraph class for graph input by the user.
@@ -115,12 +130,14 @@ class InputGraph:
         self.area = []
         self.rel_matrix_list = []
         self.floorplan_exist = False
-        self.floorplan_limit = 50
+        self.floorplan_limit = 5
         self.fpcnt = 0
         self.coordinates = [np.array(x) for x in node_coordinates]
+        self.dummy_node_adjacencies = set()
         self.circular_traversal = []
         self.final_traversal=[]
         self.graph_list =[]
+        self.logger = logger
 
         # Check if input has crossings
         x_coord = [x[0] for x in node_coordinates]
@@ -132,6 +149,17 @@ class InputGraph:
         else:
             pass
 
+    def timing_decorator(func):
+        def wrapper(*args, **kwargs):
+            start_time = time.time()
+            result = func(*args, **kwargs)
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            logger.info(f"{func.__name__} took {elapsed_time:.5f} seconds to execute.")
+            return result
+        return wrapper
+
+    @timing_decorator
     def irreg_single_dual(self):
         """Generates an irregular single dual for a given input graph.
 
@@ -189,6 +217,7 @@ class InputGraph:
             ptpg_matrices, extra_nodes = st.handle_STs(
                 self.matrix, positions, 1)
             self.matrix = ptpg_matrices[0]
+            self.dummy_node_adjacencies = store_dummy_node_adjacencies(self.matrix)
             self.nodecnt = self.matrix.shape[0]
             self.edgecnt = int(np.count_nonzero(self.matrix == 1) / 2)
             for key in extra_nodes[0]:
@@ -245,8 +274,21 @@ class InputGraph:
         [self.room_x, self.room_y, self.room_width, self.room_height] = rdg.construct_dual(self.matrix, self.nodecnt,
                                                                                            self.mergednodes,
                                                                                            self.irreg_nodes1)
+    def update_gclass_with_edges(self, gclass):
+        edges = set()
+        n = len(self.matrix)
 
+        for i in range(n):
+            for j in range(i + 1, n):  # Iterate only the upper triangle to avoid duplicates
+                if self.matrix[i][j] != 0:  # Assuming non-zero entries indicate edges
+                    edges.add((i, j))
 
+        # Update gclass.value[2] with edges and default color 'black'
+        gclass.value[2] = [[start, end, 'black'] for start, end in edges]
+        print(gclass.value[2])
+        return gclass.value[2]
+
+    @timing_decorator
     def door_connectivity(self):
         """Generates an single dual for a door connectivity input graph.
 
@@ -290,88 +332,146 @@ class InputGraph:
         if (len(bcn_edges) != 0 or len(trng_edges) != 0):
             self.nonrect = True
 
-        # Edge to vertex transformation
-        # for edge in bcn_edges:
-        #     # self.extranodes.append(self.nodecnt)
-        #     self.matrix, tri_faces, positions, extra_edges_cnt = transform.transform_edges(
-        #         self.matrix, edge, tri_faces, positions)
-        #     self.nodecnt += 1  # Extra node added
-        #     self.edgecnt += extra_edges_cnt
 
-        # for edge in trng_edges:
-        #     self.extranodes.append(self.nodecnt)
-        #     self.matrix, tri_faces, positions, extra_edges_cnt = transform.transform_edges(
-        #         self.matrix, edge, tri_faces, positions)
-        #     self.nodecnt += 1  # Extra node added
-        #     self.edgecnt += extra_edges_cnt
 
-        # Separating Triangle Elimination
-        if (self.nodecnt - self.edgecnt + len(opr.get_trngls(self.matrix)) != 1):
-            
-            ptpg_matrices, extra_nodes = st.handle_STs_with_edge_selection(one_connected, self.matrix, positions, 1)
-            
-            # ptpg_matrices, extra_nodes = st.handle_STs(
-            #     self.matrix, positions, 1)
-            
+        plt.figure()
+        graphtemp = nx.from_numpy_array(self.matrix)
+        nx.draw_networkx(graphtemp,positions, label='After Triangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+        plt.show()
 
-            self.matrix = ptpg_matrices[0]
-            self.nodecnt = self.matrix.shape[0]
-            self.edgecnt = int(np.count_nonzero(self.matrix == 1) / 2)
-            if(len(extra_nodes)):
+
+
+        def check_ptpg(separating_triangles):
+            """Checks if the given graph satisfies ptpg conditions or not.
+
+            Args:
+                self
+
+            Returns:
+                True or false value
+            """
+            if(len(separating_triangles) != 0):
+                return False
+            return True
+
+        self.coordinates = positions
+        self.coordinates = [v for v in self.coordinates.values()]
+        separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
+        print("Doing separating triangles lists test",separating_triangles1)
+
+        one_connected = copy.deepcopy(self.matrix)
+        ptpg_matrices, extra_nodes,final_positions = st.handle_STs_with_edge_selection(one_connected, self.matrix, positions)
+        self.coordinates = final_positions
+        self.coordinates = [v for v in self.coordinates.values()]
+        self.matrix = ptpg_matrices[0]
+        self.edgecnt = int(np.count_nonzero(self.matrix == 1) / 2)
+        if(len(extra_nodes)):
                 for key in extra_nodes[0]:
                     self.mergednodes.append(key)
                     self.irreg_nodes1.append(extra_nodes[0][key][0])
                     self.irreg_nodes2.append(extra_nodes[0][key][1])
 
-        # Boundary Identification
-        triangular_cycles = opr.get_trngls(self.matrix)
-        digraph = opr.get_directed(self.matrix)
-        self.bdy_nodes, self.bdy_edges = opr.get_bdy(
-            triangular_cycles, digraph)
-        shortcuts = sr.get_shortcut(
-            self.matrix, self.bdy_nodes, self.bdy_edges)
-        bdys = []
-        if (self.edgecnt == 3 and self.nodecnt == 3):
-            bdys = [[0], [0, 1], [1, 2], [2, 0]]
-        else:
-            bdy_ordered = opr.ordered_bdy(self.bdy_nodes, self.bdy_edges)
-            cips = cip.find_cip(bdy_ordered, shortcuts)
-            if (len(cips) <= 4):
-                bdys = news.bdy_path(news.find_bdy(cips), bdy_ordered)
-            else:
-                while (len(shortcuts) > 4):
-                    index = randint(0, len(shortcuts) - 1)
-                    self.matrix = sr.remove_shortcut(
-                        shortcuts[index], triangular_cycles, self.matrix)
-                    self.irreg_nodes1.append(shortcuts[index][0])
-                    self.irreg_nodes2.append(shortcuts[index][1])
-                    self.mergednodes.append(self.nodecnt)
-                    self.nodecnt += 1  # Extra vertex added to remove shortcut
-                    self.edgecnt += 3  # Extra edges added to remove shortcut
-                    shortcuts.pop(index)
-                    triangular_cycles = opr.get_trngls(self.matrix)
-                bdy_ordered = opr.ordered_bdy(self.bdy_nodes, self.bdy_edges)
-                cips = cip.find_cip(bdy_ordered, shortcuts)
-                bdys = news.bdy_path(news.find_bdy(cips), bdy_ordered)
+        # plt.figure()
+        # graphtemp = nx.from_numpy_array(self.matrix)
+        # nx.draw_networkx(graphtemp,final_positions, label='After removal',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+        # plt.show()
 
-        # 4-completion
-        self.matrix, self.edgecnt = news.add_news(
-            bdys, self.matrix, self.nodecnt, self.edgecnt)
-        self.nodecnt += 4
 
-        # Contraction
-        self.degrees = cntr.degrees(self.matrix)
-        goodnodes = cntr.goodnodes(self.matrix, self.degrees)
-        self.matrix, self.degrees, goodnodes, cntrs = cntr.contract(
-            self.matrix, goodnodes, self.degrees)
+        trng_edges, positions, tri_faces = trng.triangulate(self.matrix
+                                                            , bcn_edges_added
+                                                            , self.coordinates)
 
-        # Expansion
-        self.matrix = exp.basecase(self.matrix, self.nodecnt)
-        while len(cntrs) != 0:
-            self.matrix = exp.expand(self.matrix, self.nodecnt, cntrs)
-        [self.room_x, self.room_y, self.room_width, self.room_height] = rdg.construct_dual(self.matrix, self.nodecnt,
-                                                                                           self.mergednodes,
-                                                                                           self.irreg_nodes1)
+        for edge in trng_edges:
+            self.matrix[edge[0]][edge[1]] = 1
+            self.matrix[edge[1]][edge[0]] = 1
+            self.edgecnt += 1  # Extra edge added
+
+        self.coordinates = positions
+        self.coordinates = [v for v in self.coordinates.values()]
+        separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
+        print("Doing separating triangles lists test",separating_triangles1)
+
+        plt.figure()
+        graphtemp = nx.from_numpy_array(self.matrix)
+        nx.draw_networkx(graphtemp,positions, label='After retriangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+        plt.show()
+
+        return self,check_ptpg(separating_triangles1)
+
+
+
+
+
+
+
+
+        # Separating Triangle Elimination
+        # if (self.nodecnt - self.edgecnt + len(opr.get_trngls(self.matrix)) != 1):
+
+        #     ptpg_matrices, extra_nodes = st.handle_STs_with_edge_selection(one_connected, self.matrix, positions)
+
+        #     # ptpg_matrices, extra_nodes = st.handle_STs(
+        #     #     self.matrix, positions, 1)
+
+
+        #     self.matrix = ptpg_matrices[0]
+        #     self.nodecnt = self.matrix.shape[0]
+        #     self.edgecnt = int(np.count_nonzero(self.matrix == 1) / 2)
+        #     if(len(extra_nodes)):
+        #         for key in extra_nodes[0]:
+        #             self.mergednodes.append(key)
+        #             self.irreg_nodes1.append(extra_nodes[0][key][0])
+        #             self.irreg_nodes2.append(extra_nodes[0][key][1])
+
+        # # Boundary Identification
+        # triangular_cycles = opr.get_trngls(self.matrix)
+        # digraph = opr.get_directed(self.matrix)
+        # self.bdy_nodes, self.bdy_edges = opr.get_bdy(
+        #     triangular_cycles, digraph)
+        # shortcuts = sr.get_shortcut(
+        #     self.matrix, self.bdy_nodes, self.bdy_edges)
+        # bdys = []
+        # if (self.edgecnt == 3 and self.nodecnt == 3):
+        #     bdys = [[0], [0, 1], [1, 2], [2, 0]]
+        # else:
+        #     bdy_ordered = opr.ordered_bdy(self.bdy_nodes, self.bdy_edges)
+        #     cips = cip.find_cip(bdy_ordered, shortcuts)
+        #     if (len(cips) <= 4):
+        #         bdys = news.bdy_path(news.find_bdy(cips), bdy_ordered)
+        #     else:
+        #         while (len(shortcuts) > 4):
+        #             index = randint(0, len(shortcuts) - 1)
+        #             self.matrix = sr.remove_shortcut(
+        #                 shortcuts[index], triangular_cycles, self.matrix)
+        #             self.irreg_nodes1.append(shortcuts[index][0])
+        #             self.irreg_nodes2.append(shortcuts[index][1])
+        #             self.mergednodes.append(self.nodecnt)
+        #             self.nodecnt += 1  # Extra vertex added to remove shortcut
+        #             self.edgecnt += 3  # Extra edges added to remove shortcut
+        #             shortcuts.pop(index)
+        #             triangular_cycles = opr.get_trngls(self.matrix)
+        #         bdy_ordered = opr.ordered_bdy(self.bdy_nodes, self.bdy_edges)
+        #         cips = cip.find_cip(bdy_ordered, shortcuts)
+        #         bdys = news.bdy_path(news.find_bdy(cips), bdy_ordered)
+
+        # # 4-completion
+        # self.matrix, self.edgecnt = news.add_news(
+        #     bdys, self.matrix, self.nodecnt, self.edgecnt)
+        # self.nodecnt += 4
+
+        # # Contraction
+        # self.degrees = cntr.degrees(self.matrix)
+        # goodnodes = cntr.goodnodes(self.matrix, self.degrees)
+        # self.matrix, self.degrees, goodnodes, cntrs = cntr.contract(
+        #     self.matrix, goodnodes, self.degrees)
+
+        # # Expansion
+        # self.matrix = exp.basecase(self.matrix, self.nodecnt)
+        # while len(cntrs) != 0:
+        #     self.matrix = exp.expand(self.matrix, self.nodecnt, cntrs)
+        # [self.room_x, self.room_y, self.room_width, self.room_height] = rdg.construct_dual(self.matrix, self.nodecnt,
+        #                                                                                    self.mergednodes,
+        #                                                                                    self.irreg_nodes1)
 
     def door_connectivity2(self):
         """Generates an single dual for a door connectivity input graph.
@@ -501,7 +601,7 @@ class InputGraph:
                                                                                            self.irreg_nodes1)
  
 
-
+    @timing_decorator
     def single_floorplan(self, min_width, min_height, max_width, max_height, symm_rooms, min_ar, max_ar, plot_width,
                          plot_height):
         """Generates a single floorplan for a given input graph.
@@ -571,10 +671,10 @@ class InputGraph:
                 self.irreg_nodes1)
 
             break
-
+    @timing_decorator
     def polyonalinput(self, cano, v1, v2, vn, priority_order, edge_set, debug_cano):
         cano.runWithArguments(self.nodecnt, v1, v2, vn, priority_order, self, edge_set, debug_cano)
-
+    @timing_decorator
     def irreg_multiple_dual(self):
         """Generates multiple irregular duals for a given input graph.
 
@@ -586,6 +686,7 @@ class InputGraph:
         """
         graph_list=[]
         # Biconnectivity Augmentation
+        start_time = time.time()
         if (self.nodecnt == 2 and self.edgecnt == 1):
             self.fpcnt = 1
             self.room_x = np.array([0.0, 1.0])
@@ -609,6 +710,10 @@ class InputGraph:
             self.matrix[edge[1]][edge[0]] = 1
             self.edgecnt += 1  # Extra edge added
         bcn_edges_added = len(bcn_edges) > 0
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        logger.info(f"{__name__}Biconnectivity Augmentation took {elapsed_time:.5f} seconds to execute.")
+        start_time = time.time()
 
         # Triangulation
         trng_edges, positions, tri_faces = trng.triangulate(self.matrix
@@ -622,6 +727,10 @@ class InputGraph:
         if (len(bcn_edges) != 0 or len(trng_edges) != 0):
             self.nonrect = True
 
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        logger.info(f"{__name__}Triangulation took {elapsed_time:.5f} seconds to execute.")
+        start_time = time.time()
         is_floorplan_limit_reached = False
         if (self.nodecnt - self.edgecnt + len(opr.get_trngls(self.matrix)) != 1):
             extranodes = []
@@ -639,6 +748,7 @@ class InputGraph:
                 self.edgecnt += extra_edges_cnt
             ptpg_matrices, extra_nodes = st.handle_STs(self.matrix, positions, 20)
 
+            start_time0 = time.time()
             for cnt in range(len(ptpg_matrices)):
                 if is_floorplan_limit_reached:
                     break
@@ -655,6 +765,12 @@ class InputGraph:
                 self.matrix, cip_list, self.nodecnt, self.edgecnt, mergednodes, irreg_nodes1, irreg_nodes2 = generate_multiple_bdy(
                     self.matrix, self.nodecnt, self.edgecnt, bcn_edges, trng_edges, mergednodes, irreg_nodes1,
                     irreg_nodes2)
+
+                end_time = time.time()
+                elapsed_time = end_time - start_time
+                logger.info(f"{__name__}Transformations and Multiple Bdry to took {elapsed_time:.5f} seconds to execute.")
+                start_time1 = time.time()
+
                 for bdys in cip_list:
                     if is_floorplan_limit_reached:
                         break
@@ -667,6 +783,9 @@ class InputGraph:
                     edgeset = g.edges()
                     
                     new_graph = InputGraph(self.nodecnt, self.edgecnt, edgeset, self.coordinates)
+
+
+                    start_time = time.time()
 
                     for i in rel_matrices:
                         if self.fpcnt >= self.floorplan_limit:
@@ -701,6 +820,12 @@ class InputGraph:
                 self.edgecnt += extra_edges_cnt
             self.matrix, cip_list, self.nodecnt, self.edgecnt, mergednodes, irreg_nodes1, irreg_nodes2 = generate_multiple_bdy(
                 self.matrix, self.nodecnt, self.edgecnt, bcn_edges, trng_edges, mergednodes, irreg_nodes1, irreg_nodes2)
+            start_time1 = time.time()
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            logger.info(f"{__name__}Transformations and Multiple Bdry to took {elapsed_time:.5f} seconds to execute.")
+            start_time1 = time.time()
+
             for bdys in cip_list:
                 if is_floorplan_limit_reached:
                     break
@@ -713,6 +838,9 @@ class InputGraph:
                 
                 new_graph = InputGraph(self.nodecnt, self.edgecnt, edgeset, self.coordinates)
                 
+
+                start_time = time.time()
+
                 for i in rel_matrices:
                     if self.fpcnt >= self.floorplan_limit:
                         is_floorplan_limit_reached = True
@@ -728,6 +856,15 @@ class InputGraph:
                     self.graph_list.append(new_graph)
 
 
+
+                end_time = time.time()
+                elapsed_time = end_time - start_time
+                logger.info(f"{__name__} for i in rel_matrices: took {elapsed_time:.5f} seconds to execute.")
+
+            end_time1 = time.time()
+            elapsed_time = end_time1 - start_time1
+            logger.info(f"{__name__} for bdys in cip_list: took {elapsed_time:.5f} seconds to execute.")
+
         # self.room_x = []
         # self.room_y = []
         # self.room_width = []
@@ -741,6 +878,8 @@ class InputGraph:
                                                                            self.graph_list[cnt].irreg_nodes1)
             
 
+
+    @timing_decorator
     def multiple_floorplan(self, min_width, min_height, max_width, max_height, symm_rooms, min_ar, max_ar, plot_width,
                            plot_height):
         """Generates multiple floorplans for a given input graph.
@@ -814,6 +953,7 @@ class InputGraph:
                 self.graph_list[i].room_height=(self.graph_list[i].room_height[i])
 
 
+    @timing_decorator
     def oneconnected_dual(self, string):
         """Generates oneconnected rectangular duals for a given input graph.
 
@@ -978,6 +1118,7 @@ class InputGraph:
                 self.irreg_nodes2.append([])
                 self.extranodes.append([])
 
+@timing_decorator
 def generate_multiple_rel(bdys, matrix, nodecnt, edgecnt):
     """Generates multiple RELs for given matrix and boundary.
 
@@ -1018,6 +1159,7 @@ def generate_multiple_rel(bdys, matrix, nodecnt, edgecnt):
                 rel_matrix.append(new_rel)
     return rel_matrix
 
+@timing_decorator
 def generate_multiple_bdy(matrix, nodecnt, edgecnt, bcn_edges, trng_edges, mergednodes, irreg_nodes1, irreg_nodes2):
     """Generates multiple boundary for given matrix and extra edges.
 
@@ -1050,19 +1192,32 @@ def generate_multiple_bdy(matrix, nodecnt, edgecnt, bcn_edges, trng_edges, merge
             news.all_boundaries(corner_pts, outer_boundary), outer_boundary)
     return matrix, cip_list, nodecnt, edgecnt, mergednodes, irreg_nodes1, irreg_nodes2
 
-from .lettershape.lshape.Lshaped import *
-def lettershape(graph, node_data, letter):
-    if(letter == "L Shape"):
-        LShapedFloorplan(graph, node_data)
-    elif(letter == "T Shape"):
-        TShapedFloorplan(graph)
-    elif(letter == "Z Shape"):
-        ZShapedFloorplan(graph)
-    elif(letter == "U Shape"):
-        UShapedFloorplan(graph)
+# from .lettershape.lshape.Lshaped import *
+# def lettershape(graph, node_data, letter):
+#     if(letter == "L Shape"):
+#         LShapedFloorplan(graph, node_data)
+#     elif(letter == "T Shape"):
+#         TShapedFloorplan(graph)
+#     elif(letter == "Z Shape"):
+#         ZShapedFloorplan(graph)
+#     elif(letter == "U Shape"):
+#         UShapedFloorplan(graph)
 
 def staircaseshaped(graph):
     StaircaseShapedFloorplan(graph)
+
+
+
+# Store the new adjacency data after dummy nodes have been added for removing separating triangles
+def store_dummy_node_adjacencies(matrix):
+    dummy_node_adjacencies = set()
+    total_node_count = matrix.shape[0]
+    for i in range(0, total_node_count):
+        for j in range(0, i + 1):
+            if (matrix[i][j] == 1):
+                dummy_node_adjacencies.add((i, j))
+    return dummy_node_adjacencies
+
 
 def check_overlap(list, edge):
     if edge[0][0] == edge[1][0]:
@@ -1178,7 +1333,7 @@ def get_final_traversal(graph):
     print("circular traversal for all rooms: ", graph.final_traversal)
 
     return graph.final_traversal
-    
+
 
 
             

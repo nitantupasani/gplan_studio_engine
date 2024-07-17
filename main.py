@@ -47,11 +47,16 @@ def run():
                 handle_limits(ui, graph, True, gclass)
             elif gclass.command == "door_connectivity":
                 handle_door_connectivity(ui, graph, True, gclass)
+            # gclass.time_taken = (end - start) * 1000
+            gclass.num_rfp = len(graph.graph_list)
+            gclass.pdf_colors = ui.get_roomColors()[0]
+            gclass.output_found = 1
+
         gclass.root.wait_variable(gclass.end)
         gclass.graph_ret()
-        gclass.ocan.add_tab()
-        gclass.pen = gclass.ocan.getpen()
-        gclass.pen.speed(0)
+        # gclass.ocan.add_tab() #AYUSH
+        # gclass.pen = gclass.ocan.getpen()
+        # gclass.pen.speed(0)
 
 
 if __name__ == "__main__":

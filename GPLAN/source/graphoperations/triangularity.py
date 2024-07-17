@@ -259,11 +259,12 @@ def triangulate(matrix,bcn_edges_added,pos):
         positions = {i:pos[i] for i in range(len(pos))}
     else:
         positions = nx.planar_layout(nxgraph)
+    # nx.draw_networkx(nxgraph,positions, label=None,node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
     non_tri_faces = get_nontriangular_face(positions, nxgraph)
+    print(non_tri_faces)
     tri_edges = get_tri_edges(non_tri_faces,positions)
     tri_faces = get_faces_after_triangulation(tri_edges,nxgraph,positions)
     return tri_edges,positions,tri_faces
-
     
 
 # Old triangularity code based on chordality

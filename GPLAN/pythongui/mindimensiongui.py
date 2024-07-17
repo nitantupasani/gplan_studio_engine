@@ -4,7 +4,7 @@ def gui_fnc(old_dims, nodes, room_name = []):
     """Creates the GUI to accept minimun dimensions for room width and height and returns the read values. 
 
     Args:
-        old_dims: A list containing the initial values for minimun width and height for each room.
+        old_dims: A list containing the initial values for minimun width and height for each room. They may also include the initial values for the plot width and height.
         nodes: Number of nodes in the graph.
         room_name: A list of the room labels for each room.
 
@@ -22,7 +22,7 @@ def gui_fnc(old_dims, nodes, room_name = []):
     root.title('Minimum Room Dimensions')
     
     # Size of default GUI window 
-    root.geometry(str(650) + 'x' + str(800))
+    root.geometry(str(650) + 'x' + str(400))
     
     Upper_right = tk.Label(root, text="Enter minimum dimensions required for each room", font=("Times New Roman", 13))
 
@@ -67,25 +67,25 @@ def gui_fnc(old_dims, nodes, room_name = []):
             text_room.append("text_room_" + str(room_name[i]))
             text_room[i] = tk.Label(root, text=str(room_name[i]), font=("Times New Roman", 10))
             text_room[i].place(relx=0.20 + 0.30 * i_value_x,
-                            rely=0.3 + (0.02 * i_value_y),
+                            rely=0.3 + (0.04 * i_value_y),
                             anchor='ne')
         else:
             text_room.append("text_room_" + str(i))
             text_room[i] = tk.Label(root, text="Room" + str(i), font=("Times New Roman", 10))
             text_room[i].place(relx=0.20 + 0.30 * i_value_x,
-                            rely=0.3 + (0.02 * i_value_y),
+                            rely=0.3 + (0.04 * i_value_y),
                             anchor='ne')
         
         # Placing text holders for Minimum Width and Height input
         width_textbox.append("width_textbox" + str(i))
         width_textbox[i] = tk.Entry(root, width=5, textvariable=default_width[i])
         width_textbox[i].place(relx=0.30 + 0.30 * i_value_x,
-                             rely=0.3 + (0.02) * i_value_y,
+                             rely=0.3 + (0.04) * i_value_y,
                              anchor='ne')
         height_textbox.append("height_textbox" + str(i))
         height_textbox[i] = tk.Entry(root, width=5, textvariable=default_height[i])
         height_textbox[i].place(relx=0.50 + 0.30 * i_value_x,
-                            rely=0.3 + (0.02) * i_value_y,
+                            rely=0.3 + (0.04) * i_value_y,
                             anchor='ne')
 
     # Support for free dimensions feature
@@ -103,6 +103,10 @@ def gui_fnc(old_dims, nodes, room_name = []):
 
     plot_height_tbox = tk.Entry(root, textvariable=plot_height)
     plot_height_tbox.place(relx=0.98, rely=0.34, anchor='ne')
+
+    if len(old_dims) == 4:
+        plot_width.set(old_dims[2])
+        plot_height.set(old_dims[3])
 
     # Placing checkbox for generating floorplan with least area
     optimal_floorplan_checkbox = tk.Checkbutton(root, text="Generate Optimal Floorplan", variable=optimal_floorplan, onvalue=1, offvalue=0)
