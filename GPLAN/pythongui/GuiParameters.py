@@ -23,6 +23,7 @@ class GuiParameters:
     __letter: str
     __corridor_thickness: float
     __message: str = ""
+    output_data: list = []
 
     def get_fptype(self) -> str:
         return self.__fptype
@@ -209,6 +210,8 @@ class GuiParameters:
             self.set_corridor_thickness(gclass.corridor_thickness)
             self.set_message("")
             self.set_command(gclass.command)
+
+            self.output_data = []
         
         if graph is not None:
             self.set_graph(graph)
@@ -223,14 +226,25 @@ class GuiParameters:
         if self.get_gclass() is not None:
             self.get_gclass().textbox.insert(tk.END, string) # type: ignore
             self.get_gclass().textbox.insert(tk.END, "\n") # type: ignore
-            
+    def get_output_data(self):
+        if self.get_gclass() is not None:
+            return self.get_gclass().output_data
+        return self.output_data
+
     def _append_output_data(self, graph_new):
         if self.get_gclass() is not None:
             self.get_gclass().output_data.append(graph_new)
-    
+        else:
+            self.output_data.append(graph_new)
+
+        if graph_new is not None and len(graph_new.final_traversal)==0: #FOR SANITY
+            graph_new.final_traversal = inputgraph.get_final_traversal(graph_new)
+
     def _set_output_data(self, output_data):
         if self.get_gclass() is not None:
             self.get_gclass().output_data = output_data
+        else:
+            self.output_data = output_data
     
     def _set_time_taken(self, time_taken):
         if self.get_gclass() is not None:

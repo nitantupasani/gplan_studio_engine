@@ -9,8 +9,9 @@ from GPLAN.source.inputgraph import InputGraph
 import GPLAN.pythongui.gui as gui
 import uuid
 
-from GPLAN.handlers import * 
+from GPLAN.handlers import *
 from GPLAN.pythongui.GuiParameters import GuiParameters
+import builtins
 
 class Asset:
     def __init__(self, _id, properties, asset_type):
@@ -74,29 +75,45 @@ class Room:
 FLOORPLAN_LIMIT = 10
 
 
-class FloorPlans:
-    def __init__(self, hasMore, offset, values=None):
+class Documents:
+    def __init__(self, hasMore, offset, documentID, name):
         self.hasMore = hasMore
         self.offset = offset
-        if values:
-            self.values = [value.to_dict() for value in values]
+        self.documentID = documentID
+        self.name = name
+        self.floorplans = []
+
+    def append_floorplan(self,floorplan):
+        if floorplan:
+            self.floorplans.append([room.to_dict() for room in floorplan])
 
     def to_dict(self):
         return {
-            "floorPlans": {
-                "hasMore": self.hasMore,
-                "offset": self.offset,
-                "values": self.values
+            "Documents": {
+                "documentID": self.documentID,
+                "name": self.name,
+                # "hasMore": self.hasMore,
+                # "offset": self.offset,
+                "floorPlans": self.floorplans
             }
         }
 
     @staticmethod
     def get_floorplans(starting_from: int, count: int, caller, nodes_list: list, graph: InputGraph, rectangular: bool, corridor=False,
-                         dimensioned = False, dimensionedCirculation =False , minDimEnabled = False, removeAddCirculation = False, publicEnabled = False,normalize_const=40, limit=FLOORPLAN_LIMIT, corridor_thickness=None):
+                         dimensioned = False, dimensionedCirculation = False, minDimEnabled = False, removeAddCirculation = False, publicEnabled = False,normalize_const=40, limit=FLOORPLAN_LIMIT, corridor_thickness=None,documentID=None, name=None):
+        original_print = builtins.print
+
+        def null_print(*args, **kwargs):
+            pass
+
+        # builtins.print = null_print
+
         message = ""
         ui = GuiParameters(graph=graph).set_isDimensioned(dimensioned).set_isDimensionedCirculation(
             dimensionedCirculation).set_isMinDimensioned(minDimEnabled).set_isRemoveAddCirculation(
             removeAddCirculation).set_isPublic(publicEnabled)
+        documentID = str(uuid.uuid4()) if documentID is None else documentID
+        name = "Untitled Document" if name is None else name
         ui.set_message("")
         roomColors = []
         roomNames = []
@@ -114,10 +131,9 @@ class FloorPlans:
         if count is None:
             count = 1
         nodes_data = []
-        floorplans = []
+        response = []
         if count == 1:
             if caller == 'lshape':
-                print("Generating L shape")
                 ui.set_letter("L Shape")
                 for node in nodes_list:
                     node_obj = gui.gui_class.Nodes(node['id'], node['x'], node['y'])
@@ -156,7 +172,6 @@ class FloorPlans:
             # elif caller == 'custom': #Support Not added yet
             # Customplot.CustomplotFloorplan(graph, nodes_list)
             elif caller == 'rectangular' or caller == 'irregular':
-                print("Generating Rectangular/Irregular shape")
                 if rectangular:
                     handle_single_oc(ui, graph)
                 else:
@@ -182,14 +197,17 @@ class FloorPlans:
             else:
                 message = f"Support for {caller} Not yet Handled from Backend for Multiple Floorplan"
                 print(message)
-        outputData = graph.final_traversal
         if count == 1:
-            outputData = [outputData]
+            outputData = [graph]
+        elif count > 1:
+            outputData = ui.get_output_data()
         offset = 0
         hasMore = graph.fpcnt - offset - 1 > 0
-        for index in range(min(len(outputData), limit)):
-            floorplanData = outputData[index]
+        response = Documents(hasMore, offset, documentID, name)
+
+        for index in range(min(min(len(outputData), limit),count)):
             rooms = []
+            floorplanData = outputData[index].final_traversal
             k = 0
             for roomData in floorplanData:
                 room = None
@@ -208,6 +226,8 @@ class FloorPlans:
                             circular_coordinates=roomData)  # To add handling of node index starting from 0 then 1 then 2. It should be a unique no and GPLAN should map
                 k = k + 1
                 rooms.append(room)
-        floorplans = FloorPlans(hasMore, offset, rooms)
+            response.append_floorplan(rooms)
 
-        return floorplans, message
+        builtins.print = original_print
+
+        return response, message
