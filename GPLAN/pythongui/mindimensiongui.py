@@ -1,6 +1,8 @@
 import tkinter as tk
 
-def gui_fnc(old_dims, nodes, room_name = []):
+from GPLAN.pythongui.GuiParameters import DimParameters
+
+def gui_fnc(ui,old_dims, nodes, room_name = [] , gclass=None):
     """Creates the GUI to accept minimun dimensions for room width and height and returns the read values. 
 
     Args:
@@ -14,6 +16,11 @@ def gui_fnc(old_dims, nodes, room_name = []):
         plot_width: Input width of the plot for the floorplan.
         plot_height: Input height of the plot for the floorplan.
     """
+
+    if gclass == None:
+        dim_parameters : DimParameters = ui.get_min_dim_inputs()
+        return dim_parameters.get_min_width(), dim_parameters.get_min_height(), dim_parameters.get_plot_width(), dim_parameters.get_plot_height(), dim_parameters.get_optimal_floorplan()
+
     min_width = []
     min_height = []
 
@@ -147,5 +154,5 @@ def gui_fnc(old_dims, nodes, room_name = []):
 
 if __name__ == "__main__":
     # main function to test GUI creation
-    gui_fnc([], 3, [])
+    gui_fnc(None, [], 3, [])
     

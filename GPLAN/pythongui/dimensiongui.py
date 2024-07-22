@@ -2,8 +2,15 @@ import tkinter as tk
 from tkinter import font
 from tkinter import messagebox
 
+from GPLAN.pythongui.GuiParameters import DimParameters
 
-def gui_fnc(old_dims, nodes, room_name = []):
+
+def gui_fnc(ui, old_dims, nodes, room_name=[], gclass=None):
+
+    if gclass == None:
+        dim_parameters : DimParameters = ui.get_min_dim_inputs()
+        return dim_parameters.get_min_width(), dim_parameters.get_max_width(), dim_parameters.get_min_height(), dim_parameters.get_max_height(), dim_parameters.get_symmetric(), dim_parameters.get_min_aspect_ratio(), dim_parameters.get_max_aspect_ratio(), dim_parameters.get_plot_width(), dim_parameters.get_plot_height()
+
     min_width = []
     max_width = []
     min_height = []
@@ -232,5 +239,5 @@ def gui_fnc(old_dims, nodes, room_name = []):
 
 
 if __name__ == "__main__":
-    gui_fnc([], 3, [])
+    gui_fnc(None, [], 3, [])
     

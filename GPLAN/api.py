@@ -10,7 +10,7 @@ import GPLAN.pythongui.gui as gui
 import uuid
 
 from GPLAN.handlers import *
-from GPLAN.pythongui.GuiParameters import GuiParameters
+from GPLAN.pythongui.GuiParameters import GuiParameters, DimParameters
 import builtins
 
 class Asset:
@@ -76,11 +76,12 @@ FLOORPLAN_LIMIT = 10
 
 
 class Documents:
-    def __init__(self, hasMore, offset, documentID, name):
+    def __init__(self, hasMore, offset, documentID, name, count):
         self.hasMore = hasMore
         self.offset = offset
         self.documentID = documentID
         self.name = name
+        self.count = count
         self.floorplans = []
 
     def append_floorplan(self,floorplan):
@@ -92,6 +93,7 @@ class Documents:
             "Documents": {
                 "documentID": self.documentID,
                 "name": self.name,
+                "count":self.count,
                 # "hasMore": self.hasMore,
                 # "offset": self.offset,
                 "floorPlans": self.floorplans
@@ -100,7 +102,7 @@ class Documents:
 
     @staticmethod
     def get_floorplans(starting_from: int, count: int, caller, nodes_list: list, graph: InputGraph, rectangular: bool, corridor=False,
-                         dimensioned = False, dimensionedCirculation = False, minDimEnabled = False, removeAddCirculation = False, publicEnabled = False,normalize_const=40, limit=FLOORPLAN_LIMIT, corridor_thickness=None,documentID=None, name=None):
+                         dimensioned = False, dimensionedCirculation = False, minDimEnabled = False, removeAddCirculation = False, publicEnabled = False,normalize_const=40, limit=FLOORPLAN_LIMIT, corridor_thickness=None,documentID=None, name=None, dim_inputs={}):
         original_print = builtins.print
 
         def null_print(*args, **kwargs):
@@ -109,9 +111,14 @@ class Documents:
         # builtins.print = null_print
 
         message = ""
+        dim_parameters: DimParameters = None
+        if minDimEnabled:
+            dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'], plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], isOptimalEnabled=dim_inputs['optimal_floorplan'])
+        elif dimensioned:
+            dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'], max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], min_ratio=dim_inputs['min_ratio'], max_ratio=dim_inputs['max_ratio'], plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], symmetric=dim_inputs['symmetric'], isOptimalEnabled=dim_inputs['optimal_floorplan'])
         ui = GuiParameters(graph=graph).set_isDimensioned(dimensioned).set_isDimensionedCirculation(
             dimensionedCirculation).set_isMinDimensioned(minDimEnabled).set_isRemoveAddCirculation(
-            removeAddCirculation).set_isPublic(publicEnabled)
+            removeAddCirculation).set_isPublic(publicEnabled).set_min_dim_inputs(dim_parameters)
         documentID = str(uuid.uuid4()) if documentID is None else documentID
         name = "Untitled Document" if name is None else name
         ui.set_message("")
@@ -203,7 +210,8 @@ class Documents:
             outputData = ui.get_output_data()
         offset = 0
         hasMore = graph.fpcnt - offset - 1 > 0
-        response = Documents(hasMore, offset, documentID, name)
+        total_fp_count = min(min(len(outputData), limit),count)
+        response = Documents(hasMore, offset, documentID, name, total_fp_count)
 
         for index in range(min(min(len(outputData), limit),count)):
             rooms = []

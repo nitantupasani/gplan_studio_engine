@@ -2,6 +2,91 @@ from GPLAN.source import inputgraph as inputgraph
 from GPLAN.pythongui import gui as gui
 import tkinter as tk
 
+
+class DimParameters:
+    __min_width: list
+    __max_width: list
+    __min_height: list
+    __max_height: list
+    __min_ratio: list
+    __max_ratio: list
+    __plot_height: float
+    __plot_width: float
+    __symmetric: bool
+    __isOptimalEnabled: int
+    def __init__(self, min_width, max_width, plot_height, plot_width,isOptimalEnabled,symmetric = False, min_height = [], max_height = [], min_ratio = [], max_ratio = []):
+        self.__isOptimalEnabled = isOptimalEnabled
+        self.__min_width = min_width
+        self.__max_width = max_width
+        self.__plot_height = plot_height
+        self.__plot_width = plot_width
+        self.__min_height = min_height
+        self.__max_height = max_height
+        self.__min_ratio = min_ratio
+        self.__max_ratio = max_ratio
+        self.__symmetric = symmetric
+
+    def get_isOptimalEnabled(self):
+        return self.__isOptimalEnabled
+
+    def set_isOptimalEnabled(self, value):
+        self.__isOptimalEnabled = value
+
+    def get_min_width(self):
+        return self.__min_width
+
+    def set_min_width(self, value):
+        self.__min_width = value
+
+    def get_max_width(self):
+        return self.__max_width
+
+    def set_max_width(self, value):
+        self.__max_width = value
+
+    def get_plot_height(self):
+        return self.__plot_height
+
+    def set_plot_height(self, value):
+        self.__plot_height = value
+
+    def get_plot_width(self):
+        return self.__plot_width
+
+    def set_plot_width(self, value):
+        self.__plot_width = value
+
+    def get_min_height(self):
+        return self.__min_height
+
+    def set_min_height(self, value):
+        self.__min_height = value
+
+    def get_max_height(self):
+        return self.__max_height
+
+    def set_max_height(self, value):
+        self.__max_height = value
+
+    def get_min_aspect_ratio(self):
+        return self.__min_ratio
+
+    def set_min_aspect_ratio(self, value):
+        self.__min_ratio = value
+
+    def get_max_aspect_ratio(self):
+        return self.__max_ratio
+
+    def set_max_aspect_ratio(self, value):
+        self.__max_ratio = value
+
+    def get_symmetric(self):
+        return self.__symmetric
+
+    def set_symmetric(self, value):
+        self.__symmetric = value
+
+
 class GuiParameters:
     
     __gclass: gui.gui_class = None
@@ -17,13 +102,21 @@ class GuiParameters:
     __isDimensionedCirculation: int #gclass.value[8]
     __isRemoveAddCirculation: int #gclass.value[9]
     __isMinDimensioned: int #gclass.value[10]
-    __isPublic: int
+    __isPublic: int #gclass.value[11]
     __nodeCoordinates: list #gclass.value[7]
     __roomColors: list #gclass.value[6]
     __letter: str
     __corridor_thickness: float
     __message: str = ""
     output_data: list = []
+    min_dim_inputs: DimParameters = None
+
+    def get_min_dim_inputs(self) -> DimParameters:
+        return self.min_dim_inputs
+
+    def set_min_dim_inputs(self, min_dim_inputs):
+        self.min_dim_inputs = min_dim_inputs
+        return self
 
     def get_fptype(self) -> str:
         return self.__fptype
@@ -273,18 +366,4 @@ class GuiParameters:
     def _set_ptpg(self, graph):
         if self.get_gclass() is not None:
             self.get_gclass().ptpg = graph
-    
-# gclass.bottom_shift_value
-# gclass.bottom_dropdown_value
-# gclass.top_dropdown_value
-# gclass.top_shift_value
-# gclass.right_shift_value
-# gclass.right_dropdown_value
-# gclass.left_shift_value
-# gclass.side
-# gclass.left_dropdown_value
-# gclass.room_limits
-# gclass.ptpg = graph
-# gclass.dimensional_constraints = [min_width, min_height, plot_width, plot_height]
-# gclass.multiple_output_found = 1
 

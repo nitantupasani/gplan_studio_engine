@@ -454,9 +454,9 @@ def handle_circulation(ui, graph, drawGUI=False, gclass=None):
                 old_dims[1][i] = old_min_height[i]
             old_dims.extend([plot_width, plot_height])
             gclass.open = False
-        min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(old_dims,
+        min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(ui,old_dims,
                                                                                               ui.get_noOfNodes(),
-                                                                                              ui.get_roomNames())
+                                                                                              ui.get_roomNames(), gclass)
         start = time.time()
         generate_mindim_rfp(ui, graph, gclass, min_width, min_height, plot_width, plot_height,
                             optimal_floorplan)
@@ -547,8 +547,8 @@ def handle_circulation(ui, graph, drawGUI=False, gclass=None):
             , ""
             , [0] * ui.get_noOfNodes()
             , [0] * ui.get_noOfNodes()]
-        min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(
-            old_dims, ui.get_noOfNodes())
+        min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(ui,
+            old_dims, ui.get_noOfNodes(), ui.get_roomNames(), gclass)
         dimensional_constraints = [min_width, max_width, min_height, max_height, symm_string, min_aspect,
                                    max_aspect, plot_width, plot_height]
         start = time.time()
@@ -567,8 +567,8 @@ def handle_circulation(ui, graph, drawGUI=False, gclass=None):
                                max_aspect, plot_width, plot_height)
         while (graph.floorplan_exist == False):
             old_dims = [min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect]
-            min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(
-                old_dims, ui.get_noOfNodes())
+            min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(ui,
+                old_dims, ui.get_noOfNodes(), ui.get_roomNames(), gclass)
             graph.irreg_multiple_dual()
             graph.single_floorplan(min_width, min_height, max_width, max_height, symm_string, min_aspect,
                                    max_aspect, plot_width, plot_height)
@@ -611,9 +611,9 @@ def handle_circulation(ui, graph, drawGUI=False, gclass=None):
                 old_dims[1][i] = old_min_height[i]
             old_dims.extend([plot_width, plot_height])
             gclass.open = False
-        min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(old_dims,
+        min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(ui,old_dims,
                                                                                               ui.get_noOfNodes(),
-                                                                                              ui.get_roomNames())
+                                                                                              ui.get_roomNames(), gclass)
         remove_corridor = True
         start = time.time()
         generate_mindim_rfp(ui, graph, gclass, min_width, min_height, plot_width, plot_height,
@@ -718,9 +718,9 @@ def handle_single(ui, graph, drawGUI = False, gclass = None):
                 old_dims[1][i] = old_min_height[i]
             old_dims.extend([plot_width, plot_height])
             gclass.open = False
-        min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(old_dims,
+        min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(ui,old_dims,
                                                                                               ui.get_noOfNodes(),
-                                                                                              ui.get_roomNames())
+                                                                                              ui.get_roomNames(), gclass)
         ui._set_dim_constraints([min_width, min_height, plot_width, plot_height])
 
         start = time.time()
@@ -822,8 +822,8 @@ def handle_single(ui, graph, drawGUI = False, gclass = None):
             , ""
             , [0] * ui.get_noOfNodes()
             , [0] * ui.get_noOfNodes()]
-        min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(
-            old_dims, ui.get_noOfNodes())
+        min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(ui,
+            old_dims, ui.get_noOfNodes(), ui.get_roomNames(), gclass)
         dimensional_constraints = [min_width, max_width, min_height, max_height, symm_string, min_aspect,
                                    max_aspect, plot_width, plot_height]
         ui._set_dim_constraints(dimensional_constraints)
@@ -833,8 +833,8 @@ def handle_single(ui, graph, drawGUI = False, gclass = None):
                                plot_width, plot_height)
         while (graph.floorplan_exist == False):
             old_dims = [min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect]
-            min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(
-                old_dims, ui.get_noOfNodes())
+            min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(ui,
+                old_dims, ui.get_noOfNodes(), ui.get_roomNames(), gclass)
             graph.irreg_multiple_dual()
             graph.single_floorplan(min_width, min_height, max_width, max_height, symm_string, min_aspect, max_aspect,
                                    plot_width, plot_height)
@@ -870,8 +870,8 @@ def handle_letter_shape(ui, graph, drawGUI = False, gclass = None, nodes_data = 
             , ""
             , [0] * ui.get_noOfNodes()
             , [0] * ui.get_noOfNodes()]
-        min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(
-            old_dims, ui.get_noOfNodes())
+        min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(ui,
+            old_dims, ui.get_noOfNodes(), ui.get_roomNames(), gclass)
         start = time.time()
         if(ui.get_letter() == "L Shape"):
             Lshaped.LShapedFloorplan(graph, gclass.app.nodes_data)
@@ -974,7 +974,7 @@ def handle_multiple(ui, graph, gclass = None):
                     , ""
                     , [0] * ui.get_noOfNodes()
                     , [0] * ui.get_noOfNodes()]
-        min_width,max_width,min_height,max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height  = dimgui.gui_fnc(old_dims, ui.get_noOfNodes())
+        min_width,max_width,min_height,max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height  = dimgui.gui_fnc(ui, old_dims, ui.get_noOfNodes(), ui.get_roomNames(), gclass)
         start = time.time()
         graph.irreg_multiple_dual()
         graph.multiple_floorplan(min_width,min_height,max_width,max_height,symm_string, min_aspect, max_aspect, plot_width, plot_height)
@@ -1061,8 +1061,8 @@ def handle_single_oc(ui, graph, drawGUI = False, gclass = None):
                 old_dims[6][i] = old_max_aspect[i]
             old_dims.extend([old_plot_width, old_plot_height])
             gclass.open = False
-        min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(
-            old_dims, ui.get_noOfNodes(), ui.get_roomNames())
+        min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(ui,
+            old_dims, ui.get_noOfNodes(), ui.get_roomNames(), gclass)
         start = time.time()
         try:
             graph.oneconnected_dual("multiple")
@@ -1078,8 +1078,8 @@ def handle_single_oc(ui, graph, drawGUI = False, gclass = None):
                                max_aspect, plot_width, plot_height)
         while (graph.floorplan_exist == False):
             old_dims = [min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect]
-            min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(
-                old_dims, ui.get_noOfNodes())
+            min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(ui,
+                old_dims, ui.get_noOfNodes(), ui.get_roomNames(), gclass)
             graph.multiple_dual()
             graph.single_floorplan(min_width, min_height, max_width, max_height, symm_string, min_aspect,
                                    max_aspect, plot_width, plot_height)
@@ -1109,9 +1109,9 @@ def handle_single_oc(ui, graph, drawGUI = False, gclass = None):
                 old_dims[1][i] = old_min_height[i]
             old_dims.extend([plot_width, plot_height])
             gclass.open = False
-        min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(old_dims,
+        min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(ui,old_dims,
                                                                                               ui.get_noOfNodes(),
-                                                                                              ui.get_roomNames())
+                                                                                              ui.get_roomNames(), gclass)
         start = time.time()
         try:
             graph.oneconnected_dual("multiple")
@@ -1266,7 +1266,7 @@ def handle_multiple_oc(ui, graph, drawGUI = False, gclass = None):
                 old_dims[1][i] = old_min_height[i]
             old_dims.extend([plot_width, plot_height])
             gclass.open = False
-        min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(old_dims, ui.get_noOfNodes(), ui.get_roomNames())
+        min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(ui,old_dims, ui.get_noOfNodes(), ui.get_roomNames(), ui.get_roomNames(), gclass)
         start = time.time()
         try:
             graph.oneconnected_dual("multiple")
@@ -1364,8 +1364,8 @@ def handle_multiple_oc(ui, graph, drawGUI = False, gclass = None):
             , ""
             , [0] * ui.get_noOfNodes()
             , [0] * ui.get_noOfNodes()]
-        min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(
-            old_dims, ui.get_noOfNodes())
+        min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height = dimgui.gui_fnc(ui,
+            old_dims, ui.get_noOfNodes(), ui.get_roomNames(), gclass)
         ui._set_dim_constraints([min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height])
         start = time.time()
         try:
@@ -1652,9 +1652,9 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     old_dims[1][i] = old_min_height[i]
                 old_dims.extend([plot_width, plot_height])
                 gclass.open = False
-            min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(old_dims,
+            min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(ui,old_dims,
                                                                                                   ui.get_noOfNodes(),
-                                                                                                  ui.get_roomNames())
+                                                                                                  ui.get_roomNames(), gclass)
             start = time.time()
             try:
                 graph.oneconnected_dual("multiple")
