@@ -158,7 +158,7 @@ def call_circulation_new(ui, graph_data, graph, coord, is_dimensioned, dim_const
         circ.adjust_RFP_to_circulation()
 
         # Printing how much shift was done for each room
-        print("\t\tT\tB\t\L\tR\t\tTarget")
+        # print("\t\tT\tB\t\L\tR\t\tTarget")
         for room in circ.RFP.rooms:
             print(
                 f"{room.id}\t{room.rel_push_T}\t{room.rel_push_B}\t{room.rel_push_L}\t{room.rel_push_R}\t\t{room.target}")
@@ -1653,7 +1653,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 old_dims.extend([plot_width, plot_height])
                 gclass.open = False
             min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(old_dims,
-                                                                                                  ui.get_noOfNodes,
+                                                                                                  ui.get_noOfNodes(),
                                                                                                   ui.get_roomNames())
             start = time.time()
             try:
