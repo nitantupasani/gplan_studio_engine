@@ -54,9 +54,9 @@ def run():
 
         gclass.root.wait_variable(gclass.end)
         gclass.graph_ret()
-        # gclass.ocan.add_tab() #AYUSH
-        # gclass.pen = gclass.ocan.getpen()
-        # gclass.pen.speed(0)
+        gclass.ocan.add_tab()
+        gclass.pen = gclass.ocan.getpen()
+        gclass.pen.speed(0)
 
 
 if __name__ == "__main__":

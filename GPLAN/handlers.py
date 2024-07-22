@@ -30,7 +30,7 @@ from dataclasses import is_dataclass
 
 origin = 0
 
-def drawFunction(ui ,graph, origin, roomName, isPoly = False, gclass = None, new_tab = False):
+def drawFunction(ui ,graph, origin, roomName, isPoly = False, gclass = None):
     if not isPoly:
         draw.draw_rdg(graph
                     , 1
@@ -46,11 +46,6 @@ def drawFunction(ui ,graph, origin, roomName, isPoly = False, gclass = None, new
             ,ui.get_roomColors()
             ,[]
             ,origin,gclass.outer_boundary, gclass.shape,graph.matrix)
-
-    if new_tab:
-        gclass.ocan.add_tab()
-        gclass.pen = gclass.ocan.getpen()
-        gclass.pen.speed(0)
 
 def make_dissection_corridor(gclass):
     dis = nx.Graph()
@@ -651,7 +646,7 @@ def handle_circulation(ui, graph, drawGUI=False, gclass=None):
         # If no issues we continue to draw the corridor
         elif success == True:
             if drawGUI:
-                drawFunction(ui, new_graph_data, origin, ui.get_roomNames(), gclass=gclass, new_tab= True)
+                drawFunction(ui, new_graph_data, origin, ui.get_roomNames(), gclass=gclass) #TODO FIx if remove circulation is not required on the same tab.
 
     elif (ui.get_isDimensionedCirculation() == 0 and ui.get_isRemoveAddCirculation() == 1 and ui.get_isPublic() == 0):  # Add/remove
         remove_corridor = True
@@ -1401,9 +1396,9 @@ def handle_multiple_oc(ui, graph, drawGUI = False, gclass = None):
             gclass.ptpg = graph
             print_all_rfp = False
             if print_all_rfp == True:
-                # gclass.ocan.add_tab() #DONE BY AYUSH TEMP. REMOVE IF EVERYTHING IS FINE
-                # gclass.pen = gclass.ocan.getpen()
-                # gclass.pen.speed(0)
+                gclass.ocan.add_tab()
+                gclass.pen = gclass.ocan.getpen()
+                gclass.pen.speed(0)
                 graph_new.final_traversal=inputgraph.get_final_traversal(graph_new)
                 if drawGUI:
                     drawFunction(ui, graph_new, origin, room_name, gclass = gclass)
