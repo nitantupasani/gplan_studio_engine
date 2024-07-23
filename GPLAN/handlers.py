@@ -1733,17 +1733,13 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     Adds the graph data to output_data for downloading the catalogue and
                     multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
                     '''
-                    ui._append_output_data(graph.graph_list[i])
-                    ui._set_multiple_output_found(1)
-
-                    floorplan_found = True
 
                     # If optimal area not required, display floorplan
                     if optimal_floorplan == 0:
                         graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(
                             graph.graph_list[i])
                         if drawGUI:
-                            drawFunction(ui, graph, origin, room_name, gclass=gclass)
+                            drawFunction(ui, graph.graph_list[i], origin, room_name, gclass=gclass)
                         break
 
                     # Store graph data if graph area is less than current minimal area
@@ -1754,6 +1750,10 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(
                             graph.graph_list[i])
                         min_graph = i
+                    ui._append_output_data(graph.graph_list[i])
+                    ui._set_multiple_output_found(1)
+
+                    floorplan_found = True
 
             if not floorplan_found:
                 print("No floorplan found which satisfies the minimum dimensions input by user.")
@@ -1764,7 +1764,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
 
                 # graph.graph_list[min_graph].final_traversal=inputgraph.get_final_traversal(graph.graph_list[min_graph])
                 if drawGUI:
-                    drawFunction(ui, graph, origin, room_name, gclass=gclass)
+                    drawFunction(ui, graph.graph_list[min_graph], origin, room_name, gclass=gclass)
 
             end = time.time()
             ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
