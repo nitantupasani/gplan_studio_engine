@@ -284,12 +284,14 @@ class InputGraph:
                     edges.add((i, j))
 
         # Update gclass.value[2] with edges and default color 'black'
-        gclass.value[2] = [[start, end, 'black'] for start, end in edges]
-        print(gclass.value[2])
-        return gclass.value[2]
+        edge_set = [[start, end, 'black'] for start, end in edges]
+        if gclass is not None:
+            gclass.value[2] = edge_set
+            print(gclass.value[2])
+        return edge_set
 
     @timing_decorator
-    def door_connectivity(self):
+    def door_connectivity(self, show_graph = False):
         """Generates an single dual for a door connectivity input graph.
 
         Args:
@@ -333,11 +335,11 @@ class InputGraph:
             self.nonrect = True
 
 
-
-        plt.figure()
-        graphtemp = nx.from_numpy_array(self.matrix)
-        nx.draw_networkx(graphtemp,positions, label='After Triangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
-        plt.show()
+        if show_graph:
+            plt.figure()
+            graphtemp = nx.from_numpy_array(self.matrix)
+            nx.draw_networkx(graphtemp,positions, label='After Triangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+            plt.show()
 
 
 
@@ -391,12 +393,13 @@ class InputGraph:
         separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
         print("Doing separating triangles lists test",separating_triangles1)
 
-        plt.figure()
-        graphtemp = nx.from_numpy_array(self.matrix)
-        nx.draw_networkx(graphtemp,positions, label='After retriangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
-        plt.show()
+        if show_graph:
+            plt.figure()
+            graphtemp = nx.from_numpy_array(self.matrix)
+            nx.draw_networkx(graphtemp,positions, label='After retriangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+            plt.show()
 
-        return self,check_ptpg(separating_triangles1)
+        return self, check_ptpg(separating_triangles1)
 
 
 

@@ -108,7 +108,7 @@ class Documents:
         def null_print(*args, **kwargs):
             pass
 
-        # builtins.print = null_print
+        builtins.print = null_print
 
         message = ""
         dim_parameters: DimParameters = None
@@ -183,6 +183,9 @@ class Documents:
                     handle_single_oc(ui, graph)
                 else:
                     handle_single(ui, graph)
+
+            elif caller == "door_connectivity":
+                handle_door_connectivity(ui, graph)
             else:
                 message = f"Support for {caller} Not yet Handled from Backend for Single Floorplan"
                 print(message)
@@ -201,6 +204,10 @@ class Documents:
                 handle_multiple_oc(ui, graph)
             elif caller == 'irregular':
                 handle_multiple(ui, graph)
+            elif caller == "door_connectivity":
+                handle_door_connectivity(ui, graph)
+            elif gclass.command == "multiple_l":
+                handle_multiple_l(ui, graph)
             else:
                 message = f"Support for {caller} Not yet Handled from Backend for Multiple Floorplan"
                 print(message)
