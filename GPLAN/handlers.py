@@ -700,10 +700,10 @@ def handle_single(ui, graph, drawGUI = False, gclass = None):
         ui.print_gui('Generated Single Irregular floorplan')
         end = time.time()
         ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
-        ui._append_output_data(graph)
         graph.final_traversal = inputgraph.get_final_traversal(graph)
         if drawGUI:
             drawFunction(ui, graph, origin, [], gclass=gclass)
+        ui._append_output_data(graph) #Keep OTUPUT DATA AT The END OTHERWISE Final Traversal would run twice
 
     elif (ui.get_isMinDimensioned() == 1):  # Minimum dimensioned floorplan
         old_dims = [[3] * ui.get_noOfNodes()
@@ -798,12 +798,12 @@ def handle_single(ui, graph, drawGUI = False, gclass = None):
             Adds the graph data to output_data for downloading the catalogue and
             multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
             '''
-            ui._append_output_data(graph)
-            ui._set_multiple_output_found(1)
             graph.final_traversal = inputgraph.get_final_traversal(graph)
             floorplan_found = True
             if drawGUI:
                 drawFunction(ui, graph, origin, room_name, gclass=gclass)
+            ui._append_output_data(graph)#Keep OTUPUT DATA AT The END OTHERWISE Final Traversal would run twice
+            ui._set_multiple_output_found(1)
 
         if not floorplan_found:
             print("No floorplan found which satisfies the minimum dimensions input by user.")
@@ -931,20 +931,10 @@ def handle_multiple_l(ui, graph, gclass = None, nodes_data = None):
 
         for idx in range(graph.fpcnt):
             graph_new = graph.graph_list[idx]
-            ui._set_multiple_output_found(1)
-            ui._append_output_data(graph_new)
             graph_new.final_traversal = inputgraph.get_final_traversal(graph_new)
-            # draw.draw_rdg(graph_new
-            #     ,idx+1
-            #     ,gclass.pen
-            #     ,1
-            #     ,ui.get_roomColors()
-            #     ,[]
-            #     ,origin)
-            # # origin += 1000
-            # gclass.ocan.add_tab()
-            # gclass.pen = gclass.ocan.getpen()
-            # gclass.pen.speed(0)
+            ui._set_multiple_output_found(1)
+            ui._append_output_data(graph_new)#Keep OTUPUT DATA AT The END OTHERWISE Final Traversal would run twice
+         
 
 def handle_staircase_shaped(ui, graph, drawGUI = False, gclass = None):
     start = time.time()
@@ -1085,7 +1075,6 @@ def handle_single_oc(ui, graph, drawGUI = False, gclass = None):
                                    max_aspect, plot_width, plot_height)
         end = time.time()
         ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
-        ui._append_output_data(graph)
         room_name = []
         if len(ui.get_roomNames()) > 0:
             room_name = ui.get_roomNames()
@@ -1095,6 +1084,7 @@ def handle_single_oc(ui, graph, drawGUI = False, gclass = None):
 
         dimensional_constraints = [min_width, max_width, min_height, max_height, symm_string,
                                    min_aspect, max_aspect, plot_width, plot_height]
+        ui._append_output_data(graph)# Keep this after get final traversal
         ui._set_dim_constraints(dimensional_constraints)
 
     elif (ui.get_isMinDimensioned() == 1):  # Minimum dimensioned floorplan
@@ -1195,14 +1185,15 @@ def handle_single_oc(ui, graph, drawGUI = False, gclass = None):
                 Adds the graph data to output_data for downloading the catalogue and
                 multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
                 '''
-                ui._append_output_data(graph.graph_list[i])
-                ui._set_multiple_output_found(1)
+                
 
                 floorplan_found = True
 
                 # If optimal area not required, display floorplan
                 if optimal_floorplan == 0:
                     graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(graph.graph_list[i])
+                    ui._append_output_data(graph.graph_list[i]) 
+                    ui._set_multiple_output_found(1)
                     if drawGUI:
                         drawFunction(ui, graph.graph_list[i], origin, room_name, gclass=gclass)
                     break
@@ -1214,7 +1205,9 @@ def handle_single_oc(ui, graph, drawGUI = False, gclass = None):
                     min_area = area_sum
                     min_graph = graph.graph_list[i]
                     min_area = area_sum
-
+                ui._append_output_data(graph.graph_list[i]) 
+                ui._set_multiple_output_found(1)
+        
         if not floorplan_found:
             print("No floorplan found which satisfies the minimum dimensions input by user.")
 
@@ -1392,7 +1385,6 @@ def handle_multiple_oc(ui, graph, drawGUI = False, gclass = None):
 
         for idx in range(len(graph.room_x)):
             graph_new = graph.graph_list[idx]
-            ui._append_output_data(graph_new)
             ui._set_dim_constraints([min_width, max_width, min_height, max_height, symm_string, min_aspect, max_aspect, plot_width, plot_height])
             gclass.ptpg = graph
             print_all_rfp = False
@@ -1403,6 +1395,7 @@ def handle_multiple_oc(ui, graph, drawGUI = False, gclass = None):
                 graph_new.final_traversal=inputgraph.get_final_traversal(graph_new)
                 if drawGUI:
                     drawFunction(ui, graph_new, origin, room_name, gclass = gclass)
+            ui._append_output_data(graph_new)
 
 def handle_poly(ui, graph, drawGUI = False, gclass = None):
     start = time.time()
