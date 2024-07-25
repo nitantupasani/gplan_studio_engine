@@ -142,7 +142,7 @@ def call_circulation_new(ui, graph_data, graph, coord, is_dimensioned, dim_const
         new_graph.room_width = room_width1
         new_graph.final_traversal = inputgraph.get_final_traversal(new_graph)
         if drawGUI:
-            drawFunction(ui, new_graph, origin, [], gclass=gclass)
+            drawFunction(ui, new_graph, origin,ui.get_roomNames(), gclass=gclass)
 
         # Now going back to flow of removing circulation
         corridors = circulation_obj.adjacency
@@ -591,7 +591,7 @@ def handle_circulation(ui, graph, drawGUI=False, gclass=None):
                 return
             new_graph.final_traversal = inputgraph.get_final_traversal(new_graph)
             if drawGUI:
-                drawFunction(ui, new_graph, origin, [], gclass=gclass)
+                drawFunction(ui, new_graph, origin,ui.get_roomNames(), gclass=gclass)
 
             feasible_dim = 1 #TODO AYush Check
             return
@@ -669,7 +669,7 @@ def handle_circulation(ui, graph, drawGUI=False, gclass=None):
         else:
             print(new_graph.final_traversal)
             if drawGUI:
-                drawFunction(ui, new_graph, origin, [], gclass=gclass)
+                drawFunction(ui, new_graph, origin,ui.get_roomNames(), gclass=gclass)
 
     elif (ui.get_isDimensionedCirculation() == 0 and ui.get_isPublic() == 1):
         public_private = True
@@ -691,7 +691,7 @@ def handle_circulation(ui, graph, drawGUI=False, gclass=None):
         else:
             new_graph.final_traversal = inputgraph.get_final_traversal(new_graph)
             if drawGUI:
-                drawFunction(ui, new_graph, origin - 300, [], gclass=gclass)
+                drawFunction(ui, new_graph, origin - 300, ui.get_roomNames(), gclass=gclass)
 
 def handle_single(ui, graph, drawGUI = False, gclass = None):
     if (ui.get_isDimensioned() == 0 and ui.get_isMinDimensioned() == 0 ):  # Non-Dimensioned single dual
@@ -702,7 +702,7 @@ def handle_single(ui, graph, drawGUI = False, gclass = None):
         ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
         graph.final_traversal = inputgraph.get_final_traversal(graph)
         if drawGUI:
-            drawFunction(ui, graph, origin, [], gclass=gclass)
+            drawFunction(ui, graph, origin,ui.get_roomNames(), gclass=gclass)
         ui._append_output_data(graph) #Keep OTUPUT DATA AT The END OTHERWISE Final Traversal would run twice
 
     elif (ui.get_isMinDimensioned() == 1):  # Minimum dimensioned floorplan
@@ -842,7 +842,7 @@ def handle_single(ui, graph, drawGUI = False, gclass = None):
         ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
         graph.final_traversal = inputgraph.get_final_traversal(graph)
         if drawGUI:
-            drawFunction(ui, graph, origin, [], gclass=gclass)
+            drawFunction(ui, graph, origin,ui.get_roomNames(), gclass=gclass)
 
 def handle_letter_shape(ui, graph, drawGUI = False, gclass = None, nodes_data = None):
     assert ui.get_letter is not None
@@ -861,7 +861,7 @@ def handle_letter_shape(ui, graph, drawGUI = False, gclass = None, nodes_data = 
         print("REL MATRIX \n", graph.matrix)
         graph.final_traversal=inputgraph.get_final_traversal(graph)
         if drawGUI:
-            drawFunction(ui, graph, origin, [], gclass = gclass)
+            drawFunction(ui, graph, origin,ui.get_roomNames(), gclass = gclass)
     else:
         old_dims = [[0] * ui.get_noOfNodes()
             , [0] * ui.get_noOfNodes()
@@ -942,7 +942,7 @@ def handle_staircase_shaped(ui, graph, drawGUI = False, gclass = None):
     end = time.time()
     graph.final_traversal=inputgraph.get_final_traversal(graph)
     if drawGUI:
-        drawFunction(ui, graph, origin, [], gclass = gclass)
+        drawFunction(ui, graph, origin, ui.get_roomNames(), gclass = gclass)
     return graph
 #
 def handle_multiple(ui, graph, gclass = None):
@@ -1404,7 +1404,7 @@ def handle_poly(ui, graph, drawGUI = False, gclass = None):
                         gclass.debugcano)
     end = time.time()
     if drawGUI:
-        drawFunction(ui, graph, origin, [], isPoly=True, gclass = gclass)
+        drawFunction(ui, graph, origin, ui.get_roomNames(), isPoly=True, gclass = gclass)
 
 
 def handle_limits(ui, graph, drawGUI = False, gclass = None):
@@ -1579,7 +1579,7 @@ def handle_limits(ui, graph, drawGUI = False, gclass = None):
         # new_graph.irreg_nodes1 = new_graph_data['irreg_nodes']
 
         if drawGUI:
-            drawFunction(ui, new_graph, origin, [], gclass = gclass)
+            drawFunction(ui, new_graph, origin, ui.get_roomNames(), gclass = gclass)
     else:
         print("Limit Exceeded")
         # show_warning(newCoordsInstance.error_message)
@@ -1860,7 +1860,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
         ui._append_output_data(graph)
         graph.final_traversal = inputgraph.get_final_traversal(graph)
         if drawGUI:
-            drawFunction(ui, graph, origin, [], gclass=gclass)
+            drawFunction(ui, graph, origin, ui.get_roomNames(), gclass=gclass)
     end = time.time()
     ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
 
