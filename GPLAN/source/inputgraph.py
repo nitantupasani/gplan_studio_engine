@@ -347,7 +347,7 @@ class InputGraph:
             """Checks if the given graph satisfies ptpg conditions or not.
 
             Args:
-                self
+                List of separating Triangles
 
             Returns:
                 True or false value
@@ -391,7 +391,7 @@ class InputGraph:
         self.coordinates = positions
         self.coordinates = [v for v in self.coordinates.values()]
         separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
-        print("Doing separating triangles lists test",separating_triangles1)
+        print("Doing separating triangles lists test 2:",separating_triangles1)
 
         if show_graph:
             plt.figure()

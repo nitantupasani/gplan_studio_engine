@@ -1854,13 +1854,123 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
         messagebox.showwarning("Warning",
                                   "The given graph is not PTPG.Currently using irregular correctness not garunteed.")
         # use irregular because not ptpg
-        graph.irreg_single_dual()
-        end = time.time()
-        ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
-        graph.final_traversal = inputgraph.get_final_traversal(graph)
-        if drawGUI:
-            drawFunction(ui, graph, origin, ui.get_roomNames(), gclass=gclass)
-        ui._append_output_data(graph)
+        if (ui.get_isDimensioned() == 0 and ui.get_isMinDimensioned() == 0 ):  # Non-Dimensioned single dual
+            graph.irreg_single_dual()
+            end = time.time()
+            ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
+            graph.final_traversal = inputgraph.get_final_traversal(graph)
+            if drawGUI:
+                drawFunction(ui, graph, origin, ui.get_roomNames(), gclass=gclass)
+            ui._append_output_data(graph)
+        elif (ui.get_isMinDimensioned() == 1):  # Minimum dimensioned floorplan
+            old_dims = [[3] * ui.get_noOfNodes()
+                , [3] * ui.get_noOfNodes()]
+
+            # If the graph came from an input file, the default values are set
+            if gclass.open and len(ui.get_dim_constraints()) > 0:
+                [old_min_width, old_min_height, plot_width, plot_height] = ui.get_dim_constraints()
+                print("Dim Constraints before old dims:", ui.get_dim_constraints())
+                for i in range(len(old_min_height)):
+                    old_dims[0][i] = old_min_width[i]
+                    old_dims[1][i] = old_min_height[i]
+                old_dims.extend([plot_width, plot_height])
+                gclass.open = False
+            min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(ui,old_dims,
+                                                                                                ui.get_noOfNodes(),
+                                                                                                ui.get_roomNames(), gclass)
+            ui._set_dim_constraints([min_width, min_height, plot_width, plot_height])
+
+            start = time.time()
+            graph.irreg_single_dual()
+            number_of_floorplans = graph.fpcnt
+            floorplan_found = False
+
+            # Resets the data already present for downloading catalogues
+            ui._set_output_data([])
+            ui._set_multiple_output_found(0)
+
+            floorplan_obj = input_for_min_dim.floorplan(ui.get_fptype(), ui.get_isDimensioned(),
+                                                        ui.get_isDimensionedCirculation(), ui.get_isRemoveAddCirculation(),
+                                                        ui.get_corridor_thickness())
+            enc_mat = get_encoded_matrix(ui.get_noOfNodes(), graph.room_x, graph.room_y, graph.room_width,
+                                        graph.room_height)
+            floorplan_data = floorplan_obj.get_floorplan_details(
+                ui.get_roomNames(), ui.get_roomColors(), ui.get_nodeCoordinates(), min_width, min_height, graph.room_x,
+                graph.room_y, graph.room_width, graph.room_height,
+                ui.get_edges(), enc_mat
+            )
+
+            # Storing the dummy merge nodes, and the irregular room they will be adjacent to
+            dummy_node_data = {'mergednodes': graph.mergednodes, 'irreg_nodes1': graph.irreg_nodes1,
+                            'irreg_nodes2': graph.irreg_nodes2,
+                            'dummy_node_adj': graph.dummy_node_adjacencies}
+            floorplan_data.update(dummy_node_data)
+
+            # If floorplan satisfying the given constraints is satisfied
+            [status, out_data] = min_dim.main(floorplan_data, plot_width, plot_height)
+            if status == True:
+                room_x = []
+                room_y = []
+                room_width = []
+                room_height = []
+                room_area = []
+                room_name = []
+                for room_detail in out_data["nodes"]:
+                    room_x.append(room_detail["room_x"])
+                    room_y.append(room_detail["room_y"])
+                    room_width.append(room_detail["width"])
+                    room_height.append(room_detail["height"])
+                    room_area.append(room_detail["width"] * room_detail["height"])
+
+                # Store the room labels if they have been entered
+                for room_id in range(len(out_data["nodes"])):
+                    if "label" not in out_data["nodes"][room_id]:
+                        room_name.append(str(room_id))
+                    else:
+                        room_name.append(out_data["nodes"][room_id]["label"])
+
+                room_x = np.array(room_x)
+                room_y = np.array(room_y)
+                room_width = np.array(room_width)
+                room_height = np.array(room_height)
+
+                graph.room_x = room_x
+                graph.room_y = room_y
+                graph.room_width = room_width
+                graph.room_height = room_height
+                graph.area = room_area
+
+                # graph_data = {
+                #     'room_x': room_x,
+                #     'room_y': room_y,
+                #     'room_width': room_width,
+                #     'room_height': room_height,
+                #     'area': room_area,
+                #     'extranodes': graph.extranodes,
+                #     'mergednodes': graph.mergednodes,
+                #     'irreg_nodes': graph.irreg_nodes1
+                # }
+
+                '''
+                Adds the graph data to output_data for downloading the catalogue and
+                multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
+                '''
+                graph.final_traversal = inputgraph.get_final_traversal(graph)
+                floorplan_found = True
+                if drawGUI:
+                    drawFunction(ui, graph, origin, room_name, gclass=gclass)
+                ui._append_output_data(graph)#Keep OTUPUT DATA AT The END OTHERWISE Final Traversal would run twice
+                ui._set_multiple_output_found(1)
+
+            if not floorplan_found:
+                print("No floorplan found which satisfies the minimum dimensions input by user.")
+
+            end = time.time()
+            ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
+
+            # Sets the ptpg object to the current graph to use for download catalogue and also stores the dimensional constraints of the graph
+            gclass.ptpg = graph
+        
     end = time.time()
     ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
 
