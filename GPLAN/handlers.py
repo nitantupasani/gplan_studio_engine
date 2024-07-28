@@ -385,7 +385,7 @@ def generate_mindim_rfp(ui, graph, gclass, min_width, min_height, plot_width, pl
                     'mergednodes': graph.graph_list[i].mergednodes,
                     'irreg_nodes': graph.graph_list[i].irreg_nodes1
                 }
-                ui._append_output_data(graph_data)
+                ui._append_output_data(graph_data)#Fix this almost certainly there would be error here
                 # ui._append_output_data(graph_data) No need for this because it was alread appended
                 break
 
@@ -413,7 +413,7 @@ def generate_mindim_rfp(ui, graph, gclass, min_width, min_height, plot_width, pl
             'mergednodes': graph.mergednodes,
             'irreg_nodes': graph.irreg_nodes1
         }
-        ui._append_output_data(graph_data)
+        ui._append_output_data(graph_data)#Fix this almost certainly there would be error here
 
 
 def plot(graph: nx.Graph, m: int) -> None:
@@ -1711,11 +1711,11 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         room_area.append(room_detail["width"] * room_detail["height"])
 
                     # Store the room labels if they have been entered
-                    for room_id in range(len(out_data["nodes"])):
-                        if "label" not in out_data["nodes"][room_id]:
-                            room_name.append(str(room_id))
-                        else:
-                            room_name.append(out_data["nodes"][room_id]["label"])
+                    # for room_id in range(len(out_data["nodes"])):
+                    #     if "label" not in out_data["nodes"][room_id]:
+                    #         room_name.append(str(room_id))
+                    #     else:
+                    #         room_name.append(out_data["nodes"][room_id]["label"])
 
                     graph.graph_list[i].room_x = room_x
                     graph.graph_list[i].room_y = room_y
@@ -1730,7 +1730,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         ui._append_output_data(graph.graph_list[i])
                         floorplan_found = True
                         if drawGUI:
-                            drawFunction(ui, graph.graph_list[i], origin, room_name, gclass=gclass)
+                            drawFunction(ui, graph.graph_list[i], origin, ui.get_roomNames(), gclass=gclass)
                         break
 
                     # Store graph data if graph area is less than current minimal area
@@ -1835,14 +1835,14 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
 
                 # graph.graph_list[min_graph].final_traversal=inputgraph.get_final_traversal(graph.graph_list[min_graph])
                 if drawGUI:
-                    drawFunction(ui, graph.graph_list[min_graph], origin, room_name, gclass=gclass)
+                    drawFunction(ui, graph.graph_list[min_graph], origin, ui.get_roomNames(), gclass=gclass)
 
             elif optimal_floorplan == 1: # Display floorplan with optimal area if required  
                 print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
 
                 # graph.graph_list[min_graph].final_traversal=inputgraph.get_final_traversal(graph.graph_list[min_graph])
                 if drawGUI:
-                    drawFunction(ui, graph.graph_list[min_graph], origin, room_name, gclass=gclass)
+                    drawFunction(ui, graph.graph_list[min_graph], origin, ui.get_roomNames(), gclass=gclass)
 
             end = time.time()
             ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
@@ -1857,10 +1857,10 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
         graph.irreg_single_dual()
         end = time.time()
         ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
-        ui._append_output_data(graph)
         graph.final_traversal = inputgraph.get_final_traversal(graph)
         if drawGUI:
             drawFunction(ui, graph, origin, ui.get_roomNames(), gclass=gclass)
+        ui._append_output_data(graph)
     end = time.time()
     ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
 
