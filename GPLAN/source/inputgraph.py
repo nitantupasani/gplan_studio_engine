@@ -756,6 +756,7 @@ class InputGraph:
                 if is_floorplan_limit_reached:
                     break
                 self.matrix = ptpg_matrices[cnt]
+                self.dummy_node_adjacencies = store_dummy_node_adjacencies(self.matrix)
                 self.nodecnt = self.matrix.shape[0]
                 self.edgecnt = int(np.count_nonzero(self.matrix == 1) / 2)
                 mergednodes = []
@@ -802,6 +803,7 @@ class InputGraph:
                         new_graph.irreg_nodes2= irreg_nodes2
                         new_graph.extranodes= extranodes
                         new_graph.nodecnt_list= self.nodecnt
+                        new_graph.dummy_node_adjacencies = self.dummy_node_adjacencies
                         self.graph_list.append(new_graph)
 
         else:
