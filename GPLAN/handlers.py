@@ -762,8 +762,8 @@ def handle_single(ui, graph, drawGUI = False, gclass = None):
                     if(graph.graph_list[i].matrix[merge_node][j] == 1):
                         node_min_width = max(node_min_width, floorplan_data['nodes'][j]['min_width'])
                         node_min_height = max(node_min_height,floorplan_data['nodes'][j]['min_height'])
-                floorplan_data['nodes'][merge_node]['min_width'] = node_min_width
-                floorplan_data['nodes'][merge_node]['min_height'] = node_min_height
+                floorplan_data['nodes'][merge_node]['min_width'] = node_min_width/2
+                floorplan_data['nodes'][merge_node]['min_height'] = node_min_height/2
 
             # If floorplan satisfying the given constraints is satisfied
             [status, out_data] = min_dim.main(floorplan_data, plot_width, plot_height)
