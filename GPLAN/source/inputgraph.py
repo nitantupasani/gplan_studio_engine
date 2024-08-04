@@ -347,7 +347,7 @@ class InputGraph:
             """Checks if the given graph satisfies ptpg conditions or not.
 
             Args:
-                self
+                List of separating Triangles
 
             Returns:
                 True or false value
@@ -391,7 +391,7 @@ class InputGraph:
         self.coordinates = positions
         self.coordinates = [v for v in self.coordinates.values()]
         separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
-        print("Doing separating triangles lists test",separating_triangles1)
+        print("Doing separating triangles lists test 2:",separating_triangles1)
 
         if show_graph:
             plt.figure()
@@ -756,6 +756,7 @@ class InputGraph:
                 if is_floorplan_limit_reached:
                     break
                 self.matrix = ptpg_matrices[cnt]
+                self.dummy_node_adjacencies = store_dummy_node_adjacencies(self.matrix)
                 self.nodecnt = self.matrix.shape[0]
                 self.edgecnt = int(np.count_nonzero(self.matrix == 1) / 2)
                 mergednodes = []
@@ -802,6 +803,7 @@ class InputGraph:
                         new_graph.irreg_nodes2= irreg_nodes2
                         new_graph.extranodes= extranodes
                         new_graph.nodecnt_list= self.nodecnt
+                        new_graph.dummy_node_adjacencies = self.dummy_node_adjacencies
                         self.graph_list.append(new_graph)
 
         else:

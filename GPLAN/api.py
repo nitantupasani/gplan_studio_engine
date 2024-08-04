@@ -113,7 +113,7 @@ class Documents:
         message = ""
         dim_parameters: DimParameters = None
         if minDimEnabled:
-            dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'], plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], isOptimalEnabled=dim_inputs['optimal_floorplan'])
+            dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'],max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], isOptimalEnabled=dim_inputs['optimal_floorplan'])
         elif dimensioned:
             dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'], max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], min_ratio=dim_inputs['min_ratio'], max_ratio=dim_inputs['max_ratio'], plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], symmetric=dim_inputs['symmetric'], isOptimalEnabled=dim_inputs['optimal_floorplan'])
         ui = GuiParameters(graph=graph).set_isDimensioned(dimensioned).set_isDimensionedCirculation(
@@ -206,7 +206,7 @@ class Documents:
                 handle_multiple(ui, graph)
             elif caller == "door_connectivity":
                 handle_door_connectivity(ui, graph)
-            elif gclass.command == "multiple_l":
+            elif caller == "multiple_l":
                 handle_multiple_l(ui, graph)
             else:
                 message = f"Support for {caller} Not yet Handled from Backend for Multiple Floorplan"
