@@ -5,7 +5,7 @@ import warnings
 
 from GPLAN.handlers import *
 from GPLAN.pythongui.GuiParameters import GuiParameters
-import math
+
 gclass: gui.gui_class
 ui: GuiParameters
 
