@@ -1696,9 +1696,10 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             areas = []
 
             # Iterate through all possible floorplans to find one which satisfies the given conditions
+            print("Total possible floorplans = ",number_of_floorplans)
             for i in range(number_of_floorplans):
-                print("Trying floorplan number", i + 1,
-                      "to see if minimum dimension floorplan can be constructed.")
+                # print("Trying floorplan number", i + 1,
+                #       "to see if minimum dimension floorplan can be constructed.")
                 floorplan_obj = input_for_min_dim.floorplan(ui.get_fptype(), ui.get_isDimensioned(),
                                                             ui.get_isDimensionedCirculation(), ui.get_isRemoveAddCirculation(),
                                                             ui.get_corridor_thickness())
@@ -1712,7 +1713,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     ui.get_edges(), enc_mat
                 )
 
-                print(floorplan_data)
+                # print(floorplan_data)
                 # input_path = "input_to_min_dim.json"
                 # json_data = json.dumps(floorplan_data, indent=2)
 
@@ -1793,9 +1794,10 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 areas = []
 
 
+                print("Total possible floorplans = ",number_of_floorplans)
                 for i in range(number_of_floorplans):
-                    print("Trying floorplan number", i + 1,
-                        "to see if minimum dimension floorplan can be constructed.")
+                    # print("Trying floorplan number", i + 1,
+                    #     "to see if minimum dimension floorplan can be constructed.")
                     floorplan_obj = input_for_min_dim.floorplan(ui.get_fptype(), ui.get_isDimensioned(),
                                                                 ui.get_isDimensionedCirculation(), ui.get_isRemoveAddCirculation(),
                                                                 ui.get_corridor_thickness())
@@ -1809,7 +1811,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         ui.get_edges(), enc_mat
                     )
 
-                    print(floorplan_data)
+                    # print(floorplan_data)
 
                     # If floorplan satisfying the given constraints is satisfied
                     [status, out_data] = min_dim.main(floorplan_data, 0, 0)
