@@ -706,21 +706,25 @@ def handle_single(ui, graph, drawGUI = False, gclass = None):
         ui._append_output_data(graph) #Keep OTUPUT DATA AT The END OTHERWISE Final Traversal would run twice
 
     elif (ui.get_isMinDimensioned() == 1):  # Minimum dimensioned floorplan
-        old_dims = [[3] * ui.get_noOfNodes()
-            , [3] * ui.get_noOfNodes()]
+        if(gclass is not None):
+            old_dims = [[3] * ui.get_noOfNodes()
+                , [3] * ui.get_noOfNodes()]
 
-        # If the graph came from an input file, the default values are set
-        if gclass.open and len(ui.get_dim_constraints()) > 0:
-            [old_min_width, old_min_height, plot_width, plot_height] = ui.get_dim_constraints()
-            print("Dim Constraints before old dims:", ui.get_dim_constraints())
-            for i in range(len(old_min_height)):
-                old_dims[0][i] = old_min_width[i]
-                old_dims[1][i] = old_min_height[i]
-            old_dims.extend([plot_width, plot_height])
-            gclass.open = False
-        min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(ui,old_dims,
-                                                                                              ui.get_noOfNodes(),
-                                                                                              ui.get_roomNames(), gclass)
+            # If the graph came from an input file, the default values are set
+            if gclass.open and len(ui.get_dim_constraints()) > 0:
+                [old_min_width, old_min_height, plot_width, plot_height] = ui.get_dim_constraints()
+                print("Dim Constraints before old dims:", ui.get_dim_constraints())
+                for i in range(len(old_min_height)):
+                    old_dims[0][i] = old_min_width[i]
+                    old_dims[1][i] = old_min_height[i]
+                old_dims.extend([plot_width, plot_height])
+                gclass.open = False
+            min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(ui,old_dims,
+                                                                                                ui.get_noOfNodes(),
+                                                                                                ui.get_roomNames(), gclass)
+        else:
+            min_width, min_height, plot_width, plot_height, optimal_floorplan = ui.min_dim_inputs.get_min_width(), ui.min_dim_inputs.get_min_height(), ui.min_dim_inputs.get_plot_width(), ui.min_dim_inputs.get_plot_height(), ui.min_dim_inputs.get_isOptimalEnabled()
+
         ui._set_dim_constraints([min_width, min_height, plot_width, plot_height])
 
         start = time.time()
@@ -838,7 +842,7 @@ def handle_single(ui, graph, drawGUI = False, gclass = None):
         ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
 
         # Sets the ptpg object to the current graph to use for download catalogue and also stores the dimensional constraints of the graph
-        gclass.ptpg = graph
+        # gclass.ptpg = graph#Look into this 
 
     else:  # Dimensioned single floorplan
         old_dims = [[0] * ui.get_noOfNodes()
@@ -952,6 +956,7 @@ def handle_multiple_l(ui, graph, gclass = None, nodes_data = None):
         start = time.time()
         Lshaped.multipleLshapedFloorplans(graph, nodes_data)
         end = time.time()
+        graph.fpcnt = len(graph.graph_list)
         ui.print_gui("Average Time taken: " + str(((end - start) * 1000) / graph.fpcnt) + " ms")
         ui.print_gui("Number of floorplans: " + str(graph.fpcnt))
 
@@ -1613,9 +1618,9 @@ def handle_limits(ui, graph, drawGUI = False, gclass = None):
 def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
     start = time.time()
     graph, checkPTPG = graph.door_connectivity(show_graph=drawGUI)
-    ui.set_edgeCount(graph.edgecnt)
-    ui.set_edges(graph.update_gclass_with_edges(gclass))
-    ui.set_nodeCoordinates(graph.coordinates)
+    # ui.set_edgeCount(graph.edgecnt)
+    # ui.set_edges(graph.update_gclass_with_edges(gclass))
+    # ui.set_nodeCoordinates(graph.coordinates)
     
     if (checkPTPG):
         print("PTPG going with RFP")
@@ -1628,11 +1633,11 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             except inputgraph.BCNError:
                 graph.irreg_single_dual()
 
-            temp_graph_data = {}
-            temp_graph_data["nodecnt"] = ui.get_noOfNodes()
-            temp_graph_data["edgecnt"] = ui.get_edgeCount()
-            temp_graph_data["edgeset"] = ui.get_edges()
-            temp_graph_data["node_coordinate"] = ui.get_nodeCoordinates()
+            # temp_graph_data = {}
+            # temp_graph_data["nodecnt"] = ui.get_noOfNodes()
+            # temp_graph_data["edgecnt"] = ui.get_edgeCount()
+            # temp_graph_data["edgeset"] = ui.get_edges()
+            # temp_graph_data["node_coordinate"] = ui.get_nodeCoordinates()
             graph_data = {
                 'room_x': graph.room_x,
                 'room_y': graph.room_y,
@@ -1644,11 +1649,11 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 'irreg_nodes': graph.irreg_nodes1
             }
 
-            for key, value in graph_data.items():
-                if isinstance(value, np.ndarray):
-                    temp_graph_data[key] = value.tolist()
-                else:
-                    temp_graph_data[key] = value
+            # for key, value in graph_data.items():
+            #     if isinstance(value, np.ndarray):
+            #         temp_graph_data[key] = value.tolist()
+            #     else:
+            #         temp_graph_data[key] = value
 
             end = time.time()
             ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
@@ -1660,21 +1665,24 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 drawFunction(ui, graph, origin, room_name, gclass=gclass)
 
         elif (ui.get_isMinDimensioned() == 1):  # Min dimension floorplan
-            old_dims = [[3] * ui.get_noOfNodes()
-                , [3] * ui.get_noOfNodes()]
+            if(gclass is not None):
+                old_dims = [[3] * ui.get_noOfNodes()
+                    , [3] * ui.get_noOfNodes()]
 
-            # If the graph came from an input file, the default values are set
-            if gclass.open and len(ui.get_dim_constraints()) > 0:
-                [old_min_width, old_min_height, plot_width, plot_height] = ui.get_dim_constraints()
-                print("Dim Constraints before old dims:", ui.get_dim_constraints())
-                for i in range(len(old_min_height)):
-                    old_dims[0][i] = old_min_width[i]
-                    old_dims[1][i] = old_min_height[i]
-                old_dims.extend([plot_width, plot_height])
-                gclass.open = False
-            min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(ui,old_dims,
-                                                                                                  ui.get_noOfNodes(),
-                                                                                                  ui.get_roomNames(), gclass)
+                # If the graph came from an input file, the default values are set
+                if gclass.open and len(ui.get_dim_constraints()) > 0:
+                    [old_min_width, old_min_height, plot_width, plot_height] = ui.get_dim_constraints()
+                    print("Dim Constraints before old dims:", ui.get_dim_constraints())
+                    for i in range(len(old_min_height)):
+                        old_dims[0][i] = old_min_width[i]
+                        old_dims[1][i] = old_min_height[i]
+                    old_dims.extend([plot_width, plot_height])
+                    gclass.open = False
+                min_width, min_height, plot_width, plot_height, optimal_floorplan = mindimgui.gui_fnc(ui,old_dims,
+                                                                                                    ui.get_noOfNodes(),
+                                                                                                    ui.get_roomNames(), gclass)
+            else:
+                min_width, min_height, plot_width, plot_height, optimal_floorplan = ui.min_dim_inputs.get_min_width(), ui.min_dim_inputs.get_min_height(), ui.min_dim_inputs.get_plot_width(), ui.min_dim_inputs.get_plot_height(), ui.min_dim_inputs.get_isOptimalEnabled()
             start = time.time()
             try:
                 graph.oneconnected_dual("multiple")
@@ -1876,7 +1884,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
             ui._set_multiple_output_found(1)
             
-            gclass.ptpg = graph
+            # gclass.ptpg = graph#FIX THIS
             ui._set_dim_constraints([min_width, min_height, plot_width, plot_height])
     else:
         messagebox.showwarning("Warning",

@@ -131,6 +131,7 @@ class InputGraph:
         self.rel_matrix_list = []
         self.floorplan_exist = False
         self.floorplan_limit = 50 # Maximum number of floorplans in multiple floorplans
+        self.floorplan_limit_undimensioned = 500
         self.fpcnt = 0
         self.coordinates = [np.array(x) for x in node_coordinates]
         self.dummy_node_adjacencies = set()
