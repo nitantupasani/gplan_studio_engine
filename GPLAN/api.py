@@ -102,7 +102,7 @@ class Documents:
 
     @staticmethod
     def get_floorplans(starting_from: int, count: int, caller, nodes_list: list, graph: InputGraph, rectangular: bool, corridor=False,
-                         dimensioned = False, dimensionedCirculation = False, minDimEnabled = False, removeAddCirculation = False, publicEnabled = False,normalize_const=40, limit=FLOORPLAN_LIMIT, corridor_thickness=None,documentID=None, name=None, dim_inputs={}):
+                         dimensioned = False, dimensionedCirculation = False, minDimEnabled = False, removeAddCirculation = False, publicEnabled = False,normalize_const=40, limit=FLOORPLAN_LIMIT, corridor_thickness=None,documentID=None, name=None, dim_inputs={},edges_list=[]):
         original_print = builtins.print
 
         def null_print(*args, **kwargs):
@@ -119,9 +119,12 @@ class Documents:
         ui = GuiParameters(graph=graph).set_isDimensioned(dimensioned).set_isDimensionedCirculation(
             dimensionedCirculation).set_isMinDimensioned(minDimEnabled).set_isRemoveAddCirculation(
             removeAddCirculation).set_isPublic(publicEnabled).set_min_dim_inputs(dim_parameters)
+        original_print(ui)
         documentID = str(uuid.uuid4()) if documentID is None else documentID
         name = "Untitled Document" if name is None else name
         ui.set_message("")
+        ui.set_fptype(caller)
+        ui.set_edges(edges_list)
         roomColors = []
         roomNames = []
         for node in nodes_list:
@@ -212,7 +215,7 @@ class Documents:
                 message = f"Support for {caller} Not yet Handled from Backend for Multiple Floorplan"
                 print(message)
         if count == 1:
-            outputData = [graph]
+            outputData = ui.get_output_data()
         elif count > 1:
             outputData = ui.get_output_data()
         offset = 0
