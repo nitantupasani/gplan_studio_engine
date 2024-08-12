@@ -696,6 +696,10 @@ def handle_circulation(ui, graph, drawGUI=False, gclass=None):
 def handle_single(ui, graph, drawGUI = False, gclass = None):
     if (ui.get_isDimensioned() == 0 and ui.get_isMinDimensioned() == 0 ):  # Non-Dimensioned single dual
         start = time.time()
+        # Resets the data already present for downloading catalogues
+        ui._set_output_data([])
+        ui._set_multiple_output_found(0)
+        
         graph.irreg_single_dual()
         ui.print_gui('Generated Single Irregular floorplan')
         end = time.time()
@@ -823,20 +827,21 @@ def handle_single(ui, graph, drawGUI = False, gclass = None):
                 if min_area < 0 or area_sum < min_area:
                     min_area = area_sum
                     min_graph = graph.graph_list[i]
+                    inputgraph.get_final_traversal(min_graph)
                     min_area = area_sum
-                ui._append_output_data(graph.graph_list[i])
-                ui._set_multiple_output_found(1)
+                # ui._append_output_data(graph.graph_list[i])
+                # ui._set_multiple_output_found(1)
 
         if not floorplan_found:
             print("No floorplan found which satisfies the minimum dimensions input by user.")
         elif optimal_floorplan == 1:
+            ui._append_output_data(min_graph)#Keep OTUPUT DATA AT The END OTHERWISE Final Traversal would run twice
+            ui._set_multiple_output_found(1)
             print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
             if drawGUI:
                 drawFunction(ui, min_graph, origin, room_name, gclass=gclass)
 
 
-        ui._append_output_data(graph)#Keep OTUPUT DATA AT The END OTHERWISE Final Traversal would run twice
-        ui._set_multiple_output_found(1)
         ui._set_dim_constraints([min_width, min_height, plot_width, plot_height])
         end = time.time()
         ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
@@ -979,14 +984,18 @@ def handle_staircase_shaped(ui, graph, drawGUI = False, gclass = None):
 def handle_multiple(ui, graph, gclass = None):
     if(ui.get_isDimensioned() == 0):#Non-Dimensioned multiple dual
         start = time.time()
+        # Resets the data already present for downloading catalogues
+        ui._set_output_data([])
+        ui._set_multiple_output_found(0)
+
         graph.irreg_multiple_dual()
         end = time.time()
         ui.print_gui("Average Time taken: " + str(((end - start) * 1000) / graph.fpcnt) + " ms")
         ui.print_gui("Number of floorplans: " + str(graph.fpcnt))
-        ui._set_multiple_output_found(1)
         for idx in range(graph.fpcnt):
             graph_new = graph.graph_list[idx]
-            ui._append_output_data(graph_new)
+            ui._append_output_data(graph_new)#Don't put get final travesal here
+            ui._set_multiple_output_found(1)
     else:#Dimensioned multiple floorplans
         old_dims = [[0] * ui.get_noOfNodes()
                     , [0] * ui.get_noOfNodes()
@@ -1005,7 +1014,7 @@ def handle_multiple(ui, graph, gclass = None):
         ui._set_multiple_output_found(1)
         for idx in range(len(graph.fpcnt)):
             graph_new = graph.graph_list[idx]
-            ui._append_output_data(graph_new)
+            ui._append_output_data(graph_new) 
 
 def handle_single_oc(ui, graph, drawGUI = False, gclass = None):
     if (ui.get_isDimensioned() == 0 and ui.get_isMinDimensioned() == 0):  # Non-Dimensioned single rectangular dual
@@ -1621,7 +1630,8 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
     # ui.set_edgeCount(graph.edgecnt)
     # ui.set_edges(graph.update_gclass_with_edges(gclass))
     # ui.set_nodeCoordinates(graph.coordinates)
-    
+    ui._set_output_data([])
+    ui._set_multiple_output_found(0)
     if (checkPTPG):
         print("PTPG going with RFP")
         if (ui.get_isMinDimensioned() == 0):  # Non-Dimensioned single rectangular dual
@@ -1638,16 +1648,16 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             # temp_graph_data["edgecnt"] = ui.get_edgeCount()
             # temp_graph_data["edgeset"] = ui.get_edges()
             # temp_graph_data["node_coordinate"] = ui.get_nodeCoordinates()
-            graph_data = {
-                'room_x': graph.room_x,
-                'room_y': graph.room_y,
-                'room_width': graph.room_width,
-                'room_height': graph.room_height,
-                'area': graph.area,
-                'extranodes': graph.extranodes,
-                'mergednodes': graph.mergednodes,
-                'irreg_nodes': graph.irreg_nodes1
-            }
+            # graph_data = {
+            #     'room_x': graph.room_x,
+            #     'room_y': graph.room_y,
+            #     'room_width': graph.room_width,
+            #     'room_height': graph.room_height,
+            #     'area': graph.area,
+            #     'extranodes': graph.extranodes,
+            #     'mergednodes': graph.mergednodes,
+            #     'irreg_nodes': graph.irreg_nodes1
+            # }
 
             # for key, value in graph_data.items():
             #     if isinstance(value, np.ndarray):
@@ -1661,6 +1671,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             if len(ui.get_roomNames()) > 0:
                 room_name = ui.get_roomNames()
             graph.final_traversal = inputgraph.get_final_traversal(graph)
+            ui._append_output_data(graph)
             if drawGUI:
                 drawFunction(ui, graph, origin, room_name, gclass=gclass)
 
@@ -1682,7 +1693,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                                                                                                     ui.get_noOfNodes(),
                                                                                                     ui.get_roomNames(), gclass)
             else:
-                min_width, min_height, plot_width, plot_height, optimal_floorplan = ui.min_dim_inputs.get_min_width(), ui.min_dim_inputs.get_min_height(), ui.min_dim_inputs.get_plot_width(), ui.min_dim_inputs.get_plot_height(), ui.min_dim_inputs.get_isOptimalEnabled()
+                min_width, min_height, plot_width, plot_height, optimal_floorplan,multiple_door = ui.min_dim_inputs.get_min_width(), ui.min_dim_inputs.get_min_height(), ui.min_dim_inputs.get_plot_width(), ui.min_dim_inputs.get_plot_height(), ui.min_dim_inputs.get_isOptimalEnabled(),ui.min_dim_inputs.get_multiple_door()
             start = time.time()
             try:
                 graph.oneconnected_dual("multiple")
@@ -1702,6 +1713,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             min_area = -1
             min_graph = None
             areas = []
+            areas_mapping = []
 
             # Iterate through all possible floorplans to find one which satisfies the given conditions
             print("Total possible floorplans = ",number_of_floorplans)
@@ -1771,10 +1783,10 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     # Store graph data if graph area is less than current minimal area
                     area_sum = sum(room_area)
                     areas.append(area_sum)
+                    areas_mapping.append((area_sum,i))
                     graph.graph_list[i].area = area_sum
+                    graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(graph.graph_list[i])
                     if min_area < 0 or area_sum < min_area:
-                        graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(
-                            graph.graph_list[i])
                         min_graph = i
                         min_area = area_sum
                     
@@ -1782,8 +1794,8 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     Adds the graph data to output_data for downloading the catalogue and
                     multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
                     '''
-                    ui._append_output_data(graph.graph_list[i])
-                    ui._set_multiple_output_found(1)
+                    # ui._append_output_data(graph.graph_list[i])
+                    # ui._set_multiple_output_found(1)
 
                     floorplan_found = True
 
@@ -1865,7 +1877,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
                         '''
                         ui._append_output_data(graph.graph_list[i])
-                        ui._set_multiple_output_found(1)
+                        # ui._set_multiple_output_found(1)
                     
                 print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
 
@@ -1875,14 +1887,18 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
 
             elif optimal_floorplan == 1: # Display floorplan with optimal area if required  
                 print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
-
+                ui._append_output_data(graph.graph_list[min_graph])
                 # graph.graph_list[min_graph].final_traversal=inputgraph.get_final_traversal(graph.graph_list[min_graph])
                 if drawGUI:
                     drawFunction(ui, graph.graph_list[min_graph], origin, ui.get_roomNames(), gclass=gclass)
-
+            elif multiple_door == 1:#Sort all the given floorplans based on area then append them at the end of the output list
+                areas_mapping.sort()#sort all areas
+                for floorplan in areas_mapping:
+                    ui._append_output_data(graph.graph_list[floorplan[1]])
+                    ui._set_multiple_output_found(1)
             end = time.time()
             ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
-            ui._set_multiple_output_found(1)
+            # ui._set_multiple_output_found(1)
             
             # gclass.ptpg = graph#FIX THIS
             ui._set_dim_constraints([min_width, min_height, plot_width, plot_height])

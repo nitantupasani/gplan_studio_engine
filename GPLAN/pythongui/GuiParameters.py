@@ -14,7 +14,8 @@ class DimParameters:
     __plot_width: float
     __symmetric: bool
     __isOptimalEnabled: int
-    def __init__(self, min_width, max_width, plot_height, plot_width,isOptimalEnabled,symmetric = False, min_height = [], max_height = [], min_ratio = [], max_ratio = []):
+    __is_multiple_door: bool
+    def __init__(self, min_width, max_width, plot_height, plot_width,isOptimalEnabled,symmetric = False, min_height = [], max_height = [], min_ratio = [], max_ratio = [],is_multiple_door=False):
         self.__isOptimalEnabled = isOptimalEnabled
         self.__min_width = min_width
         self.__max_width = max_width
@@ -24,7 +25,13 @@ class DimParameters:
         self.__max_height = max_height
         self.__min_ratio = min_ratio
         self.__max_ratio = max_ratio
-        self.__symmetric = symmetric
+        self.__is_multiple_door = is_multiple_door
+
+    def get_is_multiple_door(self):
+        return self.__is_multiple_door
+    
+    def set_is_multiple_door(self, value):
+        self.__is_multiple_door = value
 
     def get_isOptimalEnabled(self):
         return self.__isOptimalEnabled
