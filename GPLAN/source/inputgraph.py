@@ -787,12 +787,12 @@ class InputGraph:
                     g = nx.from_numpy_array(self.matrix, create_using=nx.DiGraph)
                     edgeset = g.edges()
                     
-                    new_graph = InputGraph(self.nodecnt, self.edgecnt, edgeset, self.coordinates)
 
 
                     start_time = time.time()
 
                     for i in rel_matrices:
+                        new_graph = InputGraph(self.nodecnt, self.edgecnt, edgeset, self.coordinates)
                         if self.fpcnt >= self.floorplan_limit:
                             is_floorplan_limit_reached = True
                             break
@@ -842,12 +842,12 @@ class InputGraph:
                 g = nx.from_numpy_array(self.matrix, create_using=nx.DiGraph)
                 edgeset = g.edges()
                 
-                new_graph = InputGraph(self.nodecnt, self.edgecnt, edgeset, self.coordinates)
                 
 
                 start_time = time.time()
 
                 for i in rel_matrices:
+                    new_graph = InputGraph(self.nodecnt, self.edgecnt, edgeset, self.coordinates)
                     if self.fpcnt >= self.floorplan_limit:
                         is_floorplan_limit_reached = True
                         break
