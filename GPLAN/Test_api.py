@@ -1,4 +1,6 @@
 from api import *
+false = False
+true = True
 
 def post(request, shape):
         starting_from: int = request.get('starting_from', 0)
@@ -93,156 +95,35 @@ def post(request, shape):
             dim_inputs=dim_inputs,
             edges_list=edges
         )
-
-        print(floorplans.to_dict())
+        # import pprint
+        # pprint.pprint(floorplans.to_dict())
 
 
 
 
 
 if __name__ == '__main__':
-    sample =   {
-    "starting_from": 0,
-    "count": 1,
-    "nodes": [
-        {
-        "id": 0,
-        "x": 540,
-        "y": 140,
-        "label": "1",
-        "color": "#1C4C82",
-        "width": {
-            "max": "none",
-            "min":  3
-        },
-        "height": {
-            "max": "none",
-            "min": 3 
-        },
-        "ratio": {
-            "max": "none",
-            "min": "none"
-        }
-        },
-        {
-        "id": 1,
-        "x": 360,
-        "y": 340,
-        "label": "2",
-        "color": "#1C4C82",
-        "width": {
-            "max": "none",
-            "min":  3
-        },
-        "height": {
-            "max": "none",
-            "min": 3 
-        },
-        "ratio": {
-            "max": "none",
-            "min": "none"
-        }
-        },
-        {
-        "id": 2,
-        "x": 440,
-        "y": 600,
-        "label": "3",
-        "color": "#1C4C82",
-        "width": {
-            "max": "none",
-            "min":  3
-        },
-        "height": {
-            "max": "none",
-            "min": 3 
-        },
-        "ratio": {
-            "max": "none",
-            "min": "none"
-        }
-        },
-        {
-        "id": 3,
-        "x": 580,
-        "y": 380,
-        "label": "4",
-        "color": "#1C4C82",
-        "width": {
-            "max": "none",
-            "min":  3
-        },
-        "height": {
-            "max": "none",
-            "min": 3 
-        },
-        "ratio": {
-            "max": "none",
-            "min": "none"
-        }
-        },
-        {
-        "id": 4,
-        "x": 320,
-        "y": 40,
-        "label": "5",
-        "color": "#1C4C82",
-        "width": {
-            "max": "none",
-            "min":  3
-        },
-        "height": {
-            "max": "none",
-            "min": 3 
-        },
-        "ratio": {
-            "max": "none",
-            "min": "none"
-        }
-        }
-    ],
-    "edges": [
-        {
-        "source": 3,
-        "target": 0
-        },
-        {
-        "source": 0,
-        "target": 1
-        },
-        {
-        "source": 1,
-        "target": 2
-        },
-        {
-        "source": 2,
-        "target": 3
-        },
-        {
-        "source": 1,
-        "target": 4
-        },
-        {
-        "source": 0,
-        "target": 4
-        },
-        {
-        "source": 3,
-        "target": 1
-        }
-    ],
-    "rectangular": False,
-    "corridor": False,
-    "dimensioned": False,
-    "dimensionedCirculation": False,
-    "minDimEnabled": True,
-    "removeAddCirculation": False,
-    "publicEnabled": False,
-    "normalizeConst": True,
-    "limit": 10,
-    "corridorThickness": 0.5,
-    "optimal_floorplan": 1
-    }
+    sample = {"rectangular":false,"corridor":false,"dimensioned":false,"dimensionedCirculation":false,"minDimEnabled":false,"removeAddCirculation":false,"publicEnabled":false,"normalizeConst":true,"limit":10,"corridorThickness":0.5,"starting_from":0,"count":2,"nodes":[{"id":0,"x":360,"y":240,"label":"1","color":"#1C4C82","width":{"max":"none","min":"none"},"height":{"max":"none","min":"none"},"ratio":{"max":"none","min":"none"}},{"id":1,"x":160,"y":600,"label":"2","color":"#1C4C82","width":{"max":"none","min":"none"},"height":{"max":"none","min":"none"},"ratio":{"max":"none","min":"none"}},{"id":2,"x":740,"y":620,"label":"3","color":"#1C4C82","width":{"max":"none","min":"none"},"height":{"max":"none","min":"none"},"ratio":{"max":"none","min":"none"}},{"id":3,"x":700,"y":240,"label":"4","color":"#1C4C82","width":{"max":"none","min":"none"},"height":{"max":"none","min":"none"},"ratio":{"max":"none","min":"none"}}],"edges":[{"source":2,"target":0},{"source":0,"target":1},{"source":1,"target":2},{"source":3,"target":0},{"source":3,"target":2}]}
+    # sample = {"rectangular":False,
+    #           "corridor":False,
+    #           "dimensioned":False,
+    #           "dimensionedCirculation":False,
+    #           "minDimEnabled":False,
+    #           "removeAddCirculation":False,
+    #           "publicEnabled":False,
+    #           "normalizeConst":True,
+    #           "limit":10,
+    #           "corridorThickness":0.5,
+    #           "starting_from":0,
+    #           "count":2,
+    #           "optimal_floorplan": 0,
+    #           "nodes":[{"id":0,"x":200,"y":140,"label":"1","color":"#1C4C82","width":{"max":"none","min":"none"},"height":{"max":"none","min":"none"},"ratio":{"max":"none","min":"none"}},
+    #                    {"id":1,"x":160,"y":540,"label":"2","color":"#1C4C82","width":{"max":"none","min":"none"},"height":{"max":"none","min":"none"},"ratio":{"max":"none","min":"none"}},
+    #                    {"id":2,"x":620,"y":180,"label":"3","color":"#1C4C82","width":{"max":"none","min":"none"},"height":{"max":"none","min":"none"},"ratio":{"max":"none","min":"none"}},
+    #                    {"id":3,"x":640,"y":600,"label":"4","color":"#1C4C82","width":{"max":"none","min":"none"},"height":{"max":"none","min":"none"},"ratio":{"max":"none","min":"none"}},
+    #                    {"id":4,"x":340,"y":760,"label":"5","color":"#1C4C82","width":{"max":"none","min":"none"},"height":{"max":"none","min":"none"},"ratio":{"max":"none","min":"none"}},
+    #                    {"id":5,"x":380,"y":400,"label":"6","color":"#1C4C82","width":{"max":"none","min":"none"},"height":{"max":"none","min":"none"},"ratio":{"max":"none","min":"none"}}],
+    #                    "edges":[{"source":4,"target":1},{"source":1,"target":0},{"source":0,"target":2},{"source":2,"target":3},{"source":3,"target":4},{"source":5,"target":2},{"source":5,"target":0}]}
 
 
     post(sample,'irregular')
