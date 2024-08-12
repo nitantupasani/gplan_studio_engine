@@ -14,8 +14,7 @@ class DimParameters:
     __plot_width: float
     __symmetric: bool
     __isOptimalEnabled: int
-    __is_multiple_door: bool
-    def __init__(self, min_width, max_width, plot_height, plot_width,isOptimalEnabled,symmetric = False, min_height = [], max_height = [], min_ratio = [], max_ratio = [],is_multiple_door=False):
+    def __init__(self, min_width, max_width, plot_height, plot_width,isOptimalEnabled,symmetric = False, min_height = [], max_height = [], min_ratio = [], max_ratio = []):
         self.__isOptimalEnabled = isOptimalEnabled
         self.__min_width = min_width
         self.__max_width = max_width
@@ -25,13 +24,7 @@ class DimParameters:
         self.__max_height = max_height
         self.__min_ratio = min_ratio
         self.__max_ratio = max_ratio
-        self.__is_multiple_door = is_multiple_door
 
-    def get_is_multiple_door(self):
-        return self.__is_multiple_door
-    
-    def set_is_multiple_door(self, value):
-        self.__is_multiple_door = value
 
     def get_isOptimalEnabled(self):
         return self.__isOptimalEnabled
@@ -115,6 +108,7 @@ class GuiParameters:
     __letter: str
     __corridor_thickness: float
     __message: str = ""
+    __is_multiple_door: bool
     output_data: list = []
     min_dim_inputs: DimParameters = None
 
@@ -290,6 +284,14 @@ class GuiParameters:
             return self.get_gclass().dimensional_constraints
         return None
 
+    def get_is_multiple_door(self):
+        return self.__is_multiple_door
+    
+    def set_is_multiple_door(self, is_multiple_door):
+        self.__is_multiple_door = is_multiple_door
+        return self
+
+
     def __init__(self, gclass = None, graph = None):
         if gclass is not None:
             self.set_gclass(gclass)
@@ -310,6 +312,7 @@ class GuiParameters:
             self.set_corridor_thickness(gclass.corridor_thickness)
             self.set_message("")
             self.set_command(gclass.command)
+            self.set_is_multiple_door(False)#Change this later on to take input from GUI
 
             self.output_data = []
         

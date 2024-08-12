@@ -1560,7 +1560,7 @@ def handle_limits(ui, graph, drawGUI = False, gclass = None):
             , ui.get_edgeCount()
             , ui.get_edges()
             , ui.get_nodeCoordinates())
-        ui.set_graph(new_graph)
+        ui.set_graph(new_graph) 
 
         for i in range(len(old_unchanged_coordinates)):
             if(i==gclass.room_limits):
@@ -1693,7 +1693,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                                                                                                     ui.get_noOfNodes(),
                                                                                                     ui.get_roomNames(), gclass)
             else:
-                min_width, min_height, plot_width, plot_height, optimal_floorplan,multiple_door = ui.min_dim_inputs.get_min_width(), ui.min_dim_inputs.get_min_height(), ui.min_dim_inputs.get_plot_width(), ui.min_dim_inputs.get_plot_height(), ui.min_dim_inputs.get_isOptimalEnabled(),ui.min_dim_inputs.get_multiple_door()
+                min_width, min_height, plot_width, plot_height, optimal_floorplan,multiple_door = ui.min_dim_inputs.get_min_width(), ui.min_dim_inputs.get_min_height(), ui.min_dim_inputs.get_plot_width(), ui.min_dim_inputs.get_plot_height(), ui.min_dim_inputs.get_isOptimalEnabled(),ui.get_is_multiple_door()
             start = time.time()
             try:
                 graph.oneconnected_dual("multiple")
@@ -1885,7 +1885,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 if drawGUI:
                     drawFunction(ui, graph.graph_list[min_graph], origin, ui.get_roomNames(), gclass=gclass)
 
-            elif optimal_floorplan == 1: # Display floorplan with optimal area if required  
+            elif optimal_floorplan == 1 and multiple_door is not True: # Display floorplan with optimal area if required  
                 print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
                 ui._append_output_data(graph.graph_list[min_graph])
                 # graph.graph_list[min_graph].final_traversal=inputgraph.get_final_traversal(graph.graph_list[min_graph])

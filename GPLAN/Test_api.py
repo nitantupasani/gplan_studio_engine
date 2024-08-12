@@ -4,7 +4,7 @@ true = True
 
 def post(request, shape):
         starting_from: int = request.get('starting_from', 0)
-        count: int = request.get('count', 0)
+        count: int = request.get('count', 1)
 
         nodes_list: list = request.get('nodes', [])
         edges_list: list = request.get('edges', [])
@@ -72,7 +72,7 @@ def post(request, shape):
             dim_inputs['plot_width'] = request.get('plot_width', 0)
             dim_inputs['plot_height'] = request.get('plot_height', 0)
             dim_inputs['symmetric'] = request.get('symmetric', False)
-            dim_inputs['optimal_floorplan'] = request.get('optimal_floorplan', 0)  # Default is set
+            dim_inputs['optimal_floorplan'] = request.get('optimal_floorplan', True)  # Default is set
 
         floorplans, message = Documents.get_floorplans(
             starting_from=starting_from,
@@ -95,15 +95,16 @@ def post(request, shape):
             dim_inputs=dim_inputs,
             edges_list=edges
         )
-        # import pprint
-        # pprint.pprint(floorplans.to_dict())
+        import pprint
+        pprint.pprint(floorplans.to_dict())
+        pprint.pp(f"MESSAGE: {message}")
 
 
 
 
 
 if __name__ == '__main__':
-    sample = {"rectangular":false,"corridor":false,"dimensioned":false,"dimensionedCirculation":false,"minDimEnabled":false,"removeAddCirculation":false,"publicEnabled":false,"normalizeConst":true,"limit":10,"corridorThickness":0.5,"starting_from":0,"count":2,"nodes":[{"id":0,"x":360,"y":240,"label":"1","color":"#1C4C82","width":{"max":"none","min":"none"},"height":{"max":"none","min":"none"},"ratio":{"max":"none","min":"none"}},{"id":1,"x":160,"y":600,"label":"2","color":"#1C4C82","width":{"max":"none","min":"none"},"height":{"max":"none","min":"none"},"ratio":{"max":"none","min":"none"}},{"id":2,"x":740,"y":620,"label":"3","color":"#1C4C82","width":{"max":"none","min":"none"},"height":{"max":"none","min":"none"},"ratio":{"max":"none","min":"none"}},{"id":3,"x":700,"y":240,"label":"4","color":"#1C4C82","width":{"max":"none","min":"none"},"height":{"max":"none","min":"none"},"ratio":{"max":"none","min":"none"}}],"edges":[{"source":2,"target":0},{"source":0,"target":1},{"source":1,"target":2},{"source":3,"target":0},{"source":3,"target":2}]}
+    sample = {"rectangular":false,"corridor":false,"dimensioned":false,"dimensionedCirculation":false,"minDimEnabled":true,"removeAddCirculation":false,"publicEnabled":false,"normalizeConst":true,"limit":10,"corridorThickness":0.5,"starting_from":0,"count":3,"nodes":[{"id":0,"x":360,"y":240,"label":"1","color":"#1C4C82","width":{"max":"none","min":3},"height":{"max":"none","min":3},"ratio":{"max":"none","min":"none"}},{"id":1,"x":160,"y":600,"label":"2","color":"#1C4C82","width":{"max":"none","min":3},"height":{"max":"none","min":3},"ratio":{"max":"none","min":"none"}},{"id":2,"x":740,"y":620,"label":"3","color":"#1C4C82","width":{"max":"none","min":3},"height":{"max":"none","min":3},"ratio":{"max":"none","min":"none"}},{"id":3,"x":700,"y":240,"label":"4","color":"#1C4C82","width":{"max":"none","min":3},"height":{"max":"none","min":3},"ratio":{"max":"none","min":"none"}}],"edges":[{"source":2,"target":0},{"source":0,"target":1},{"source":1,"target":2},{"source":3,"target":0},{"source":3,"target":2}]}
     # sample = {"rectangular":False,
     #           "corridor":False,
     #           "dimensioned":False,
@@ -117,13 +118,13 @@ if __name__ == '__main__':
     #           "starting_from":0,
     #           "count":2,
     #           "optimal_floorplan": 0,
-    #           "nodes":[{"id":0,"x":200,"y":140,"label":"1","color":"#1C4C82","width":{"max":"none","min":"none"},"height":{"max":"none","min":"none"},"ratio":{"max":"none","min":"none"}},
-    #                    {"id":1,"x":160,"y":540,"label":"2","color":"#1C4C82","width":{"max":"none","min":"none"},"height":{"max":"none","min":"none"},"ratio":{"max":"none","min":"none"}},
-    #                    {"id":2,"x":620,"y":180,"label":"3","color":"#1C4C82","width":{"max":"none","min":"none"},"height":{"max":"none","min":"none"},"ratio":{"max":"none","min":"none"}},
-    #                    {"id":3,"x":640,"y":600,"label":"4","color":"#1C4C82","width":{"max":"none","min":"none"},"height":{"max":"none","min":"none"},"ratio":{"max":"none","min":"none"}},
-    #                    {"id":4,"x":340,"y":760,"label":"5","color":"#1C4C82","width":{"max":"none","min":"none"},"height":{"max":"none","min":"none"},"ratio":{"max":"none","min":"none"}},
-    #                    {"id":5,"x":380,"y":400,"label":"6","color":"#1C4C82","width":{"max":"none","min":"none"},"height":{"max":"none","min":"none"},"ratio":{"max":"none","min":"none"}}],
+    #           "nodes":[{"id":0,"x":200,"y":140,"label":"1","color":"#1C4C82","width":{"max":"none","min":3},"height":{"max":"none","min":3},"ratio":{"max":"none","min":"none"}},
+    #                    {"id":1,"x":160,"y":540,"label":"2","color":"#1C4C82","width":{"max":"none","min":3},"height":{"max":"none","min":3},"ratio":{"max":"none","min":"none"}},
+    #                    {"id":2,"x":620,"y":180,"label":"3","color":"#1C4C82","width":{"max":"none","min":3},"height":{"max":"none","min":3},"ratio":{"max":"none","min":"none"}},
+    #                    {"id":3,"x":640,"y":600,"label":"4","color":"#1C4C82","width":{"max":"none","min":3},"height":{"max":"none","min":3},"ratio":{"max":"none","min":"none"}},
+    #                    {"id":4,"x":340,"y":760,"label":"5","color":"#1C4C82","width":{"max":"none","min":3},"height":{"max":"none","min":3},"ratio":{"max":"none","min":"none"}},
+    #                    {"id":5,"x":380,"y":400,"label":"6","color":"#1C4C82","width":{"max":"none","min":3},"height":{"max":"none","min":3},"ratio":{"max":"none","min":"none"}}],
     #                    "edges":[{"source":4,"target":1},{"source":1,"target":0},{"source":0,"target":2},{"source":2,"target":3},{"source":3,"target":4},{"source":5,"target":2},{"source":5,"target":0}]}
 
 
-    post(sample,'irregular')
+    post(sample,'door_connectivity')

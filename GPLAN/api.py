@@ -113,7 +113,7 @@ class Documents:
         message = ""
         dim_parameters: DimParameters = None
         if minDimEnabled:
-            dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'],max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], isOptimalEnabled=dim_inputs['optimal_floorplan'],is_multiple_door=bool(count > 1))
+            dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'],max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], isOptimalEnabled=dim_inputs['optimal_floorplan'])
         elif dimensioned:
             dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'], max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], min_ratio=dim_inputs['min_ratio'], max_ratio=dim_inputs['max_ratio'], plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], symmetric=dim_inputs['symmetric'], isOptimalEnabled=dim_inputs['optimal_floorplan'])
         ui = GuiParameters(graph=graph).set_isDimensioned(dimensioned).set_isDimensionedCirculation(
@@ -208,7 +208,9 @@ class Documents:
             elif caller == 'irregular':
                 handle_multiple(ui, graph)
             elif caller == "door_connectivity":
+                ui.set_is_multiple_door(True)
                 handle_door_connectivity(ui, graph)
+                message = 'Generated Multiple Door connectivity floorplan.'+ ui.get_message()
             elif caller == "multiple_l":
                 handle_multiple_l(ui, graph)
             else:
