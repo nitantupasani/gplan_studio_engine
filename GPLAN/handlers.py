@@ -1910,17 +1910,31 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             messagebox.showwarning("Warning",
                                       "The given graph is not PTPG.Currently using irregular correctness not garunteed.")
         else:
+            multiple_door = ui.get_is_multiple_door()
             pass#Later on return the error message to front
 
         # use irregular because not ptpg
         if (ui.get_isDimensioned() == 0 and ui.get_isMinDimensioned() == 0 ):  # Non-Dimensioned single dual
-            graph.irreg_single_dual()
-            end = time.time()
-            ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
-            graph.final_traversal = inputgraph.get_final_traversal(graph)
-            if drawGUI:
-                drawFunction(ui, graph, origin, ui.get_roomNames(), gclass=gclass)
-            ui._append_output_data(graph)
+            if not multiple_door :
+                graph.irreg_single_dual()
+                end = time.time()
+                ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
+                graph.final_traversal = inputgraph.get_final_traversal(graph)
+                if drawGUI:
+                    drawFunction(ui, graph, origin, ui.get_roomNames(), gclass=gclass)
+                ui._append_output_data(graph)
+            else:
+                ui._set_output_data([])
+                ui._set_multiple_output_found(0)
+
+                graph.irreg_multiple_dual()
+                end = time.time()
+                ui.print_gui("Average Time taken: " + str(((end - start) * 1000) / graph.fpcnt) + " ms")
+                ui.print_gui("Number of floorplans: " + str(graph.fpcnt))
+                for idx in range(graph.fpcnt):
+                    graph_new = graph.graph_list[idx]
+                    ui._append_output_data(graph_new)#Don't put get final travesal here
+                    ui._set_multiple_output_found(1)
         elif (ui.get_isMinDimensioned() == 1):  # Minimum dimensioned floorplan
             old_dims = [[3] * ui.get_noOfNodes()
                 , [3] * ui.get_noOfNodes()]

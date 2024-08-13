@@ -105,7 +105,159 @@ def post(request, shape):
 
 if __name__ == '__main__':
     sample = {"rectangular":false,"corridor":false,"dimensioned":false,"dimensionedCirculation":false,"minDimEnabled":false,"removeAddCirculation":false,"publicEnabled":false,"normalizeConst":true,"limit":10,"corridorThickness":0.5,"starting_from":0,"count":3,
-              "nodes":[{"id":0,"x":360,"y":240,"label":"1","color":"#1C4C82","width":{"max":"none","min":3},"height":{"max":"none","min":3},"ratio":{"max":"none","min":"none"}},{"id":1,"x":160,"y":600,"label":"2","color":"#1C4C82","width":{"max":"none","min":3},"height":{"max":"none","min":3},"ratio":{"max":"none","min":"none"}},{"id":2,"x":740,"y":620,"label":"3","color":"#1C4C82","width":{"max":"none","min":3},"height":{"max":"none","min":3},"ratio":{"max":"none","min":"none"}},{"id":3,"x":700,"y":240,"label":"4","color":"#1C4C82","width":{"max":"none","min":3},"height":{"max":"none","min":3},"ratio":{"max":"none","min":"none"}}],
-              "edges":[{"source":2,"target":0},{"source":0,"target":1},{"source":1,"target":2},{"source":3,"target":0},{"source":3,"target":2}]}
+              "nodes":[
+            {
+                "id": 0,
+                "x": 400,
+                "y": 180,
+                "label": "1",
+                "color": "#1C4C82",
+                "width": {
+                "max": "none",
+                "min": "none"
+                },
+                "height": {
+                "max": "none",
+                "min": "none"
+                },
+                "ratio": {
+                "max": "none",
+                "min": "none"
+                }
+            },
+            {
+                "id": 1,
+                "x": 80,
+                "y": 660,
+                "label": "2",
+                "color": "#1C4C82",
+                "width": {
+                "max": "none",
+                "min": "none"
+                },
+                "height": {
+                "max": "none",
+                "min": "none"
+                },
+                "ratio": {
+                "max": "none",
+                "min": "none"
+                }
+            },
+            {
+                "id": 2,
+                "x": 700,
+                "y": 680,
+                "label": "3",
+                "color": "#1C4C82",
+                "width": {
+                "max": "none",
+                "min": "none"
+                },
+                "height": {
+                "max": "none",
+                "min": "none"
+                },
+                "ratio": {
+                "max": "none",
+                "min": "none"
+                }
+            },
+            {
+                "id": 3,
+                "x": 400,
+                "y": 400,
+                "label": "4",
+                "color": "#1C4C82",
+                "width": {
+                "max": "none",
+                "min": "none"
+                },
+                "height": {
+                "max": "none",
+                "min": "none"
+                },
+                "ratio": {
+                "max": "none",
+                "min": "none"
+                }
+            },
+            {
+                "id": 4,
+                "x": 320,
+                "y": 520,
+                "label": "5",
+                "color": "#1C4C82",
+                "width": {
+                "max": "none",
+                "min": "none"
+                },
+                "height": {
+                "max": "none",
+                "min": "none"
+                },
+                "ratio": {
+                "max": "none",
+                "min": "none"
+                }
+            },
+            {
+                "id": 5,
+                "x": 520,
+                "y": 540,
+                "label": "6",
+                "color": "#1C4C82",
+                "width": {
+                "max": "none",
+                "min": "none"
+                },
+                "height": {
+                "max": "none",
+                "min": "none"
+                },
+                "ratio": {
+                "max": "none",
+                "min": "none"
+                }
+            }
+            ],
+              "edges":[
+            {
+                "source": 5,
+                "target": 3
+            },
+            {
+                "source": 3,
+                "target": 4
+            },
+            {
+                "source": 4,
+                "target": 5
+            },
+            {
+                "source": 5,
+                "target": 2
+            },
+            {
+                "source": 2,
+                "target": 0
+            },
+            {
+                "source": 0,
+                "target": 1
+            },
+            {
+                "source": 1,
+                "target": 2
+            },
+            {
+                "source": 4,
+                "target": 1
+            },
+            {
+                "source": 3,
+                "target": 0
+            }
+            ]}
 
     post(sample,'door_connectivity')
