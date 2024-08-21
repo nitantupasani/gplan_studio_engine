@@ -104,7 +104,7 @@ def post(request, shape):
 
 
 if __name__ == '__main__':
-    sample = {"rectangular":false,"corridor":false,"dimensioned":false,"dimensionedCirculation":false,"minDimEnabled":false,"removeAddCirculation":false,"publicEnabled":false,"normalizeConst":true,"limit":10,"corridorThickness":0.5,"starting_from":0,"count":3,
+    sample = {"rectangular":false,"corridor":false,"dimensioned":false,"dimensionedCirculation":false,"minDimEnabled":true,"removeAddCirculation":false,"publicEnabled":false,"normalizeConst":true,"limit":10,"corridorThickness":0.5,"starting_from":0,"count":3,
               "nodes":[
             {
                 "id": 0,
@@ -114,11 +114,11 @@ if __name__ == '__main__':
                 "color": "#1C4C82",
                 "width": {
                 "max": "none",
-                "min": "none"
+                "min": 3
                 },
                 "height": {
                 "max": "none",
-                "min": "none"
+                "min": 3
                 },
                 "ratio": {
                 "max": "none",
@@ -133,11 +133,11 @@ if __name__ == '__main__':
                 "color": "#1C4C82",
                 "width": {
                 "max": "none",
-                "min": "none"
+                "min": 3
                 },
                 "height": {
                 "max": "none",
-                "min": "none"
+                "min": 3
                 },
                 "ratio": {
                 "max": "none",
@@ -152,11 +152,11 @@ if __name__ == '__main__':
                 "color": "#1C4C82",
                 "width": {
                 "max": "none",
-                "min": "none"
+                "min": 3
                 },
                 "height": {
                 "max": "none",
-                "min": "none"
+                "min": 3
                 },
                 "ratio": {
                 "max": "none",
@@ -171,11 +171,11 @@ if __name__ == '__main__':
                 "color": "#1C4C82",
                 "width": {
                 "max": "none",
-                "min": "none"
+                "min": 3
                 },
                 "height": {
                 "max": "none",
-                "min": "none"
+                "min": 3
                 },
                 "ratio": {
                 "max": "none",
@@ -190,11 +190,11 @@ if __name__ == '__main__':
                 "color": "#1C4C82",
                 "width": {
                 "max": "none",
-                "min": "none"
+                "min": 3
                 },
                 "height": {
                 "max": "none",
-                "min": "none"
+                "min": 3
                 },
                 "ratio": {
                 "max": "none",
@@ -209,11 +209,11 @@ if __name__ == '__main__':
                 "color": "#1C4C82",
                 "width": {
                 "max": "none",
-                "min": "none"
+                "min": 3
                 },
                 "height": {
                 "max": "none",
-                "min": "none"
+                "min": 3
                 },
                 "ratio": {
                 "max": "none",
