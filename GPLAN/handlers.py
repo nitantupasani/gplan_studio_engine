@@ -1627,9 +1627,9 @@ def handle_limits(ui, graph, drawGUI = False, gclass = None):
 def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
     start = time.time()
     graph, checkPTPG = graph.door_connectivity(show_graph=drawGUI)
-    # ui.set_edgeCount(graph.edgecnt)
-    # ui.set_edges(graph.update_gclass_with_edges(gclass))
-    # ui.set_nodeCoordinates(graph.coordinates)
+    ui.set_edgeCount(graph.edgecnt)
+    ui.set_edges(graph.update_gclass_with_edges(gclass))
+    ui.set_nodeCoordinates(graph.coordinates)
     multiple_door = False
     ui._set_output_data([])
     ui._set_multiple_output_found(0)

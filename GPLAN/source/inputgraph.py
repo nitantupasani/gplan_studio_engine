@@ -362,7 +362,7 @@ class InputGraph:
         separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
         print("Doing separating triangles lists test",separating_triangles1)
 
-        one_connected = copy.deepcopy(self.matrix)
+        # one_connected = copy.deepcopy(self.matrix)
         ptpg_matrices, extra_nodes,final_positions = st.handle_STs_with_edge_selection(one_connected, self.matrix, positions)
         self.coordinates = final_positions
         self.coordinates = [v for v in self.coordinates.values()]
