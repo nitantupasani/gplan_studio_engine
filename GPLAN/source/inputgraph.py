@@ -705,6 +705,7 @@ class InputGraph:
             self.rel_matrix_list = [np.array(
                 [[0, 3, 2, 0, 0, 0], [0, 0, 2, 3, 0, 0], [0, 0, 0, 1, 0, 1], [0, 0, 1, 0, 1, 0], [2, 2, 0, 1, 0, 1],
                  [3, 0, 1, 0, 1, 0]])]
+            self.graph_list.append(self)
             return
         bcn_edges = []
         if (not bcn.is_biconnected(self.matrix)):
@@ -1065,11 +1066,11 @@ class InputGraph:
 
             for i in range(len(idx)):
                 rel_matrix = graph.rel_matrix_list[idx[i]]
-                encoded_matrix = opr.get_encoded_matrix(rel_matrix.shape[0] - 4
-                                                        , graph.room_x[idx[i]]
-                                                        , graph.room_y[idx[i]]
-                                                        , graph.room_width[idx[i]]
-                                                        , graph.room_height[idx[i]])
+                encoded_matrix = opr.get_encoded_matrix(rel_matrix.shape[0] - 4,
+                                                        graph.graph_list[idx[i]].room_x,
+                                                        graph.graph_list[idx[i]].room_y,
+                                                        graph.graph_list[idx[i]].room_width,
+                                                        graph.graph_list[idx[i]].room_height)
                 rows = encoded_matrix.shape[0]
                 cols = encoded_matrix.shape[1]
 
