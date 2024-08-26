@@ -161,6 +161,29 @@ class InputGraph:
         return wrapper
 
     @timing_decorator
+
+
+    def is_connected(self):
+        def dfs(node, visited):
+            visited[node] = True
+            for neighbor, is_connected in enumerate(self.matrix[node]):
+                if is_connected and not visited[neighbor]:
+                    dfs(neighbor, visited)
+
+        n = len(self.matrix)  # Number of vertices
+        visited = [False] * n
+
+        # Start DFS from the first vertex
+        dfs(0, visited)
+
+        # Check if all vertices are visited
+        connected = all(visited)
+        if connected:
+            print("Graph is connected.")
+        else:
+            print("Graph is not connected.")
+        return connected
+
     def irreg_single_dual(self):
         """Generates an irregular single dual for a given input graph.
 

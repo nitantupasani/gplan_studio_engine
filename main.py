@@ -24,6 +24,9 @@ def run():
                                           , ui.get_edges()
                                           , ui.get_nodeCoordinates())
             ui.set_graph(graph)
+            if not graph.is_connected():#Check if the graph is connected or not
+                gclass.command = 'not_connected'
+                
             origin = 0
             if gclass.command == "circulation":
                 handle_circulation(ui, graph, True, gclass)
@@ -47,6 +50,8 @@ def run():
                 handle_limits(ui, graph, True, gclass)
             elif gclass.command == "door_connectivity":
                 handle_door_connectivity(ui, graph, True, gclass)
+            elif gclass.command == "not_connected":
+                pass
             # gclass.time_taken = (end - start) * 1000
             gclass.num_rfp = len(graph.graph_list)
             gclass.pdf_colors = ui.get_roomColors()[0]
