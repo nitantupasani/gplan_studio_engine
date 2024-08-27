@@ -139,6 +139,7 @@ class InputGraph:
         self.final_traversal=[]
         self.graph_list =[]
         self.logger = logger
+        self.name_coords = []
 
         # Check if input has crossings
         x_coord = [x[0] for x in node_coordinates]

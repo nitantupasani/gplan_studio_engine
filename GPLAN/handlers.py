@@ -392,7 +392,7 @@ def generate_mindim_rfp(ui, graph, gclass, min_width, min_height, plot_width, pl
             # Store graph data if graph area is less than current minimal area
             area_sum = sum(room_area)
             areas.append(area_sum)
-            graph.graph_list[i].area = area_sum
+            # graph.graph_list[i].area = area_sum
             if min_area < 0 or area_sum < min_area:
                 min_area = area_sum
                 min_graph = graph.graph_list[i]
