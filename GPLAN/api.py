@@ -50,9 +50,13 @@ class Wall:
 
 
 class Room:
-    def __init__(self, _id, name, color, walls=None, assets=None, circular_coordinates=None):
+    def __init__(self, _id, name, color, walls=None, assets=None, circular_coordinates=None,name_coord=None,area = None,width = None,height = None):
         self._id = _id
         self.name = name
+        self.name_coord = name_coord
+        self.area = area
+        self.width = width
+        self.height = height
         self.assets = []
         if assets is not None:
             self.assets = [asset.to_dict() for asset in assets]
@@ -65,6 +69,10 @@ class Room:
         return {
             "_id": self._id,
             "name": self.name,
+            "label_coord": self.name_coord,
+            "area" : self.area,
+            "width" : self.width,
+            "height" : self.height,
             "assets": self.assets,
             "color": self.color,
             "walls": self.walls,
@@ -228,6 +236,10 @@ class Documents:
         for index in range(min(min(len(outputData), limit),count)):
             rooms = []
             floorplanData = outputData[index].final_traversal
+            name_coord = outputData[index].name_coords
+            area = outputData[index].area
+            widths = outputData[index].room_width
+            heights = outputData[index].room_height
             k = 0
             for roomData in floorplanData:
                 room = None
@@ -243,7 +255,7 @@ class Documents:
                     y1 = y2
                 wallValues.append(Wall(str(uuid.uuid4()), x1, y1, roomData[0][0], roomData[0][1]))
                 room = Room(str(uuid.uuid4()), nodes_list[k]["label"], nodes_list[k]["color"], wallValues,
-                            circular_coordinates=roomData)  # To add handling of node index starting from 0 then 1 then 2. It should be a unique no and GPLAN should map
+                            circular_coordinates=roomData,name_coord = name_coord[k],area=area[k],width = widths[k],height = heights[k])  # To add handling of node index starting from 0 then 1 then 2. It should be a unique no and GPLAN should map
                 k = k + 1
                 rooms.append(room)
             response.append_floorplan(rooms)

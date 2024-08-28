@@ -1,3 +1,4 @@
+from operator import imod
 from GPLAN.source import inputgraph as inputgraph
 from GPLAN.pythongui import gui as gui
 import tkinter as tk
@@ -335,6 +336,8 @@ class GuiParameters:
         return self.output_data
 
     def _append_output_data(self, graph_new):
+        import math
+        import numpy as np
         if self.get_gclass() is not None:
             self.get_gclass().output_data.append(graph_new)
         else:
@@ -342,6 +345,19 @@ class GuiParameters:
 
         if graph_new is not None and len(graph_new.final_traversal)==0: #FOR SANITY
             graph_new.final_traversal = inputgraph.get_final_traversal(graph_new)
+        print("Final appending data",graph_new.final_traversal)
+        # graph_new.room_name_coords()
+        origin = {'x': -100, 'y': -100}
+        max_area=np.amax(graph_new.area)
+        plot_area=np.sum(graph_new.area)
+        scale=100*(math.exp(-0.3*math.sqrt(max_area)+math.log(0.8))+0.1)
+        #Add room coordinates to final output data
+        shapes = graph_new.final_traversal
+
+        for i in range(len(shapes)):
+            coordi = (((2 * shapes[i][0][0] ) * scale / 2) + origin['x'] + 5,((shapes[i][0][1] + shapes[i][1][1]) * scale / 2) + origin['y'])
+            graph_new.name_coords.append(coordi)
+
 
     def _set_output_data(self, output_data):
         if self.get_gclass() is not None:

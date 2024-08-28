@@ -71,6 +71,7 @@ def draw_rdg(graph,count,pen,mode,color_list,room_names,origin,scale=True):
     dim[1] = max(coord[1] for shape in shapes for coord in shape)
     origin = {'x': origin - 100, 'y': -100}
     #Drawing the rooms
+    print("ORIGIN" , origin)
     for i, shape_coords in enumerate(shapes):
         pen.fillcolor(color_list[i%len(color_list)])
         pen.begin_fill()
