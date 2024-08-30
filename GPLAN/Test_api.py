@@ -104,7 +104,7 @@ def post(request, shape):
 
 
 if __name__ == '__main__':
-    sample = {"rectangular":false,"corridor":false,"dimensioned":false,"dimensionedCirculation":false,"minDimEnabled":true,"removeAddCirculation":false,"publicEnabled":false,"normalizeConst":true,"limit":10,"corridorThickness":0.5,"starting_from":0,"count":3,
+    sample = {"irregular":false,"corridor":false,"dimensioned":false,"dimensionedCirculation":false,"minDimEnabled":false,"removeAddCirculation":false,"publicEnabled":false,"normalizeConst":true,"limit":10,"corridorThickness":0.5,"starting_from":0,"count":3,
               "nodes":[
             {
                 "id": 0,
