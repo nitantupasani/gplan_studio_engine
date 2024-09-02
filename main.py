@@ -24,6 +24,9 @@ def run():
                                           , ui.get_edges()
                                           , ui.get_nodeCoordinates())
             ui.set_graph(graph)
+            nxgraph = nx.from_numpy_array(graph.matrix)
+            graph.coordinates = nx.planar_layout(nxgraph)
+            nx.draw_networkx(nxgraph,graph.coordinates , label=None,node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
             if not graph.is_connected():#Check if the graph is connected or not
                 gclass.command = 'not_connected'
                 
