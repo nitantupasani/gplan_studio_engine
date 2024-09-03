@@ -359,15 +359,17 @@ class GuiParameters:
         # graph_new.room_name_coords()
         if(len(graph_new.area) < graph_new.nodecnt):
             find_areas(graph_new)
-        origin = {'x': -100, 'y': -100}
+        origin = {'x': 0, 'y': 0}
         max_area=np.amax(graph_new.area)
         # plot_area=np.sum(graph_new.area)
-        scale=100*(math.exp(-0.3*math.sqrt(max_area)+math.log(0.8))+0.1)
+        scale2=(math.exp(-0.3*math.sqrt(max_area)+math.log(0.8))+0.1)
+        scale = 1
         #Add room coordinates to final output data
         shapes = graph_new.final_traversal
 
         for i in range(len(shapes)):
-            coordi = (((2 * shapes[i][0][0] ) * scale / 2) + origin['x'] + 5,((shapes[i][0][1] + shapes[i][1][1]) * scale / 2) + origin['y'])
+            width=shapes[i][3][0] - shapes[i][0][0]
+            coordi = (((2 * shapes[i][0][0] ) * scale / 2) + origin['x'] + 0.5*scale2,((shapes[i][0][1] + shapes[i][1][1]) * scale / 2) + origin['y'])
             graph_new.name_coords.append(coordi)
 
 
