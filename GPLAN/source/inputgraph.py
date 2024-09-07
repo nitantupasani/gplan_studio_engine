@@ -37,6 +37,7 @@ from GPLAN.source.dimensioning import floorplan_to_st as fpts
 from GPLAN.source.floorplangen import flippable as flp
 from GPLAN.source.irregular import septri as st
 from GPLAN.source.dimensioning import block_checker as bc
+from GPLAN.source.graphoperations.graph_crossings1 import check_intersection as check_intersection
 
 
 class OCError(Exception):
@@ -402,27 +403,47 @@ class InputGraph:
         # graphtemp = nx.from_numpy_array(self.matrix)
         # nx.draw_networkx(graphtemp,final_positions, label='After removal',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
         # plt.show()
+        x_coords = []
+        y_coords = []
+        for coord in enumerate(self.coordinates):
+            x_coords.append(coord[1][0])
+            y_coords.append(coord[1][1])
+
+      
+        is_not_planar_embedding = check_intersection(x_coords,y_coords, self.matrix)
 
 
-        trng_edges, positions, tri_faces = trng.triangulate(self.matrix
-                                                            , bcn_edges_added
-                                                            , self.coordinates)
+        if(is_not_planar_embedding):
+            trng_edges, positions, tri_faces = trng.triangulate(self.matrix
+                                                                , bcn_edges_added
+                                                                , self.coordinates)
 
-        for edge in trng_edges:
-            self.matrix[edge[0]][edge[1]] = 1
-            self.matrix[edge[1]][edge[0]] = 1
-            self.edgecnt += 1  # Extra edge added
+            for edge in trng_edges:
+                self.matrix[edge[0]][edge[1]] = 1
+                self.matrix[edge[1]][edge[0]] = 1
+                self.edgecnt += 1  # Extra edge added
 
-        self.coordinates = positions
-        self.coordinates = [v for v in self.coordinates.values()]
-        separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
-        print("Doing separating triangles lists test 2:",separating_triangles1)
+            self.coordinates = positions
+            self.coordinates = [v for v in self.coordinates.values()]
+            separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
+            print("Doing separating triangles lists test 2:",separating_triangles1)
 
-        if show_graph:
-            plt.figure()
-            graphtemp = nx.from_numpy_array(self.matrix)
-            nx.draw_networkx(graphtemp,positions, label='After retriangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
-            plt.show()
+            if show_graph:
+                plt.figure()
+                graphtemp = nx.from_numpy_array(self.matrix)
+                nx.draw_networkx(graphtemp,positions, label='After retriangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+                plt.show()
+        else:
+            self.coordinates = positions
+            self.coordinates = [v for v in self.coordinates.values()]
+            separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
+            print("Doing separating triangles lists test 2:",separating_triangles1)
+            if show_graph:
+                plt.figure()
+                graphtemp = nx.from_numpy_array(self.matrix)
+                nx.draw_networkx(graphtemp,positions, label='After retriangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+                plt.show()
+            
 
         return self, check_ptpg(separating_triangles1)
 
