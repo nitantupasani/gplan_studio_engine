@@ -294,7 +294,7 @@ class InputGraph:
         return edge_set
 
     @timing_decorator
-    def door_connectivity(self, non_adj_list, show_graph = False):
+    def door_connectivity(self, show_graph = False,non_adj_list = None):
         """Generates an single dual for a door connectivity input graph.
 
         Args:
@@ -304,6 +304,9 @@ class InputGraph:
             None
         """
 
+        is_non_adj = False
+        if (non_adj_list is not None):
+            is_non_adj = True
 
 
         if (self.nodecnt == 2 and self.edgecnt == 1):
@@ -313,11 +316,19 @@ class InputGraph:
             self.room_height = np.array([1.0, 1.0])
             return
         one_connected=  copy.deepcopy(self.matrix)
-        print("Non-Adjacency List Applied in Door Connectivity:", non_adj_list)         
+        if(is_non_adj):
+            print("Non-Adjacency List Applied in Door Connectivity:", non_adj_list)         
             # Biconnectivity Augmentation
         bcn_edges = []
-        if (not bcn_new.is_biconnected(self.matrix)):
-            bcn_edges = bcn_new.biconnect(self.matrix, non_adj_list)
+        if(is_non_adj):
+            if (not bcn_new.is_biconnected(self.matrix)):
+                # bcn_edges = bcn_new.biconnect(self.matrix, non_adj_list)
+                bcn_edges_set = bcn_new.make_biconnected_permutations(self.matrix, non_adj_list)
+                bcn_edges = next(iter(bcn_edges_set))
+
+        else:
+            if (not bcn.is_biconnected(self.matrix)):
+                bcn_edges = bcn.biconnect(self.matrix)
         for edge in bcn_edges:
             self.matrix[edge[0]][edge[1]] = 1
             self.matrix[edge[1]][edge[0]] = 1
@@ -325,9 +336,14 @@ class InputGraph:
         bcn_edges_added = len(bcn_edges) > 0
 
         # Triangularity
-        trng_edges, positions, tri_faces = trng_new.triangulate(self.matrix
+        if(is_non_adj):
+            trng_edges, positions, tri_faces = trng_new.triangulate(self.matrix
+                                                                , bcn_edges_added
+                                                                , self.coordinates, non_adj_list)
+        else:
+            trng_edges, positions, tri_faces = trng.triangulate(self.matrix
                                                             , bcn_edges_added
-                                                            , self.coordinates, non_adj_list)
+                                                            , self.coordinates)
 
         for edge in trng_edges:
             self.matrix[edge[0]][edge[1]] = 1
@@ -343,7 +359,7 @@ class InputGraph:
             plt.figure()
             graphtemp = nx.from_numpy_array(self.matrix)
             nx.draw_networkx(graphtemp,positions, label='After Triangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
-            #plt.show()
+            plt.show()
 
 
 
@@ -362,12 +378,18 @@ class InputGraph:
 
         self.coordinates = positions
         self.coordinates = [v for v in self.coordinates.values()]
-        #separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
-        #print("Doing separating triangles lists test",separating_triangles1)
+        if(not is_non_adj):
+            separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
+            print("Doing separating triangles lists test",separating_triangles1)
 
         one_connected = copy.deepcopy(self.matrix)
-        ptpg_matrices, extra_nodes= st_new.handle_STs_with_edge_selection(one_connected, self.matrix, positions, non_adj_list)
-        self.coordinates = positions
+
+        if(is_non_adj):
+            ptpg_matrices, extra_nodes= st_new.handle_STs_with_edge_selection(one_connected, self.matrix, positions, non_adj_list)
+            self.coordinates = positions
+        else:
+            ptpg_matrices, extra_nodes,final_positions= st.handle_STs_with_edge_selection(one_connected, self.matrix, positions)
+            self.coordinates = final_positions
         self.coordinates = [v for v in self.coordinates.values()]
         self.matrix = ptpg_matrices[0]
         self.edgecnt = int(np.count_nonzero(self.matrix == 1) / 2)
@@ -378,11 +400,21 @@ class InputGraph:
                     self.irreg_nodes2.append(extra_nodes[0][key][1])
 
 
+        if(not is_non_adj):
+            plt.figure()
+            graphtemp = nx.from_numpy_array(self.matrix)
+            nx.draw_networkx(graphtemp,final_positions, label='After removal',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+            plt.show()
 
 
-        trng_edges, positions, tri_faces = trng_new.triangulate(self.matrix
+        if(is_non_adj):
+            trng_edges, positions, tri_faces = trng_new.triangulate(self.matrix
                                                             , bcn_edges_added
                                                             , self.coordinates, non_adj_list)
+        else:
+            trng_edges, positions, tri_faces = trng.triangulate(self.matrix
+                                                            , bcn_edges_added
+                                                            , self.coordinates)
 
         for edge in trng_edges:
             self.matrix[edge[0]][edge[1]] = 1
@@ -398,7 +430,7 @@ class InputGraph:
             plt.figure()
             graphtemp = nx.from_numpy_array(self.matrix)
             nx.draw_networkx(graphtemp,positions, label='After retriangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
-            #plt.show()
+            plt.show()
 
         return self, check_ptpg(separating_triangles1)
 

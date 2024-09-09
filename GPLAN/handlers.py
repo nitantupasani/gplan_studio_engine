@@ -1591,7 +1591,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
         non_adj_list = nonadjgui.gui_non_adj(ui)
         print("Non-Adjacency List Applied:", non_adj_list)
         start = time.time()
-        graph, checkPTPG = graph.door_connectivity(non_adj_list, show_graph=drawGUI)
+        graph, checkPTPG = graph.door_connectivity(show_graph=drawGUI,non_adj_list=non_adj_list)
         ui.set_edgeCount(graph.edgecnt)
         ui.set_edges(graph.update_gclass_with_edges(gclass))
         ui.set_nodeCoordinates(graph.coordinates)

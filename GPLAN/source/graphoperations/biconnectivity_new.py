@@ -1,5 +1,6 @@
 import networkx as nx
 import itertools
+import copy
 
 def is_biconnected(matrix):
     """Returns a boolean representing whether the graph 
@@ -88,6 +89,25 @@ def find_valid_edge(block1, block2, non_adj_list):
                 return (u, v)
     return None
 
+def find_valid_edge_multi(block1, block2, non_adj_list,potential_edges):
+    """Finds a valid edge between two blocks that is not in the non-adjacency list.
+    Args:
+        block1: List of nodes in the first block.
+        block2: List of nodes in the second block.
+        non_adj_list: List of edges that should not be added.
+    
+    Returns:
+        A valid edge (u, v) or None if no valid edge is found.
+    """
+    valid_edges_set = set()
+    for u in block1:
+        for v in block2:
+            if (u, v) not in non_adj_list and (v, u) not in non_adj_list and \
+                (u, v) not in potential_edges and (v,u) not in potential_edges and\
+                    (u,v) not in valid_edges_set and (v,u) not in valid_edges_set:
+                valid_edges_set.add((u, v))
+    return valid_edges_set
+
 def find_blocks(nxgraph, ap):
     """
     Find the connected components for a given articulation point in the graph.
@@ -162,3 +182,94 @@ def biconnect(matrix, non_adj_list):
     bicon_edges = added_edges - redundant_edges
 
     return bicon_edges
+
+
+
+def make_biconnected_permutations(matrix, non_adj_list):
+    """
+    Returns all sets of edges that can be added to make the graph biconnected.
+
+    Args:
+        matrix: Adjacency matrix of the graph.
+        non_adj_list: List of edges that should not be added.
+
+    Returns:
+        all_bicon_edges: A list of sets of edges, each set representing a combination that makes the graph biconnected.
+    """
+    # Create the graph from the adjacency matrix
+    nxgraph = nx.from_numpy_array(matrix)
+    articulation_points = get_cutvertices(nxgraph)
+    all_bicon_edges = set()
+    potential_edges_list = []
+
+    print("Non-Adjacency List Applied in Biconnectivity:", non_adj_list)
+
+    # Identify potential edges to add by iterating over articulation points
+    for point in articulation_points:
+        potential_edges = set()
+        neighbors = list(nx.neighbors(nxgraph, point))
+        neighbors = sort_list(nxgraph, neighbors)
+        print(f"{point}: Sorted List: ", neighbors)
+
+        blocks = find_blocks(nxgraph, point)
+        print(f"{point}: Blocks List: ", blocks)
+
+        # # Consider connections between blocks
+        # for i in range(len(blocks)):
+        #     for j in range(i + 1, len(blocks)):
+        #         block1, block2 = blocks[i], blocks[j]
+        #         valid_edge = find_valid_edge(block1, block2, non_adj_list)
+        #         if valid_edge:
+        #             potential_edges.add(valid_edge)
+        cycle_iter = itertools.cycle(blocks)
+        for i in range(len(blocks) - 1):
+            current_block = next(cycle_iter)
+            next_block = next(cycle_iter)
+            cycle_iter = itertools.cycle(itertools.islice(itertools.cycle(blocks), i+1, None))
+            valid_edges = find_valid_edge_multi(current_block, next_block, non_adj_list,potential_edges)
+            if valid_edges is not None:
+                potential_edges = potential_edges | valid_edges
+        potential_edges_list.append(potential_edges)
+    # Check all combinations of potential edges
+    # Convert each set into a list with an empty list for "select no edge"
+    options_list = [list(edge_set) + [()] for edge_set in potential_edges_list]
+
+    # Generate all possible combinations
+    all_combinations = itertools.product(*options_list)
+    # Add all potential edges to the graph initially
+    # nxgraph_backup = copy.deepcopy(nxgraph)
+    # for edge_set in potential_edges_list:
+    #     for edge in edge_set:
+    #         nxgraph.add_edge(*edge)  # Add all edges to the graph initially
+
+    for edge_combo in all_combinations:
+        # Create a temporary graph to test the combination
+        temp_graph = copy.deepcopy(nxgraph)
+        edge_combo = list(set(edge for edge in edge_combo if edge != ()))
+        # Temporarily add edges to the graph
+        for edge in edge_combo:
+            temp_graph.add_edge(*edge)            
+        # Check if the graph is biconnected
+        if nx.is_biconnected(temp_graph):
+            #Remove edges to get the least set possible in each
+            #This basically ensures cases in which there are more edges than needed are removed
+            #Because the lesser variant were already included in prev combinations
+            # print(edge_combo)
+            redundant_edges = set()
+            for edge in edge_combo:
+                temp_graph.remove_edge(*edge)
+                if not nx.is_biconnected(temp_graph):
+                    temp_graph.add_edge(*edge)
+                else:
+                    redundant_edges.add(edge)
+            edge_combo = set(edge_combo) - (redundant_edges)
+            edge_combo = {tuple(sorted(edge)) for edge in edge_combo}
+            edge_combo = sorted(edge_combo)
+            edge_combo = tuple(edge_combo)
+            all_bicon_edges.add(edge_combo)
+
+                
+
+    
+
+    return all_bicon_edges
