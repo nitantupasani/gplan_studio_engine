@@ -387,8 +387,9 @@ class InputGraph:
         separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
         print("Doing separating triangles lists test",separating_triangles1)
 
-        # one_connected = copy.deepcopy(self.matrix)
-        ptpg_matrices, extra_nodes,final_positions = st.handle_STs_with_edge_selection(one_connected, self.matrix, positions)
+        # ptpg_matrices, extra_nodes,final_positions = st.handle_STs_with_edge_selection(one_connected, self.matrix, positions)
+        ptpg_matrices, extra_nodes,final_positions = st.handle_non_trivial_ST_Door_connectivity(one_connected, self.matrix, positions)
+
         self.coordinates = final_positions
         self.coordinates = [v for v in self.coordinates.values()]
         self.matrix = ptpg_matrices[0]
@@ -415,7 +416,7 @@ class InputGraph:
 
         if(is_not_planar_embedding):
             trng_edges, positions, tri_faces = trng.triangulate(self.matrix
-                                                                , bcn_edges_added
+                                                                , True
                                                                 , self.coordinates)
 
             for edge in trng_edges:
