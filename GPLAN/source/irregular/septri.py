@@ -421,6 +421,7 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
     plt.show()
 
     not_removed = False
+    remove_edges = []
     for edge_trg in separating_edge_to_triangles:
         all_trig_done = True
         for separating_triangle in separating_edge_to_triangles[edge_trg]:
@@ -438,11 +439,16 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
         if(True and (len(edge_to_faces[edge]) == 1)):
             #remove edge 
             graph.remove_edge(edge[0],edge[1])
+            remove_edges.append(edge)
             #remove a separating triangle if it has one of the edges which was removed
             for separating_triangle in separating_triangles:
                 if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
                     separating_triangles.remove(separating_triangle) 
             continue
+    for edge_rem in remove_edges:
+        separating_edges.remove(edge_rem)
+        del separating_edge_to_triangles[tuple(edge_rem)]
+    
     for edge_trg in separating_edge_to_triangles:
         all_trig_done = True
         for separating_triangle in separating_edge_to_triangles[edge_trg]:
@@ -454,7 +460,10 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
         if(all_trig_done):
             continue
         # if (one_connected[edge[0]][edge[1]]!=1):
-        if (True):
+        edge = edge_trg
+        edge = sorted(edge)
+        edge = tuple(edge)
+        if (True and len(edge_to_faces[edge]) == 2):
             #Identify the remainig two nodes
             node1 = edge_to_faces[edge][0]
             node2 = edge_to_faces[edge][1]
