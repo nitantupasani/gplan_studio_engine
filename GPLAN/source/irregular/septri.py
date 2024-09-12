@@ -410,7 +410,7 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
                 if(edge not in separating_edge_to_triangles):
                     separating_edge_to_triangles[edge] = []
                 separating_edge_to_triangles[edge].append(separating_triangle)
-
+    total_STs = len(separating_triangles)
     #Use edge_to_faces on each separating triangle
     not_removed = False
     import matplotlib.pyplot as plt
@@ -443,6 +443,7 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
             #remove a separating triangle if it has one of the edges which was removed
             for separating_triangle in separating_triangles:
                 if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
+                    total_STs -= 1
                     separating_triangles.remove(separating_triangle) 
             continue
     for edge_rem in remove_edges:
@@ -488,7 +489,23 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
             graph.add_edge(added_edge[0],added_edge[1])
 
             #incase addition leads to new separating triangle then revert change and continue
-            
+            all_triangles = calc_all_triangles(graph)
+            planar = nx.is_planar(graph)
+            if(planar):
+                # origin_pos = positions
+                origin_pos = nx.planar_layout(graph)
+                final_positions = origin_pos
+                adjacency=nx.adjacency_matrix(graph).toarray()
+                new_separating_triangles, new_separating_edges, new_separating_edge_to_triangles, new_edge_to_faces = get_sep_triangles_and_edges(all_triangles, num_nodes, origin_pos, adjacency)
+            if((not planar )or (len(new_separating_triangles) > total_STs-1)):
+            # if(not planar):
+                graph.add_edge(edge[0], edge[1])
+                graph.remove_edge(added_edge[0],added_edge[1])
+                all_triangles = calc_all_triangles(graph)
+
+                print("changes revoked")
+                
+
             #Update faces due to removal and addition of edge 
             edge_to_faces[tuple(sorted((node1, node2)))] = [tuple(sorted([node1, node2, edge[0]])),tuple(sorted([node1,node2,edge[1]]))]
             removed_face1 = tuple(sorted([node1, edge[0], edge[1]]))
