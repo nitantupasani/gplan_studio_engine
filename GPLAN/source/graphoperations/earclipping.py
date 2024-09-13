@@ -116,15 +116,29 @@ def angleCCW(a, b):
         angle = 2.0*np.pi + angle
     return angle
 
-def isConvex(vertex_prev, vertex, vertex_next):
-    """
-        Determine if vertex lies on the convex hull of the polygon.
-    """
-    a = vertex_prev - vertex
-    b = vertex_next - vertex
-    angle1 = np.arctan2(a[1],a[0]) + np.pi
-    angle2 = np.arctan2(b[1],b[0]) + np.pi
-    return abs(angle1 - angle2) <= np.pi
+def polygon_area(vertices):
+    n = len(vertices)
+    area = 0
+    for i in range(n):
+        x1, y1 = vertices[i]
+        x2, y2 = vertices[(i + 1) % n]
+        area += x1 * y2 - y1 * x2
+    return abs(area) / 2
+
+def isConvex(vertices, vert_prev, vert_crnt, vert_next):
+    
+    original_area = polygon_area(vertices)
+    new_vertices = []
+    for vertice in vertices:
+        if ((vertice[0] == vert_crnt[0]) and (vertice[1] == vert_crnt[1])) :
+            pass
+        else:
+            new_vertices.append(vertice)
+    
+    # Area of the modified polygon
+    new_area = polygon_area(new_vertices)
+    return original_area - new_area >= -1e-7   # Return True if areas are almost equal
+
 
 def area(x1, y1, x2, y2, x3, y3):
     return abs((x1 * (y2 - y3) + x2 * (y3 - y1) 
@@ -153,7 +167,8 @@ def insideTriangle(a, b, c, p):
      
     # Check if sum of A1, A2 and A3 
     # is same as A
-    if(A == A1 + A2 + A3):
+    Total = A1+A2+A3
+    if(abs(A - Total)<1e-9):
         return True
     else:
         return False
@@ -194,7 +209,7 @@ def triangulate(vertices, max_iterations=0):
         vert_crnt = vertices[j,:]
         vert_next = vertices[k,:]
 
-        is_convex = isConvex(vert_prev, vert_crnt, vert_next)
+        is_convex = isConvex(vertices,vert_prev, vert_crnt, vert_next)
         is_ear = True
         if is_convex:
             test_node = node.next.next
@@ -213,6 +228,5 @@ def triangulate(vertices, max_iterations=0):
 
         it_counter += 1
         node = node.next
-        print(i,j,k, is_convex, is_ear)
     indices = indices[0:index_counter, :]
     return indices
