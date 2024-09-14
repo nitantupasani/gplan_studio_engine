@@ -1280,7 +1280,7 @@ def check_overlap(list, edge):
                     ((edge[0][0] == list[(i+1)%len(list)][0]) and (edge[1][0] == list[(i+1)%len(list)][0]))): 
                     if ((min(list[i][1],list[(i+1)%len(list)][1]) <= edge[0][1] <= max(list[i][1],list[(i+1)%len(list)][1])) or  
                         (min(list[i][1],list[(i+1)%len(list)][1]) <= edge[1][1] <= max(list[i][1],list[(i+1)%len(list)][1])) or
-                        (min(edge[0][1],edge[1][1])<=list[i][1]<=max(edge[0][1],edge[1][0])) or
+                        (min(edge[0][1],edge[1][1])<=list[i][1]<=max(edge[0][1],edge[1][1])) or
                         (min(edge[0][1],edge[1][1])<=list[(i+1)%(len(list))][1]<=max(edge[0][1],edge[1][1]))) :
                         return i
     
