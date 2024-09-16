@@ -1,3 +1,4 @@
+from operator import imod
 from GPLAN.source import inputgraph as inputgraph
 from GPLAN.pythongui import gui as gui
 import tkinter as tk
@@ -24,7 +25,7 @@ class DimParameters:
         self.__max_height = max_height
         self.__min_ratio = min_ratio
         self.__max_ratio = max_ratio
-        self.__symmetric = symmetric
+
 
     def get_isOptimalEnabled(self):
         return self.__isOptimalEnabled
@@ -109,6 +110,7 @@ class GuiParameters:
     __corridor_thickness: float
     __message: str = ""
     __isNonAdj: int
+    __is_multiple_door: bool
     output_data: list = []
     min_dim_inputs: DimParameters = None
 
@@ -291,6 +293,14 @@ class GuiParameters:
             return self.get_gclass().dimensional_constraints
         return None
 
+    def get_is_multiple_door(self):
+        return self.__is_multiple_door
+    
+    def set_is_multiple_door(self, is_multiple_door):
+        self.__is_multiple_door = is_multiple_door
+        return self
+
+
     def __init__(self, gclass = None, graph = None):
         if gclass is not None:
             self.set_gclass(gclass)
@@ -312,6 +322,7 @@ class GuiParameters:
             self.set_corridor_thickness(gclass.corridor_thickness)
             self.set_message("")
             self.set_command(gclass.command)
+            self.set_is_multiple_door(False)#Change this later on to take input from GUI
 
             self.output_data = []
         
@@ -334,13 +345,42 @@ class GuiParameters:
         return self.output_data
 
     def _append_output_data(self, graph_new):
+        import math
+        import numpy as np
+        
         if self.get_gclass() is not None:
             self.get_gclass().output_data.append(graph_new)
         else:
             self.output_data.append(graph_new)
 
+        def find_areas(graph_new):
+            for shape in graph_new.final_traversal:
+                area = 0
+                for j in range(len(shape) ):
+                    x1, y1 = shape[j]
+                    x2, y2 = shape[(j + 1)%len(shape)]
+                    area += x1 * y2 - x2 * y1
+                graph_new.area.append(abs(area)/2)
+
         if graph_new is not None and len(graph_new.final_traversal)==0: #FOR SANITY
             graph_new.final_traversal = inputgraph.get_final_traversal(graph_new)
+        print("Final appending data",graph_new.final_traversal)
+        # graph_new.room_name_coords()
+        if(len(graph_new.area) < graph_new.nodecnt):
+            find_areas(graph_new)
+        origin = {'x': 0, 'y': 0}
+        max_area=np.amax(graph_new.area)
+        # plot_area=np.sum(graph_new.area)
+        scale2=(math.exp(-0.3*math.sqrt(max_area)+math.log(0.8))+0.1)
+        scale = 1
+        #Add room coordinates to final output data
+        shapes = graph_new.final_traversal
+
+        for i in range(len(shapes)):
+            width=shapes[i][3][0] - shapes[i][0][0]
+            coordi = (((2 * shapes[i][0][0] ) * scale / 2) + origin['x'] + 0.5*scale2,((shapes[i][0][1] + shapes[i][1][1]) * scale / 2) + origin['y'])
+            graph_new.name_coords.append(coordi)
+
 
     def _set_output_data(self, output_data):
         if self.get_gclass() is not None:

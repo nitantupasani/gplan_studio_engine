@@ -50,9 +50,13 @@ class Wall:
 
 
 class Room:
-    def __init__(self, _id, name, color, walls=None, assets=None, circular_coordinates=None):
+    def __init__(self, _id, name, color, walls=None, assets=None, circular_coordinates=None,name_coord=None,area = None,width = None,height = None):
         self._id = _id
         self.name = name
+        self.name_coord = name_coord
+        self.area = area
+        self.width = width
+        self.height = height
         self.assets = []
         if assets is not None:
             self.assets = [asset.to_dict() for asset in assets]
@@ -65,6 +69,10 @@ class Room:
         return {
             "_id": self._id,
             "name": self.name,
+            "label_coord": self.name_coord,
+            "area" : self.area,
+            "width" : self.width,
+            "height" : self.height,
             "assets": self.assets,
             "color": self.color,
             "walls": self.walls,
@@ -102,7 +110,7 @@ class Documents:
 
     @staticmethod
     def get_floorplans(starting_from: int, count: int, caller, nodes_list: list, graph: InputGraph, rectangular: bool, corridor=False,
-                         dimensioned = False, dimensionedCirculation = False, minDimEnabled = False, removeAddCirculation = False, publicEnabled = False,normalize_const=40, limit=FLOORPLAN_LIMIT, corridor_thickness=None,documentID=None, name=None, dim_inputs={}):
+                         dimensioned = False, dimensionedCirculation = False, minDimEnabled = False, removeAddCirculation = False, publicEnabled = False,normalize_const=40, limit=FLOORPLAN_LIMIT, corridor_thickness=None,documentID=None, name=None, dim_inputs={},edges_list=[]):
         original_print = builtins.print
 
         def null_print(*args, **kwargs):
@@ -113,15 +121,18 @@ class Documents:
         message = ""
         dim_parameters: DimParameters = None
         if minDimEnabled:
-            dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'], plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], isOptimalEnabled=dim_inputs['optimal_floorplan'])
+            dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'],max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], isOptimalEnabled=dim_inputs['optimal_floorplan'])
         elif dimensioned:
             dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'], max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], min_ratio=dim_inputs['min_ratio'], max_ratio=dim_inputs['max_ratio'], plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], symmetric=dim_inputs['symmetric'], isOptimalEnabled=dim_inputs['optimal_floorplan'])
         ui = GuiParameters(graph=graph).set_isDimensioned(dimensioned).set_isDimensionedCirculation(
             dimensionedCirculation).set_isMinDimensioned(minDimEnabled).set_isRemoveAddCirculation(
             removeAddCirculation).set_isPublic(publicEnabled).set_min_dim_inputs(dim_parameters)
+        original_print(ui)
         documentID = str(uuid.uuid4()) if documentID is None else documentID
         name = "Untitled Document" if name is None else name
         ui.set_message("")
+        ui.set_fptype(caller)
+        ui.set_edges(edges_list)
         roomColors = []
         roomNames = []
         for node in nodes_list:
@@ -205,14 +216,16 @@ class Documents:
             elif caller == 'irregular':
                 handle_multiple(ui, graph)
             elif caller == "door_connectivity":
+                ui.set_is_multiple_door(True)
                 handle_door_connectivity(ui, graph)
-            elif gclass.command == "multiple_l":
+                message = 'Generated Multiple Door connectivity floorplan.'+ ui.get_message()
+            elif caller == "multiple_l":
                 handle_multiple_l(ui, graph)
             else:
                 message = f"Support for {caller} Not yet Handled from Backend for Multiple Floorplan"
                 print(message)
         if count == 1:
-            outputData = [graph]
+            outputData = ui.get_output_data()
         elif count > 1:
             outputData = ui.get_output_data()
         offset = 0
@@ -223,6 +236,10 @@ class Documents:
         for index in range(min(min(len(outputData), limit),count)):
             rooms = []
             floorplanData = outputData[index].final_traversal
+            name_coord = outputData[index].name_coords
+            area = outputData[index].area
+            widths = outputData[index].room_width
+            heights = outputData[index].room_height
             k = 0
             for roomData in floorplanData:
                 room = None
@@ -238,7 +255,7 @@ class Documents:
                     y1 = y2
                 wallValues.append(Wall(str(uuid.uuid4()), x1, y1, roomData[0][0], roomData[0][1]))
                 room = Room(str(uuid.uuid4()), nodes_list[k]["label"], nodes_list[k]["color"], wallValues,
-                            circular_coordinates=roomData)  # To add handling of node index starting from 0 then 1 then 2. It should be a unique no and GPLAN should map
+                            circular_coordinates=roomData,name_coord = name_coord[k],area=area[k],width = widths[k],height = heights[k])  # To add handling of node index starting from 0 then 1 then 2. It should be a unique no and GPLAN should map
                 k = k + 1
                 rooms.append(room)
             response.append_floorplan(rooms)

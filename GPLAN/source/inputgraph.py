@@ -40,6 +40,7 @@ from GPLAN.source.floorplangen import flippable as flp
 from GPLAN.source.irregular import septri as st
 from GPLAN.source.irregular import septri_new as st_new
 from GPLAN.source.dimensioning import block_checker as bc
+from GPLAN.source.graphoperations.graph_crossings1 import check_intersection as check_intersection
 
 
 class OCError(Exception):
@@ -133,7 +134,8 @@ class InputGraph:
         self.area = []
         self.rel_matrix_list = []
         self.floorplan_exist = False
-        self.floorplan_limit = 5
+        self.floorplan_limit = 50 # Maximum number of floorplans in multiple floorplans
+        self.floorplan_limit_undimensioned = 500
         self.fpcnt = 0
         self.coordinates = [np.array(x) for x in node_coordinates]
         self.dummy_node_adjacencies = set()
@@ -141,6 +143,7 @@ class InputGraph:
         self.final_traversal=[]
         self.graph_list =[]
         self.logger = logger
+        self.name_coords = []
 
         # Check if input has crossings
         x_coord = [x[0] for x in node_coordinates]
@@ -163,6 +166,29 @@ class InputGraph:
         return wrapper
 
     @timing_decorator
+
+
+    def is_connected(self):
+        def dfs(node, visited):
+            visited[node] = True
+            for neighbor, is_connected in enumerate(self.matrix[node]):
+                if is_connected and not visited[neighbor]:
+                    dfs(neighbor, visited)
+
+        n = len(self.matrix)  # Number of vertices
+        visited = [False] * n
+
+        # Start DFS from the first vertex
+        dfs(0, visited)
+
+        # Check if all vertices are visited
+        connected = all(visited)
+        if connected:
+            print("Graph is connected.")
+        else:
+            print("Graph is not connected.")
+        return connected
+
     def irreg_single_dual(self):
         """Generates an irregular single dual for a given input graph.
 
@@ -382,14 +408,16 @@ class InputGraph:
             separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
             print("Doing separating triangles lists test",separating_triangles1)
 
-        one_connected = copy.deepcopy(self.matrix)
 
+        one_connected = copy.deepcopy(self.matrix)
         if(is_non_adj):
-            ptpg_matrices, extra_nodes= st_new.handle_STs_with_edge_selection(one_connected, self.matrix, positions, non_adj_list)
+            ptpg_matrices, extra_nodes= st_new.handle_STs_with_edge_selection(one_connected, self.matrix, positions, non_adj_list)#Change this later on to new st algo 
             self.coordinates = positions
         else:
-            ptpg_matrices, extra_nodes,final_positions= st.handle_STs_with_edge_selection(one_connected, self.matrix, positions)
+#             ptpg_matrices, extra_nodes,final_positions = st.handle_STs_with_edge_selection(one_connected, self.matrix, positions)
+            ptpg_matrices, extra_nodes,final_positions = st.handle_non_trivial_ST_Door_connectivity(one_connected, self.matrix, positions)
             self.coordinates = final_positions
+
         self.coordinates = [v for v in self.coordinates.values()]
         self.matrix = ptpg_matrices[0]
         self.edgecnt = int(np.count_nonzero(self.matrix == 1) / 2)
@@ -400,15 +428,29 @@ class InputGraph:
                     self.irreg_nodes2.append(extra_nodes[0][key][1])
 
 
+
         if(not is_non_adj):
             plt.figure()
             graphtemp = nx.from_numpy_array(self.matrix)
             nx.draw_networkx(graphtemp,final_positions, label='After removal',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
             plt.show()
+       
+        # plt.figure()
+        # graphtemp = nx.from_numpy_array(self.matrix)
+        # nx.draw_networkx(graphtemp,final_positions, label='After removal',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+        # plt.show()
+        x_coords = []
+        y_coords = []
+        for coord in enumerate(self.coordinates):
+            x_coords.append(coord[1][0])
+            y_coords.append(coord[1][1])
+
+      
+        is_not_planar_embedding = check_intersection(x_coords,y_coords, self.matrix)
 
 
         if(is_non_adj):
-            trng_edges, positions, tri_faces = trng_new.triangulate(self.matrix
+            trng_edges, positions, tri_faces = trng_new.triangulate(self.matrix#change this also  basically anywhere there were new files change them to nonadj and bring recent changes there also
                                                             , bcn_edges_added
                                                             , self.coordinates, non_adj_list)
         else:
@@ -421,16 +463,38 @@ class InputGraph:
             self.matrix[edge[1]][edge[0]] = 1
             self.edgecnt += 1  # Extra edge added
 
-        self.coordinates = positions
-        self.coordinates = [v for v in self.coordinates.values()]
-        separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
-        print("Doing separating triangles lists test 2:",separating_triangles1)
 
-        if show_graph:
-            plt.figure()
-            graphtemp = nx.from_numpy_array(self.matrix)
-            nx.draw_networkx(graphtemp,positions, label='After retriangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
-            plt.show()
+        if(is_not_planar_embedding):
+            trng_edges, positions, tri_faces = trng.triangulate(self.matrix
+                                                                , True
+                                                                , self.coordinates)
+
+            for edge in trng_edges:
+                self.matrix[edge[0]][edge[1]] = 1
+                self.matrix[edge[1]][edge[0]] = 1
+                self.edgecnt += 1  # Extra edge added
+
+            self.coordinates = positions
+            self.coordinates = [v for v in self.coordinates.values()]
+            separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
+            print("Doing separating triangles lists test 2:",separating_triangles1)
+
+            if show_graph:
+                plt.figure()
+                graphtemp = nx.from_numpy_array(self.matrix)
+                nx.draw_networkx(graphtemp,positions, label='After retriangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+                plt.show()
+        else:
+            self.coordinates = positions
+            self.coordinates = [v for v in self.coordinates.values()]
+            separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
+            print("Doing separating triangles lists test 2:",separating_triangles1)
+            if show_graph:
+                plt.figure()
+                graphtemp = nx.from_numpy_array(self.matrix)
+                nx.draw_networkx(graphtemp,positions, label='After retriangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+                plt.show()
+            
 
         return self, check_ptpg(separating_triangles1)
 
@@ -737,6 +801,7 @@ class InputGraph:
             self.rel_matrix_list = [np.array(
                 [[0, 3, 2, 0, 0, 0], [0, 0, 2, 3, 0, 0], [0, 0, 0, 1, 0, 1], [0, 0, 1, 0, 1, 0], [2, 2, 0, 1, 0, 1],
                  [3, 0, 1, 0, 1, 0]])]
+            self.graph_list.append(self)
             return
         bcn_edges = []
         if (not bcn.is_biconnected(self.matrix)):
@@ -789,6 +854,7 @@ class InputGraph:
                 if is_floorplan_limit_reached:
                     break
                 self.matrix = ptpg_matrices[cnt]
+                self.dummy_node_adjacencies = store_dummy_node_adjacencies(self.matrix)
                 self.nodecnt = self.matrix.shape[0]
                 self.edgecnt = int(np.count_nonzero(self.matrix == 1) / 2)
                 mergednodes = []
@@ -818,12 +884,12 @@ class InputGraph:
                     g = nx.from_numpy_array(self.matrix, create_using=nx.DiGraph)
                     edgeset = g.edges()
                     
-                    new_graph = InputGraph(self.nodecnt, self.edgecnt, edgeset, self.coordinates)
 
 
                     start_time = time.time()
 
                     for i in rel_matrices:
+                        new_graph = InputGraph(self.nodecnt, self.edgecnt, edgeset, self.coordinates)
                         if self.fpcnt >= self.floorplan_limit:
                             is_floorplan_limit_reached = True
                             break
@@ -835,6 +901,7 @@ class InputGraph:
                         new_graph.irreg_nodes2= irreg_nodes2
                         new_graph.extranodes= extranodes
                         new_graph.nodecnt_list= self.nodecnt
+                        new_graph.dummy_node_adjacencies = self.dummy_node_adjacencies
                         self.graph_list.append(new_graph)
 
         else:
@@ -872,12 +939,12 @@ class InputGraph:
                 g = nx.from_numpy_array(self.matrix, create_using=nx.DiGraph)
                 edgeset = g.edges()
                 
-                new_graph = InputGraph(self.nodecnt, self.edgecnt, edgeset, self.coordinates)
                 
 
                 start_time = time.time()
 
                 for i in rel_matrices:
+                    new_graph = InputGraph(self.nodecnt, self.edgecnt, edgeset, self.coordinates)
                     if self.fpcnt >= self.floorplan_limit:
                         is_floorplan_limit_reached = True
                         break
@@ -1095,11 +1162,11 @@ class InputGraph:
 
             for i in range(len(idx)):
                 rel_matrix = graph.rel_matrix_list[idx[i]]
-                encoded_matrix = opr.get_encoded_matrix(rel_matrix.shape[0] - 4
-                                                        , graph.room_x[idx[i]]
-                                                        , graph.room_y[idx[i]]
-                                                        , graph.room_width[idx[i]]
-                                                        , graph.room_height[idx[i]])
+                encoded_matrix = opr.get_encoded_matrix(rel_matrix.shape[0] - 4,
+                                                        graph.graph_list[idx[i]].room_x,
+                                                        graph.graph_list[idx[i]].room_y,
+                                                        graph.graph_list[idx[i]].room_width,
+                                                        graph.graph_list[idx[i]].room_height)
                 rows = encoded_matrix.shape[0]
                 cols = encoded_matrix.shape[1]
 
@@ -1263,7 +1330,7 @@ def check_overlap(list, edge):
                     ((edge[0][0] == list[(i+1)%len(list)][0]) and (edge[1][0] == list[(i+1)%len(list)][0]))): 
                     if ((min(list[i][1],list[(i+1)%len(list)][1]) <= edge[0][1] <= max(list[i][1],list[(i+1)%len(list)][1])) or  
                         (min(list[i][1],list[(i+1)%len(list)][1]) <= edge[1][1] <= max(list[i][1],list[(i+1)%len(list)][1])) or
-                        (min(edge[0][1],edge[1][1])<=list[i][1]<=max(edge[0][1],edge[1][0])) or
+                        (min(edge[0][1],edge[1][1])<=list[i][1]<=max(edge[0][1],edge[1][1])) or
                         (min(edge[0][1],edge[1][1])<=list[(i+1)%(len(list))][1]<=max(edge[0][1],edge[1][1]))) :
                         return i
     

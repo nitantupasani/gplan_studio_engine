@@ -116,60 +116,62 @@ def angleCCW(a, b):
         angle = 2.0*np.pi + angle
     return angle
 
-def isConvex(vertex_prev, vertex, vertex_next):
-    """
-        Determine if vertex lies on the convex hull of the polygon.
-    """
-    a = vertex_prev - vertex
-    b = vertex_next - vertex
-    angle1 = np.arctan2(a[1],a[0])
-    angle2 = np.arctan2(b[1],b[0])
-    # internal_angle = (angle2 - angle1)
-    # if(internal_angle<0):
-    #     internal_angle += (2*np.pi)
-    # if(internal_angle > np.pi):
-    #     internal_angle = 2*np.pi - internal_angle
-    # return internal_angle <= np.pi
-    if angle1<=0 and angle2<=0:
-        return angle2-angle1 <0 
-    elif angle1>=0 and angle2>=0:
-        return angle2-angle1 <0
-    elif angle1<0 and angle2>0:
-        temp = 2* np.pi - angle2 + angle1
-        return temp<np.pi
-    elif angle1>0 and angle2<0:
-        temp = angle1 - angle2
-        return temp<np.pi
+def polygon_area(vertices):
+    n = len(vertices)
+    area = 0
+    for i in range(n):
+        x1, y1 = vertices[i]
+        x2, y2 = vertices[(i + 1) % n]
+        area += x1 * y2 - y1 * x2
+    return abs(area) / 2
+
+def isConvex(vertices, vert_prev, vert_crnt, vert_next):
+    
+    original_area = polygon_area(vertices)
+    new_vertices = []
+    for vertice in vertices:
+        if ((vertice[0] == vert_crnt[0]) and (vertice[1] == vert_crnt[1])) :
+            pass
+        else:
+            new_vertices.append(vertice)
+    
+    # Area of the modified polygon
+    new_area = polygon_area(new_vertices)
+    return original_area - new_area >= -1e-7   # Return True if areas are almost equal
+
+
+def area(x1, y1, x2, y2, x3, y3):
+    return abs((x1 * (y2 - y3) + x2 * (y3 - y1) 
+                + x3 * (y1 - y2)) / 2.0)
 
 def insideTriangle(a, b, c, p):
-    """
-        Determine if a vertex p is inside (or "on") a triangle made of the
-        points a->b->c
-        http://blackpawn.com/texts/pointinpoly/
-    """
-
-    #Compute vectors
-    v0 = c - a
-    v1 = b - a
-    v2 = p - a
-
-    # Compute dot products
-    dot00 = np.dot(v0, v0)
-    dot01 = np.dot(v0, v1)
-    dot02 = np.dot(v0, v2)
-    dot11 = np.dot(v1, v1)
-    dot12 = np.dot(v1, v2)
-
-    # Compute barycentric coordinates
-    denom = dot00*dot11 - dot01*dot01
-    if abs(denom) < 1e-20:
+    x1 = a[0]
+    x2 = b[0]
+    x3 = c[0]
+    x = p[0]
+    y1 = a[1]
+    y2 = b[1]
+    y3 = c[1]
+    y = p[1]
+    # Calculate area of triangle ABC
+    A = area (x1, y1, x2, y2, x3, y3)
+ 
+    # Calculate area of triangle PBC 
+    A1 = area (x, y, x2, y2, x3, y3)
+     
+    # Calculate area of triangle PAC 
+    A2 = area (x1, y1, x, y, x3, y3)
+     
+    # Calculate area of triangle PAB 
+    A3 = area (x1, y1, x2, y2, x, y)
+     
+    # Check if sum of A1, A2 and A3 
+    # is same as A
+    Total = A1+A2+A3
+    if(abs(A - Total)<1e-9):
         return True
-    invDenom = 1.0 / denom
-    u = (dot11*dot02 - dot01*dot12) * invDenom
-    v = (dot00*dot12 - dot01*dot02) * invDenom
-
-    # Check if point is in triangle
-    return (u >= 0) and (v >= 0) and (u + v < 1)
+    else:
+        return False
 
 def triangulate(vertices, max_iterations=0):
     """
@@ -207,7 +209,7 @@ def triangulate(vertices, max_iterations=0):
         vert_crnt = vertices[j,:]
         vert_next = vertices[k,:]
 
-        is_convex = isConvex(vert_prev, vert_crnt, vert_next)
+        is_convex = isConvex(vertices,vert_prev, vert_crnt, vert_next)
         is_ear = True
         if is_convex:
             test_node = node.next.next
@@ -217,11 +219,13 @@ def triangulate(vertices, max_iterations=0):
                 test_node = test_node.next
         else:
             is_ear = False
-
+        if is_ear and area(vert_prev[0], vert_prev[1], vert_crnt[0], vert_crnt[1], vert_next[0], vert_next[1]) == 0:
+            is_ear = False
         if is_ear:
             indices[index_counter, :] = np.array([i, j, k], dtype=np.int64)
             index_counter += 1
             vertlist.remove(node.data)
+
         it_counter += 1
         node = node.next
     indices = indices[0:index_counter, :]
