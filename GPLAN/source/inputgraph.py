@@ -21,7 +21,7 @@ import logging
 import time
 
 from GPLAN.source.graphoperations import biconnectivity as bcn
-from GPLAN.source.graphoperations import biconnectivity_new as bcn_new
+from GPLAN.source.graphoperations import biconnectivity_non_adj as bcn_non_adj
 from GPLAN.source.graphoperations import oneconnectivity as onc
 from GPLAN.source.graphoperations import operations as opr
 from GPLAN.source.graphoperations import graph_crossings1 as gc
@@ -33,12 +33,12 @@ from GPLAN.source.floorplangen import expansion as exp
 from GPLAN.source.floorplangen import rdg as rdg
 from GPLAN.source.floorplangen import dual as dual
 from GPLAN.source.graphoperations import triangularity as trng
-from GPLAN.source.graphoperations import triangularity_new as trng_new
+from GPLAN.source.graphoperations import triangularity_non_adj as trng_non_adj
 from GPLAN.source.floorplangen import transformation as transform
 from GPLAN.source.dimensioning import floorplan_to_st as fpts
 from GPLAN.source.floorplangen import flippable as flp
 from GPLAN.source.irregular import septri as st
-from GPLAN.source.irregular import septri_new as st_new
+from GPLAN.source.irregular import septri_non_adj as st_non_adj
 from GPLAN.source.dimensioning import block_checker as bc
 from GPLAN.source.graphoperations.graph_crossings1 import check_intersection as check_intersection
 
@@ -347,10 +347,10 @@ class InputGraph:
             # Biconnectivity Augmentation
         bcn_edges = []
         if(is_non_adj):
-            if (not bcn_new.is_biconnected(self.matrix)):
+            if (not bcn.is_biconnected(self.matrix)):
                 # bcn_edges = bcn_new.biconnect(self.matrix, non_adj_list)
-                bcn_edges_set = bcn_new.make_biconnected_permutations(self.matrix, non_adj_list)
-                bcn_edges = next(iter(bcn_edges_set))
+                bcn_edges_set = bcn_non_adj.make_biconnected_permutations(self.matrix, non_adj_list)
+                bcn_edges = next(iter(bcn_edges_set))#Here multiple edge sets are there we have to choose 1 here
 
         else:
             if (not bcn.is_biconnected(self.matrix)):
@@ -363,7 +363,7 @@ class InputGraph:
 
         # Triangularity
         if(is_non_adj):
-            trng_edges, positions, tri_faces = trng_new.triangulate(self.matrix
+            trng_edges, positions, tri_faces = trng_non_adj.triangulate(self.matrix
                                                                 , bcn_edges_added
                                                                 , self.coordinates, non_adj_list)
         else:
@@ -411,7 +411,7 @@ class InputGraph:
 
         one_connected = copy.deepcopy(self.matrix)
         if(is_non_adj):
-            ptpg_matrices, extra_nodes= st_new.handle_STs_with_edge_selection(one_connected, self.matrix, positions, non_adj_list)#Change this later on to new st algo 
+            ptpg_matrices, extra_nodes= st_non_adj.handle_STs_with_edge_selection(one_connected, self.matrix, positions, non_adj_list)#Change this later on to new st algo 
             self.coordinates = positions
         else:
 #             ptpg_matrices, extra_nodes,final_positions = st.handle_STs_with_edge_selection(one_connected, self.matrix, positions)
@@ -450,7 +450,7 @@ class InputGraph:
 
 
         if(is_non_adj):
-            trng_edges, positions, tri_faces = trng_new.triangulate(self.matrix#change this also  basically anywhere there were new files change them to nonadj and bring recent changes there also
+            trng_edges, positions, tri_faces = trng_non_adj.triangulate(self.matrix#change this also  basically anywhere there were new files change them to nonadj and bring recent changes there also
                                                             , bcn_edges_added
                                                             , self.coordinates, non_adj_list)
         else:

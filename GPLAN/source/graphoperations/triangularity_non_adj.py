@@ -26,6 +26,8 @@ from networkx import adjacency_matrix
 import numpy as np
 import matplotlib.path as mplPath
 import matplotlib.pyplot as plt
+from . import earclipping as ec
+
 
 def atan2(x,y):
     """Converts cartesian coordinate to angular coordinate.
