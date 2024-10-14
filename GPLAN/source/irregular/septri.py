@@ -538,6 +538,7 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
     if (not_removed):
         #give choice / take choice from user to remove or not to remove
         print("user gave ST")
+        remove_edges = []
         for edge_trg in separating_edge_to_triangles:
             all_trig_done = True
             for separating_triangle in separating_edge_to_triangles[edge_trg]:
