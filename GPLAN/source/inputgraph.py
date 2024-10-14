@@ -409,7 +409,7 @@ class InputGraph:
             print("Doing separating triangles lists test",separating_triangles1)
 
 
-        one_connected = copy.deepcopy(self.matrix)
+        # one_connected = copy.deepcopy(self.matrix)
         if(is_non_adj):
             ptpg_matrices, extra_nodes= st_non_adj.handle_STs_with_edge_selection(one_connected, self.matrix, positions, non_adj_list)#Change this later on to new st algo 
             self.coordinates = positions
