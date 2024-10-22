@@ -350,7 +350,11 @@ class InputGraph:
             if (not bcn.is_biconnected(self.matrix)):
                 # bcn_edges = bcn_new.biconnect(self.matrix, non_adj_list)
                 bcn_edges_set = bcn_non_adj.make_biconnected_permutations(self.matrix, non_adj_list)
+                if(len(bcn_edges_set) == 0):
+                    print("No Biconnectivity augmentation found")
+                    return self ,False,False
                 bcn_edges = next(iter(bcn_edges_set))#Here multiple edge sets are there we have to choose 1 here
+            
 
         else:
             if (not bcn.is_biconnected(self.matrix)):
@@ -363,9 +367,12 @@ class InputGraph:
 
         # Triangularity
         if(is_non_adj):
-            trng_edges, positions, tri_faces = trng_non_adj.triangulate(self.matrix
-                                                                , bcn_edges_added
-                                                                , self.coordinates, non_adj_list)
+            # trng_edges, positions, tri_faces = trng_non_adj.triangulate(self.matrix
+            #                                                     , bcn_edges_added
+            #                                                     , self.coordinates, non_adj_list)
+            trng_edges, positions, tri_faces = trng.triangulate(self.matrix
+                                                            , bcn_edges_added
+                                                            , self.coordinates)
         else:
             trng_edges, positions, tri_faces = trng.triangulate(self.matrix
                                                             , bcn_edges_added
@@ -411,8 +418,8 @@ class InputGraph:
 
         # one_connected = copy.deepcopy(self.matrix)
         if(is_non_adj):
-            ptpg_matrices, extra_nodes= st_non_adj.handle_STs_with_edge_selection(one_connected, self.matrix, positions, non_adj_list)#Change this later on to new st algo 
-            self.coordinates = positions
+            ptpg_matrices, extra_nodes,final_positions= st.handle_non_trivial_non_adj_ST_Door_connectivity(one_connected, self.matrix, positions, non_adj_list)#Change this later on to new st algo 
+            self.coordinates = final_positions
         else:
 #             ptpg_matrices, extra_nodes,final_positions = st.handle_STs_with_edge_selection(one_connected, self.matrix, positions)
             ptpg_matrices, extra_nodes,final_positions = st.handle_non_trivial_ST_Door_connectivity(one_connected, self.matrix, positions)
