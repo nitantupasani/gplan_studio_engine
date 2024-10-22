@@ -255,6 +255,7 @@ def triangulate(matrix,bcn_edges_added,pos):
 
     """
     nxgraph = nx.from_numpy_array(matrix)
+    #print("Hello we're triangulating!")
     if(not bcn_edges_added):
         positions = {i:pos[i] for i in range(len(pos))}
     else:

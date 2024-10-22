@@ -21,6 +21,7 @@ import logging
 import time
 
 from GPLAN.source.graphoperations import biconnectivity as bcn
+from GPLAN.source.graphoperations import biconnectivity_non_adj as bcn_non_adj
 from GPLAN.source.graphoperations import oneconnectivity as onc
 from GPLAN.source.graphoperations import operations as opr
 from GPLAN.source.graphoperations import graph_crossings1 as gc
@@ -32,10 +33,12 @@ from GPLAN.source.floorplangen import expansion as exp
 from GPLAN.source.floorplangen import rdg as rdg
 from GPLAN.source.floorplangen import dual as dual
 from GPLAN.source.graphoperations import triangularity as trng
+from GPLAN.source.graphoperations import triangularity_non_adj as trng_non_adj
 from GPLAN.source.floorplangen import transformation as transform
 from GPLAN.source.dimensioning import floorplan_to_st as fpts
 from GPLAN.source.floorplangen import flippable as flp
 from GPLAN.source.irregular import septri as st
+from GPLAN.source.irregular import septri_non_adj as st_non_adj
 from GPLAN.source.dimensioning import block_checker as bc
 from GPLAN.source.graphoperations.graph_crossings1 import check_intersection as check_intersection
 
@@ -317,7 +320,7 @@ class InputGraph:
         return edge_set
 
     @timing_decorator
-    def door_connectivity(self, show_graph = False):
+    def door_connectivity(self, show_graph = False,non_adj_list = None):
         """Generates an single dual for a door connectivity input graph.
 
         Args:
@@ -327,6 +330,9 @@ class InputGraph:
             None
         """
 
+        is_non_adj = False
+        if (non_adj_list is not None):
+            is_non_adj = True
 
 
         if (self.nodecnt == 2 and self.edgecnt == 1):
@@ -335,11 +341,20 @@ class InputGraph:
             self.room_width = np.array([1.0, 1.0])
             self.room_height = np.array([1.0, 1.0])
             return
-        one_connected=  copy.deepcopy(self.matrix)          
+        one_connected=  copy.deepcopy(self.matrix)
+        if(is_non_adj):
+            print("Non-Adjacency List Applied in Door Connectivity:", non_adj_list)         
             # Biconnectivity Augmentation
         bcn_edges = []
-        if (not bcn.is_biconnected(self.matrix)):
-            bcn_edges = bcn.biconnect(self.matrix)
+        if(is_non_adj):
+            if (not bcn.is_biconnected(self.matrix)):
+                # bcn_edges = bcn_new.biconnect(self.matrix, non_adj_list)
+                bcn_edges_set = bcn_non_adj.make_biconnected_permutations(self.matrix, non_adj_list)
+                bcn_edges = next(iter(bcn_edges_set))#Here multiple edge sets are there we have to choose 1 here
+
+        else:
+            if (not bcn.is_biconnected(self.matrix)):
+                bcn_edges = bcn.biconnect(self.matrix)
         for edge in bcn_edges:
             self.matrix[edge[0]][edge[1]] = 1
             self.matrix[edge[1]][edge[0]] = 1
@@ -347,7 +362,12 @@ class InputGraph:
         bcn_edges_added = len(bcn_edges) > 0
 
         # Triangularity
-        trng_edges, positions, tri_faces = trng.triangulate(self.matrix
+        if(is_non_adj):
+            trng_edges, positions, tri_faces = trng_non_adj.triangulate(self.matrix
+                                                                , bcn_edges_added
+                                                                , self.coordinates, non_adj_list)
+        else:
+            trng_edges, positions, tri_faces = trng.triangulate(self.matrix
                                                             , bcn_edges_added
                                                             , self.coordinates)
 
@@ -384,13 +404,20 @@ class InputGraph:
 
         self.coordinates = positions
         self.coordinates = [v for v in self.coordinates.values()]
-        separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
-        print("Doing separating triangles lists test",separating_triangles1)
+        if(not is_non_adj):
+            separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
+            print("Doing separating triangles lists test",separating_triangles1)
 
-        # ptpg_matrices, extra_nodes,final_positions = st.handle_STs_with_edge_selection(one_connected, self.matrix, positions)
-        ptpg_matrices, extra_nodes,final_positions = st.handle_non_trivial_ST_Door_connectivity(one_connected, self.matrix, positions)
 
-        self.coordinates = final_positions
+        # one_connected = copy.deepcopy(self.matrix)
+        if(is_non_adj):
+            ptpg_matrices, extra_nodes= st_non_adj.handle_STs_with_edge_selection(one_connected, self.matrix, positions, non_adj_list)#Change this later on to new st algo 
+            self.coordinates = positions
+        else:
+#             ptpg_matrices, extra_nodes,final_positions = st.handle_STs_with_edge_selection(one_connected, self.matrix, positions)
+            ptpg_matrices, extra_nodes,final_positions = st.handle_non_trivial_ST_Door_connectivity(one_connected, self.matrix, positions)
+            self.coordinates = final_positions
+
         self.coordinates = [v for v in self.coordinates.values()]
         self.matrix = ptpg_matrices[0]
         self.edgecnt = int(np.count_nonzero(self.matrix == 1) / 2)
@@ -400,6 +427,14 @@ class InputGraph:
                     self.irreg_nodes1.append(extra_nodes[0][key][0])
                     self.irreg_nodes2.append(extra_nodes[0][key][1])
 
+
+
+        if(not is_non_adj):
+            plt.figure()
+            graphtemp = nx.from_numpy_array(self.matrix)
+            nx.draw_networkx(graphtemp,final_positions, label='After removal',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+            plt.show()
+       
         # plt.figure()
         # graphtemp = nx.from_numpy_array(self.matrix)
         # nx.draw_networkx(graphtemp,final_positions, label='After removal',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
@@ -412,6 +447,21 @@ class InputGraph:
 
       
         is_not_planar_embedding = check_intersection(x_coords,y_coords, self.matrix)
+
+
+        if(is_non_adj):
+            trng_edges, positions, tri_faces = trng_non_adj.triangulate(self.matrix#change this also  basically anywhere there were new files change them to nonadj and bring recent changes there also
+                                                            , bcn_edges_added
+                                                            , self.coordinates, non_adj_list)
+        else:
+            trng_edges, positions, tri_faces = trng.triangulate(self.matrix
+                                                            , bcn_edges_added
+                                                            , self.coordinates)
+
+        for edge in trng_edges:
+            self.matrix[edge[0]][edge[1]] = 1
+            self.matrix[edge[1]][edge[0]] = 1
+            self.edgecnt += 1  # Extra edge added
 
 
         if(is_not_planar_embedding):

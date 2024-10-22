@@ -13,6 +13,7 @@ import GPLAN.source.polygonal.limits as lim
 import GPLAN.source.polygonal.newcoord as nc
 import GPLAN.pythongui.dimensiongui as dimgui
 import GPLAN.pythongui.mindimensiongui as mindimgui
+import GPLAN.pythongui.nonadjgui as nonadjgui
 import time
 from tkinter import messagebox
 import networkx as nx
@@ -432,7 +433,7 @@ def plot(graph: nx.Graph, m: int) -> None:
                            node_color='r',
                            node_size=500,
                            alpha=1)
-    plt.show()
+    #plt.show()
 
 def handle_circulation(ui, graph, drawGUI=False, gclass=None):
     is_dimensioned = False
@@ -1625,16 +1626,30 @@ def handle_limits(ui, graph, drawGUI = False, gclass = None):
         # show_warning(newCoordsInstance.error_message)
 
 def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
-    start = time.time()
-    graph, checkPTPG = graph.door_connectivity(show_graph=drawGUI)
-    ui.set_edgeCount(graph.edgecnt)
-    ui.set_edges(graph.update_gclass_with_edges(gclass))
-    ui.set_nodeCoordinates(graph.coordinates)
+  
+    if ui.get_isNonAdj() == 1:#If Non adjacency edges are entered.
+        non_adj_list = nonadjgui.gui_non_adj(ui)
+        print("Non-Adjacency List Applied:", non_adj_list)
+        start = time.time()
+        graph, checkPTPG = graph.door_connectivity(show_graph=drawGUI,non_adj_list=non_adj_list)
+        ui.set_edgeCount(graph.edgecnt)
+        ui.set_edges(graph.update_gclass_with_edges(gclass))
+        ui.set_nodeCoordinates(graph.coordinates)
+
+    else:
+        start = time.time()
+        graph, checkPTPG = graph.door_connectivity(show_graph=drawGUI)
+        ui.set_edgeCount(graph.edgecnt)
+        ui.set_edges(graph.update_gclass_with_edges(gclass))
+        ui.set_nodeCoordinates(graph.coordinates)
+    
     multiple_door = False
     ui._set_output_data([])
     ui._set_multiple_output_found(0)
+    
     if (checkPTPG):
         print("PTPG going with RFP")
+
         if (ui.get_isMinDimensioned() == 0):  # Non-Dimensioned single rectangular dual
             if gclass is None:
                 multiple_door = ui.get_is_multiple_door()

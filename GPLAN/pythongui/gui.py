@@ -218,6 +218,10 @@ class gui_class:
         self.checkvar5 = tk.IntVar(None) # For remove/add circulation
         self.checkvar5.set(0)
         self.checkvar4 = tk.IntVar()
+        self.checkvar6 = tk.IntVar(None) 
+        self.checkvar6.set(0)
+
+
 
         self.e1 = tk.IntVar()
         self.e2 = tk.IntVar()
@@ -334,7 +338,7 @@ class gui_class:
                 temp_node_data.append(i.pos_y)
                 node_coordinate.append(temp_node_data)
             return [len(self.nodes_data), self.edge_count, self.edges, self.command, self.master.checkvar1.get(),
-                    list(filter(None, [row[1].get() for row in self.table._data_vars])), self.hex_list, node_coordinate, self.master.checkvar2.get(), self.master.checkvar3.get(), self.master.checkvar4.get(),self.master.checkvar5.get()]
+                    list(filter(None, [row[1].get() for row in self.table._data_vars])), self.hex_list, node_coordinate, self.master.checkvar2.get(), self.master.checkvar3.get(), self.master.checkvar4.get(),self.master.checkvar5.get(),self.master.checkvar6.get()]
 
         def createCanvas(self):
             self.id_circle.clear()
@@ -1484,7 +1488,8 @@ class gui_class:
                 (tk.Button(master.frame1, text='EXIT', relief='flat', command=master.exit), 5, 1),
                 (tk.Checkbutton(master.frame1, text="Dimensioned", relief='flat', selectcolor='#4A4E69', width=checkbox_width, variable=master.checkvar1, onvalue=1, offvalue=0), 6, 0),
                 (tk.Checkbutton(master.frame1, text="Public", relief='flat', selectcolor='#4A4E69', width=checkbox_width, variable=master.checkvar5, onvalue=1, offvalue=0), 6, 1),
-                (tk.Checkbutton(master.frame1, text="Min Dim", relief='flat', selectcolor='#4A4E69', width=checkbox_width, variable=master.checkvar4, onvalue=1, offvalue=0), 7, 0)
+                (tk.Checkbutton(master.frame1, text="Min Dim", relief='flat', selectcolor='#4A4E69', width=checkbox_width, variable=master.checkvar4, onvalue=1, offvalue=0), 7, 0),
+                (tk.Checkbutton(master.frame1, text="Non Adj", relief='flat', selectcolor='#4A4E69', width=checkbox_width, variable=master.checkvar6, onvalue=1, offvalue=0), 7, 1)
             ]
 
             # Grid buttons and checkboxes
@@ -1637,9 +1642,9 @@ class gui_class:
     def graph_ret(self):
         # value is set here, dimensioned and mindim flags are set for graphs from input file
         if self.open == True and len(self.value) > 0 and len(self.value) > 10: #No one should change self.value add variables differently
-            isDimensioned, isMindim = self.value[4], self.value[10]
+            isDimensioned, isMindim, isNonAdj = self.value[4], self.value[10], self.value[11]
             self.value = self.app.return_everything()
-            self.value[4], self.value[10] = isDimensioned, isMindim
+            self.value[4], self.value[10], self.value[11] = isDimensioned, isMindim, isNonAdj
         else:
             self.value = self.app.return_everything()
         self.textbox = self.tbox.gettext()
