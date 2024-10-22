@@ -464,7 +464,6 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
         edge = edge_trg
         edge = sorted(edge)
         edge = tuple(edge)
-
         if (one_connected[edge[0]][edge[1]]!=1 and len(edge_to_faces[edge]) == 2):
             #Identify the remainig two nodes
             node1 = edge_to_faces[edge][0]
@@ -539,7 +538,6 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
     if (not_removed):
         #give choice / take choice from user to remove or not to remove
         print("user gave ST")
-
         remove_edges = []
         for edge_trg in separating_edge_to_triangles:
             all_trig_done = True

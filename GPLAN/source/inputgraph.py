@@ -409,7 +409,7 @@ class InputGraph:
             print("Doing separating triangles lists test",separating_triangles1)
 
 
-
+        # one_connected = copy.deepcopy(self.matrix)
         if(is_non_adj):
             ptpg_matrices, extra_nodes= st_non_adj.handle_STs_with_edge_selection(one_connected, self.matrix, positions, non_adj_list)#Change this later on to new st algo 
             self.coordinates = positions
@@ -449,7 +449,6 @@ class InputGraph:
         is_not_planar_embedding = check_intersection(x_coords,y_coords, self.matrix)
 
 
-
         if(is_non_adj):
             trng_edges, positions, tri_faces = trng_non_adj.triangulate(self.matrix#change this also  basically anywhere there were new files change them to nonadj and bring recent changes there also
                                                             , bcn_edges_added
@@ -457,19 +456,18 @@ class InputGraph:
         else:
             trng_edges, positions, tri_faces = trng.triangulate(self.matrix
                                                             , bcn_edges_added
+                                                            , self.coordinates)
+
+        for edge in trng_edges:
+            self.matrix[edge[0]][edge[1]] = 1
+            self.matrix[edge[1]][edge[0]] = 1
+            self.edgecnt += 1  # Extra edge added
 
 
         if(is_not_planar_embedding):
             trng_edges, positions, tri_faces = trng.triangulate(self.matrix
                                                                 , True
                                                                 , self.coordinates)
-
-
-        if(is_not_planar_embedding):
-            trng_edges, positions, tri_faces = trng.triangulate(self.matrix
-                                                                , True
-                                                                , self.coordinates)
-
 
             for edge in trng_edges:
                 self.matrix[edge[0]][edge[1]] = 1
