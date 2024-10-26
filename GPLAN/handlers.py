@@ -1628,8 +1628,11 @@ def handle_limits(ui, graph, drawGUI = False, gclass = None):
 def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
   
     if ui.get_isNonAdj() == 1:#If Non adjacency edges are entered.
-        non_adj_list = nonadjgui.gui_non_adj(ui)
-        print("Non-Adjacency List Applied:", non_adj_list)
+        if nonadjgui is not None:
+            non_adj_list = nonadjgui.gui_non_adj(ui)
+            print("Non-Adjacency List Applied:", non_adj_list)
+        else:
+            non_adj_list = ui.get_non_adj_list()
         start = time.time()
         result = graph.door_connectivity(show_graph=drawGUI, non_adj_list=non_adj_list)
 
