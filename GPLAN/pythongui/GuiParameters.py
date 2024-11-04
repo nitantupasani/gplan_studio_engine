@@ -113,6 +113,7 @@ class GuiParameters:
     __is_multiple_door: bool
     output_data: list = []
     min_dim_inputs: DimParameters = None
+    non_adj_list: list = []
 
     def get_min_dim_inputs(self) -> DimParameters:
         return self.min_dim_inputs
@@ -170,6 +171,13 @@ class GuiParameters:
 
     def set_isNonAdj(self, isNonAdj: int):
         self.__isNonAdj = isNonAdj
+        return self
+    
+    def get_non_adj_list(self) -> list:
+        return self.non_adj_list
+    
+    def set_non_adj_list(self, non_adj_list: list):
+        self.non_adj_list = non_adj_list
         return self
     
     def get_isRemoveAddCirculation(self) -> int:

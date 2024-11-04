@@ -252,7 +252,10 @@ def make_biconnected_permutations(matrix, non_adj_list):
                 edge_combo = {tuple(sorted(edge)) for edge in edge_combo}
                 edge_combo = sorted(edge_combo)
                 edge_combo = tuple(edge_combo)
-                all_bicon_edges.add(edge_combo)
+                if(nx.is_planar(nxgraph)):
+                    all_bicon_edges.add(edge_combo)
+                else:
+                    pass
 
             # Remove edges to restore the original state
             for edge in edge_combo:
