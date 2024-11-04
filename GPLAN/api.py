@@ -196,6 +196,8 @@ class Documents:
                     handle_single(ui, graph)
 
             elif caller == "door_connectivity":
+                ui.set_isNonAdj(0)#Hardcoded change later
+                ui.set_non_adj_list([]) #hardcoded change later
                 handle_door_connectivity(ui, graph)
             else:
                 message = f"Support for {caller} Not yet Handled from Backend for Single Floorplan"
@@ -216,6 +218,8 @@ class Documents:
             elif caller == 'irregular':
                 handle_multiple(ui, graph)
             elif caller == "door_connectivity":
+                ui.set_isNonAdj(0)#Hardcoded change later
+                ui.set_non_adj_list([]) #hardcoded change later
                 ui.set_is_multiple_door(True)
                 handle_door_connectivity(ui, graph)
                 message = 'Generated Multiple Door connectivity floorplan.'+ ui.get_message()
