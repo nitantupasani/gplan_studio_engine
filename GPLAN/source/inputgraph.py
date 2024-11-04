@@ -437,10 +437,10 @@ class InputGraph:
 
 
         if(not is_non_adj):
-            plt.figure()
+            # plt.figure()
             graphtemp = nx.from_numpy_array(self.matrix)
-            nx.draw_networkx(graphtemp,final_positions, label='After removal',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
-            plt.show()
+            # nx.draw_networkx(graphtemp,final_positions, label='After removal',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+            # plt.show()
        
         # plt.figure()
         # graphtemp = nx.from_numpy_array(self.matrix)
