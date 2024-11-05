@@ -1912,8 +1912,8 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
 
                 # graph.graph_list[min_graph].final_traversal=inputgraph.get_final_traversal(graph.graph_list[min_graph])
                 graph.scale_plot_dimension(plot_width, plot_height)
-                for graph in graph.graph_list:
-                    ui._append_output_data(graph)
+                for graphz in graph.graph_list:
+                    ui._append_output_data(graphz)
                     ui._set_multiple_output_found(1)
                 min_graph = 0
                 if drawGUI:
