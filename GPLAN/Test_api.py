@@ -39,6 +39,8 @@ def post(request, shape):
             "optimal_floorplan": 0
         }
         if dimensioned or min_dim_enabled:
+            dim_inputs["plot_width"] = request.get('plot_width', 0)
+            dim_inputs["plot_height"] = request.get('plot_height', 0)
             for node in nodes_list:
                 if node['width'] is not None:
                     if dimensioned:
@@ -104,160 +106,152 @@ def post(request, shape):
 
 
 if __name__ == '__main__':
-    sample = {"irregular":false,"corridor":false,"dimensioned":false,"dimensionedCirculation":false,"minDimEnabled":false,"removeAddCirculation":false,"publicEnabled":false,"normalizeConst":true,"limit":10,"corridorThickness":0.5,"starting_from":0,"count":3,
-              "nodes":[
-            {
-                "id": 0,
-                "x": 400,
-                "y": 180,
-                "label": "1",
-                "color": "#1C4C82",
-                "width": {
-                "max": "none",
-                "min": 3
-                },
-                "height": {
-                "max": "none",
-                "min": 3
-                },
-                "ratio": {
-                "max": "none",
-                "min": "none"
-                }
-            },
-            {
-                "id": 1,
-                "x": 80,
-                "y": 660,
-                "label": "2",
-                "color": "#1C4C82",
-                "width": {
-                "max": "none",
-                "min": 3
-                },
-                "height": {
-                "max": "none",
-                "min": 3
-                },
-                "ratio": {
-                "max": "none",
-                "min": "none"
-                }
-            },
-            {
-                "id": 2,
-                "x": 700,
-                "y": 680,
-                "label": "3",
-                "color": "#1C4C82",
-                "width": {
-                "max": "none",
-                "min": 3
-                },
-                "height": {
-                "max": "none",
-                "min": 3
-                },
-                "ratio": {
-                "max": "none",
-                "min": "none"
-                }
-            },
-            {
-                "id": 3,
-                "x": 400,
-                "y": 400,
-                "label": "4",
-                "color": "#1C4C82",
-                "width": {
-                "max": "none",
-                "min": 3
-                },
-                "height": {
-                "max": "none",
-                "min": 3
-                },
-                "ratio": {
-                "max": "none",
-                "min": "none"
-                }
-            },
-            {
-                "id": 4,
-                "x": 320,
-                "y": 520,
-                "label": "5",
-                "color": "#1C4C82",
-                "width": {
-                "max": "none",
-                "min": 3
-                },
-                "height": {
-                "max": "none",
-                "min": 3
-                },
-                "ratio": {
-                "max": "none",
-                "min": "none"
-                }
-            },
-            {
-                "id": 5,
-                "x": 520,
-                "y": 540,
-                "label": "6",
-                "color": "#1C4C82",
-                "width": {
-                "max": "none",
-                "min": 3
-                },
-                "height": {
-                "max": "none",
-                "min": 3
-                },
-                "ratio": {
-                "max": "none",
-                "min": "none"
-                }
-            }
-            ],
-              "edges":[
-            {
-                "source": 5,
-                "target": 3
-            },
-            {
-                "source": 3,
-                "target": 4
-            },
-            {
-                "source": 4,
-                "target": 5
-            },
-            {
-                "source": 5,
-                "target": 2
-            },
-            {
-                "source": 2,
-                "target": 0
-            },
-            {
-                "source": 0,
-                "target": 1
-            },
-            {
-                "source": 1,
-                "target": 2
-            },
-            {
-                "source": 4,
-                "target": 1
-            },
-            {
-                "source": 3,
-                "target": 0
-            }
-            ]}
+    sample = {
+  "rectangular": true,
+  "corridor": false,
+  "dimensioned": false,
+  "dimensionedCirculation": false,
+  "minDimEnabled": true,
+  "removeAddCirculation": false,
+  "publicEnabled": false,
+  "normalizeConst": true,
+  "limit": 10,
+  "corridorThickness": 0.5,
+  "starting_from": 0,
+  "count": 10,
+  "plot_width":20,
+  "plot_height":20,
+  "nodes": [
+    {
+      "id": 0,
+      "x": 220,
+      "y": 160,
+      "label": "1Bedroom",
+      "color": "#1C4C82",
+      "width": {
+        "max": 99999,
+        "min": 3
+      },
+      "height": {
+        "max": 99999,
+        "min": 3
+      },
+      "ratio": {
+        "max": 99999,
+        "min": 3
+      }
+    },
+    {
+      "id": 1,
+      "x": 600,
+      "y": 440,
+      "label": "Living Room",
+      "color": "#1C4C82",
+      "width": {
+        "max": 99999,
+        "min": 3
+      },
+      "height": {
+        "max": 99999,
+        "min": 3
+      },
+      "ratio": {
+        "max": 99999,
+        "min": 3
+      }
+    },
+    {
+      "id": 2,
+      "x": 940,
+      "y": 160,
+      "label": "3bedroom2",
+      "color": "#1C4C82",
+      "width": {
+        "max": 99999,
+        "min": 3
+      },
+      "height": {
+        "max": 99999,
+        "min": 3
+      },
+      "ratio": {
+        "max": 99999,
+        "min": 3
+      }
+    },
+    {
+      "id": 3,
+      "x": 260,
+      "y": 740,
+      "label": "4kitchen",
+      "color": "#1C4C82",
+      "width": {
+        "max": 99999,
+        "min": 3
+      },
+      "height": {
+        "max": 99999,
+        "min": 3
+      },
+      "ratio": {
+        "max": 99999,
+        "min": 3
+      }
+    },
+    {
+      "id": 4,
+      "x": 1020,
+      "y": 740,
+      "label": "5balcony",
+      "color": "#1C4C82",
+      "width": {
+        "max": 99999,
+        "min": 3
+      },
+      "height": {
+        "max": 99999,
+        "min": 3
+      },
+      "ratio": {
+        "max": 99999,
+        "min": 3
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": 1,
+      "target": 0
+    },
+    {
+      "source": 1,
+      "target": 2
+    },
+    {
+      "source": 1,
+      "target": 3
+    },
+    {
+      "source": 0,
+      "target": 2
+    },
+    {
+      "source": 4,
+      "target": 1
+    },
+    {
+      "source": 4,
+      "target": 2
+    },
+    {
+      "source": 0,
+      "target": 3
+    },
+    {
+      "source": 3,
+      "target": 4
+    }
+  ]
+}
 
     post(sample,'door_connectivity')
