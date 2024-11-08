@@ -580,6 +580,46 @@ class InputGraph:
         #                                                                                    self.mergednodes,
         #                                                                                    self.irreg_nodes1)
 
+    def scale_plot_dimension(self,plot_width,plot_height):
+        reorder_mapping = []
+        for graph in self.graph_list:
+            width = 0
+            height = 0
+            for room in graph.final_traversal:
+                for point in room :
+                    if point[0] > width:
+                        width = point[0]
+                    if point[1] > height:
+                        height = point[1]
+            print("width: ", width, "height: ", height)
+            height = plot_height/height
+            width = plot_width/width
+
+            diff = width if width >= 1 else 1/width
+            diff = diff*height if height >= 1 else diff/height
+            
+            reorder_mapping.append([diff,len(reorder_mapping)])
+            #Things to change area , final_traversal,room_height,room_width,room_x,room_y
+            for i in range(len(graph.final_traversal)):
+                for j in range(len(graph.final_traversal[i])):
+                    x, y = graph.final_traversal[i][j]
+                    graph.final_traversal[i][j] = (x * width, y * height) 
+            for index in range(len(graph.room_height)):
+                graph.room_height[index] *= height
+                graph.room_width[index] *= width
+                graph.room_x[index] *= width
+                graph.room_y[index] *= height
+                graph.area[index] *= height * width
+
+            print(reorder_mapping)
+        reorder_mapping.sort(key=lambda x: x[0])
+        new_graph_list = copy.deepcopy(self.graph_list)
+        for index in range(len(self.graph_list)):
+            new_graph_list[index] = self.graph_list[reorder_mapping[index][1]]
+        self.graph_list = new_graph_list
+
+
+
     def door_connectivity2(self):
         """Generates an single dual for a door connectivity input graph.
 

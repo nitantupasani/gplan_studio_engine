@@ -1830,7 +1830,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 print("Getting optimal floorplan with same info just plot data is 0")
                 if gclass is not None:
                     messagebox.showwarning("Warning",
-                                    "No floorplan found which satisfies the given plot dimensions drawing optimal floorplan.")
+                                    "No floorplan found which satisfies the given plot dimensions drawing optimal floorplan and resizing based on plot inputs.")
                 else:
                     pass#Return warning message to front from here later on
          
@@ -1895,9 +1895,9 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         area_sum = sum(room_area)
                         areas.append(area_sum)
                         # graph.graph_list[i].area = area_sum #Check if this line is really needed also look into gui function not writing areas
-                        if min_area < 0 or area_sum < min_area:
-                            graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(
+                        graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(
                                 graph.graph_list[i])
+                        if min_area < 0 or area_sum < min_area:
                             min_graph = i
                             min_area = area_sum
                         
@@ -1911,7 +1911,11 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
 
                 # graph.graph_list[min_graph].final_traversal=inputgraph.get_final_traversal(graph.graph_list[min_graph])
-                ui._append_output_data(graph.graph_list[min_graph])
+                graph.scale_plot_dimension(plot_width, plot_height)
+                for graphz in graph.graph_list:
+                    ui._append_output_data(graphz)
+                    ui._set_multiple_output_found(1)
+                min_graph = 0
                 if drawGUI:
                     drawFunction(ui, graph.graph_list[min_graph], origin, ui.get_roomNames(), gclass=gclass)
 
@@ -1923,6 +1927,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     drawFunction(ui, graph.graph_list[min_graph], origin, ui.get_roomNames(), gclass=gclass)
             elif multiple_door == 1:#Sort all the given floorplans based on area then append them at the end of the output list
                 areas_mapping.sort()#sort all areas
+                print("plot height",plot_height,"plot width",plot_width)
                 for floorplan in areas_mapping:
                     ui._append_output_data(graph.graph_list[floorplan[1]])
                     ui._set_multiple_output_found(1)
