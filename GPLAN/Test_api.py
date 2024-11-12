@@ -12,6 +12,7 @@ def post(request, shape):
         nodes_list.sort(key=lambda node: node['id'])
         nodes = [[node['x'], node['y']] for node in nodes_list]
         edges = [[edge['source'], edge['target'],edge.get('color','black')] for edge in edges_list]
+        non_adj_edges = [[edge['source'], edge['target']] for edge in edges_list if edge.get('color', 'black') == 'red']
         graph: InputGraph = InputGraph(len(nodes), len(edges), edges, nodes)
 
         rectangular = request.get('rectangular', False)
@@ -22,6 +23,7 @@ def post(request, shape):
         remove_add_circulation = request.get('removeAddCirculation', False)
         public_enabled = request.get('publicEnabled', False)
         normalize_const = request.get('normalizeConst', False)
+        non_adj = request.get('non_adj', False)
         limit = request.get('limit', FLOORPLAN_LIMIT)
         corridor_thickness = request.get('corridorThickness', None)
         documentID = request.get('documentID', None)
@@ -89,13 +91,15 @@ def post(request, shape):
             minDimEnabled=min_dim_enabled,
             removeAddCirculation=remove_add_circulation,
             publicEnabled=public_enabled,
+            nonAdj=non_adj,
             normalize_const=normalize_const,
             limit=limit,
             corridor_thickness=corridor_thickness,
             documentID=documentID,
             name=name,
             dim_inputs=dim_inputs,
-            edges_list=edges
+            edges_list=edges,
+            non_adj_edge_list=non_adj_edges
         )
         import pprint
         pprint.pprint(floorplans.to_dict())
@@ -221,35 +225,43 @@ if __name__ == '__main__':
   "edges": [
     {
       "source": 1,
-      "target": 0
+      "target": 0,
+      "color": "black"
     },
     {
       "source": 1,
-      "target": 2
+      "target": 2,
+      "color": "black"
     },
     {
       "source": 1,
-      "target": 3
+      "target": 3,
+      "color": "red"
     },
     {
       "source": 0,
-      "target": 2
+      "target": 2,
+      "color": "black"
     },
     {
       "source": 4,
-      "target": 1
+      "target": 1,
+      "color": "red"
     },
     {
       "source": 4,
-      "target": 2
+      "target": 2,
+      "color": "black"
     },
     {
       "source": 0,
-      "target": 3
+      "target": 3,
+      "color": "red"
     },
     {
       "source": 3,
-      "target": 4
+      "target": 4,
+      "color": "black"
     }
   ]
 }
