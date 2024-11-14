@@ -111,6 +111,7 @@ def post(request, shape):
 
 if __name__ == '__main__':
     sample = {
+  "non_adj": true,
   "rectangular": true,
   "corridor": false,
   "dimensioned": false,

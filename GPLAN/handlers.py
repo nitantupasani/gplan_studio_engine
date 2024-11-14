@@ -1628,7 +1628,7 @@ def handle_limits(ui, graph, drawGUI = False, gclass = None):
 def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
   
     if ui.get_isNonAdj() == 1:#If Non adjacency edges are entered.
-        if nonadjgui is not None:
+        if gclass is not None:#using glcass here because nonadjgui might be present
             non_adj_list = nonadjgui.gui_non_adj(ui)
             print("Non-Adjacency List Applied:", non_adj_list)
         else:
