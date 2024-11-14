@@ -727,10 +727,11 @@ def handle_non_trivial_non_adj_ST_Door_connectivity(one_connected,adjacency,posi
     not_removed = False
     import matplotlib.pyplot as plt
 
-    plt.figure()
-    graphtemp = nx.from_numpy_array(adjacency)
-    nx.draw_networkx(graphtemp,positions, label='BEFORE ST REMOVEAL',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
-    plt.show()
+  
+    # plt.figure()
+    # graphtemp = nx.from_numpy_array(adjacency)
+    # nx.draw_networkx(graphtemp,positions, label='BEFORE ST REMOVEAL',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+    # plt.show()
 
     not_removed = False
     remove_edges = []
