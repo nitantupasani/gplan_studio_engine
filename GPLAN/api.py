@@ -197,7 +197,8 @@ class Documents:
 
             elif caller == "door_connectivity":
                 ui.set_isNonAdj(nonAdj)
-                ui.set_non_adj_list(non_adj_edge_list) 
+                ui.set_non_adj_list(non_adj_edge_list)
+                ui.set_is_multiple_door(False) 
                 handle_door_connectivity(ui, graph)
             else:
                 message = f"Support for {caller} Not yet Handled from Backend for Single Floorplan"
