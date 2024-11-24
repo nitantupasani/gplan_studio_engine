@@ -32,7 +32,8 @@ def run():
             # nx.draw_networkx(graphtemp,graph.coordinates, label='After retriangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
             # plt.show()
             if not graph.is_connected():#Check if the graph is connected or not
-                gclass.command = 'not_connected'
+                connect_graph.one_connected(graph.matrix)
+                # gclass.command = 'not_connected'
                 
             origin = 0
             if gclass.command == "circulation":
