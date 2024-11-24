@@ -354,8 +354,6 @@ class InputGraph:
                     print("No Biconnectivity augmentation found")
                     return self ,False,False
                 bcn_edges = next(iter(bcn_edges_set))#Here multiple edge sets are there we have to choose 1 here
-            
-
         else:
             if (not bcn.is_biconnected(self.matrix)):
                 bcn_edges = bcn.biconnect(self.matrix)
@@ -411,7 +409,9 @@ class InputGraph:
 
         self.coordinates = positions
         self.coordinates = [v for v in self.coordinates.values()]
-        if(not is_non_adj):
+        if(is_non_adj):
+            pass
+        else:
             separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
             print("Doing separating triangles lists test",separating_triangles1)
 
@@ -419,12 +419,11 @@ class InputGraph:
         # one_connected = copy.deepcopy(self.matrix)
         if(is_non_adj):
             ptpg_matrices, extra_nodes,final_positions= st.handle_non_trivial_non_adj_ST_Door_connectivity(one_connected, self.matrix, positions, non_adj_list)#Change this later on to new st algo 
-            self.coordinates = final_positions
         else:
 #             ptpg_matrices, extra_nodes,final_positions = st.handle_STs_with_edge_selection(one_connected, self.matrix, positions)
             ptpg_matrices, extra_nodes,final_positions = st.handle_non_trivial_ST_Door_connectivity(one_connected, self.matrix, positions)
-            self.coordinates = final_positions
-
+                    
+        self.coordinates = final_positions
         self.coordinates = [v for v in self.coordinates.values()]
         self.matrix = ptpg_matrices[0]
         self.edgecnt = int(np.count_nonzero(self.matrix == 1) / 2)
@@ -436,11 +435,11 @@ class InputGraph:
 
 
 
-        if(not is_non_adj):
-            # plt.figure()
-            graphtemp = nx.from_numpy_array(self.matrix)
-            # nx.draw_networkx(graphtemp,final_positions, label='After removal',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
-            # plt.show()
+        # if(not is_non_adj):
+        #     # plt.figure()
+        #     graphtemp = nx.from_numpy_array(self.matrix)
+        #     # nx.draw_networkx(graphtemp,final_positions, label='After removal',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+        #     # plt.show()
        
         # plt.figure()
         # graphtemp = nx.from_numpy_array(self.matrix)
@@ -456,23 +455,14 @@ class InputGraph:
         is_not_planar_embedding = check_intersection(x_coords,y_coords, self.matrix)
 
 
-        if(is_non_adj):
-            trng_edges, positions, tri_faces = trng_non_adj.triangulate(self.matrix#change this also  basically anywhere there were new files change them to nonadj and bring recent changes there also
-                                                            , bcn_edges_added
-                                                            , self.coordinates, non_adj_list)
-        else:
-            trng_edges, positions, tri_faces = trng.triangulate(self.matrix
-                                                            , bcn_edges_added
-                                                            , self.coordinates)
-
-        for edge in trng_edges:
-            self.matrix[edge[0]][edge[1]] = 1
-            self.matrix[edge[1]][edge[0]] = 1
-            self.edgecnt += 1  # Extra edge added
-
-
         if(is_not_planar_embedding):
-            trng_edges, positions, tri_faces = trng.triangulate(self.matrix
+
+            if(is_non_adj):
+                trng_edges, positions, tri_faces = trng_non_adj.triangulate(self.matrix#change this also  basically anywhere there were new files change them to nonadj and bring recent changes there also
+                                                                    , bcn_edges_added
+                                                                    , self.coordinates, non_adj_list)
+            else:
+                trng_edges, positions, tri_faces = trng.triangulate(self.matrix
                                                                 , True
                                                                 , self.coordinates)
 
