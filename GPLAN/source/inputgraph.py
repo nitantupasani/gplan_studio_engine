@@ -456,24 +456,15 @@ class InputGraph:
         is_not_planar_embedding = check_intersection(x_coords,y_coords, self.matrix)
 
 
-        if(is_non_adj):
-            trng_edges, positions, tri_faces = trng_non_adj.triangulate(self.matrix#change this also  basically anywhere there were new files change them to nonadj and bring recent changes there also
-                                                            , bcn_edges_added
-                                                            , self.coordinates, non_adj_list)
-        else:
-            trng_edges, positions, tri_faces = trng.triangulate(self.matrix
-                                                            , bcn_edges_added
-                                                            , self.coordinates)
-
-        for edge in trng_edges:
-            self.matrix[edge[0]][edge[1]] = 1
-            self.matrix[edge[1]][edge[0]] = 1
-            self.edgecnt += 1  # Extra edge added
-
-
         if(is_not_planar_embedding):
-            trng_edges, positions, tri_faces = trng.triangulate(self.matrix
-                                                                , True
+
+            if(is_non_adj):
+                trng_edges, positions, tri_faces = trng_non_adj.triangulate(self.matrix#change this also  basically anywhere there were new files change them to nonadj and bring recent changes there also
+                                                                    , bcn_edges_added
+                                                                    , self.coordinates, non_adj_list)
+            else:
+                trng_edges, positions, tri_faces = trng.triangulate(self.matrix
+                                                                , bcn_edges_added
                                                                 , self.coordinates)
 
             for edge in trng_edges:
