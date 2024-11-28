@@ -3,6 +3,7 @@ import GPLAN.input.input_for_min_dim as input_for_min_dim
 import json
 # from system_functions.os_functions import delete_fileimport input.input_for_min_dim as input_for_min_dim
 from GPLAN.source.graphoperations.operations import get_encoded_matrix
+from GPLAN.source.graphoperations import connect_graph
 from GPLAN.system_functions.os_functions import delete_file
 import GPLAN.source.dimensioning.minimum_dimensioning as min_dim
 import GPLAN.source.lettershape.lshape.Lshaped as Lshaped
