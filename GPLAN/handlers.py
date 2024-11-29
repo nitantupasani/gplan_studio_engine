@@ -696,6 +696,8 @@ def handle_circulation(ui, graph, drawGUI=False, gclass=None):
                 drawFunction(ui, new_graph, origin - 300, ui.get_roomNames(), gclass=gclass)
 
 def handle_single(ui, graph, drawGUI = False, gclass = None):
+    if not graph.is_connected():#Check if the graph is connected or not
+                connect_graph.one_connected(graph.matrix)
     if (ui.get_isDimensioned() == 0 and ui.get_isMinDimensioned() == 0 ):  # Non-Dimensioned single dual
         start = time.time()
         # Resets the data already present for downloading catalogues
@@ -1627,6 +1629,8 @@ def handle_limits(ui, graph, drawGUI = False, gclass = None):
         # show_warning(newCoordsInstance.error_message)
 
 def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
+    if not graph.is_connected():#Check if the graph is connected or not
+                connect_graph.one_connected(graph.matrix)
   
     if ui.get_isNonAdj() == 1:#If Non adjacency edges are entered.
         if gclass is not None:#using glcass here because nonadjgui might be present
