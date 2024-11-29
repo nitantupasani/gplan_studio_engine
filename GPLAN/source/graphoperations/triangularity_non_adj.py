@@ -23,6 +23,7 @@ import networkx as nx
 import math
 from networkx import simple_cycles
 from networkx import adjacency_matrix
+from shapely.geometry import Point, MultiPoint, LineString, GeometryCollection
 import numpy as np
 import matplotlib.path as mplPath
 import matplotlib.pyplot as plt
@@ -307,7 +308,21 @@ def get_tri_edges(non_tri_faces, positions, non_adj_list):
             polygon = Polygon(face_coordinates)
             polygon_ext = LineString(list(polygon.exterior.coords))
             intersections = polygon_ext.intersection(segment)
-            inter_points = [(pt.x, pt.y) for pt in intersections.geoms]
+            if isinstance(intersections, Point):
+                inter_points = [(intersections.x, intersections.y)]
+            elif isinstance(intersections, MultiPoint):
+                inter_points = [(pt.x, pt.y) for pt in intersections.geoms]
+            elif isinstance(intersections, LineString):
+                # Extract points along the LineString
+                inter_points = list(intersections.coords)
+            elif isinstance(intersections, GeometryCollection):
+                # Filter only Point or MultiPoint geometries from the collection
+                inter_points = []
+                for geom in intersections.geoms:
+                    if isinstance(geom, Point):
+                        inter_points.append((geom.x, geom.y))
+                    elif isinstance(geom, MultiPoint):
+                        inter_points.extend([(pt.x, pt.y) for pt in geom.geoms])
 
             flag = True
 
@@ -315,7 +330,7 @@ def get_tri_edges(non_tri_faces, positions, non_adj_list):
                 if pt != point_a and pt != point_b:
                     flag = False
 
-            if ((y3 - y2) * (x2 - x1) == (y2 - y1) * (x3 - x2)):
+            if (abs((y3 - y2) * (x2 - x1) - (y2 - y1) * (x3 - x2))<1e-9):
                 i += 1
                 continue
 
@@ -360,7 +375,21 @@ def get_tri_edges(non_tri_faces, positions, non_adj_list):
                 polygon = Polygon(face_coordinates)
                 polygon_ext = LineString(list(polygon.exterior.coords))
                 intersections = polygon_ext.intersection(segment)
-                inter_points = [(pt.x, pt.y) for pt in intersections.geoms]
+                if isinstance(intersections, Point):
+                    inter_points = [(intersections.x, intersections.y)]
+                elif isinstance(intersections, MultiPoint):
+                    inter_points = [(pt.x, pt.y) for pt in intersections.geoms]
+                elif isinstance(intersections, LineString):
+                    # Extract points along the LineString
+                    inter_points = list(intersections.coords)
+                elif isinstance(intersections, GeometryCollection):
+                    # Filter only Point or MultiPoint geometries from the collection
+                    inter_points = []
+                    for geom in intersections.geoms:
+                        if isinstance(geom, Point):
+                            inter_points.append((geom.x, geom.y))
+                        elif isinstance(geom, MultiPoint):
+                            inter_points.extend([(pt.x, pt.y) for pt in geom.geoms])
 
                 flag = True
 
@@ -368,7 +397,7 @@ def get_tri_edges(non_tri_faces, positions, non_adj_list):
                     if pt != point_a and pt != point_b:
                         flag = False
 
-                if ((y3 - y2) * (x2 - x1) == (y2 - y1) * (x3 - x2)):
+                if (abs((y3 - y2) * (x2 - x1) - (y2 - y1) * (x3 - x2))<1e-9):
                     i += 1
                     continue
 
@@ -410,7 +439,7 @@ def triangulate(matrix, bcn_edges_added, pos, non_adj_list):
     else:
         positions = nx.planar_layout(nxgraph)
 
-    simpleCycles = nx.simple_cycles(nxgraph)
+
     non_tri_faces = get_nontriangular_face(positions, nxgraph)
 
     tri_edges = get_tri_edges(non_tri_faces, positions, non_adj_list)
