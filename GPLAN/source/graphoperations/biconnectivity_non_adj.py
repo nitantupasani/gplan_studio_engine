@@ -196,11 +196,11 @@ def make_biconnected_permutations(matrix, non_adj_list):
     Returns:
         all_bicon_edges: A list of sets of edges, each set representing a combination that makes the graph biconnected.
     """
-    # Create the graph from the adjacency matrix
     nxgraph = nx.from_numpy_array(matrix)
     articulation_points = get_cutvertices(nxgraph)
     potential_edges = set()
     all_bicon_edges = set()
+    block_status = {}  # Dictionary to track the connection status of each block
 
     print("Non-Adjacency List Applied in Biconnectivity:", non_adj_list)
 
@@ -213,44 +213,64 @@ def make_biconnected_permutations(matrix, non_adj_list):
         blocks = find_blocks(nxgraph, point)
         print(f"{point}: Blocks List: ", blocks)
 
-        # # Consider connections between blocks
-        # for i in range(len(blocks)):
-        #     for j in range(i + 1, len(blocks)):
-        #         block1, block2 = blocks[i], blocks[j]
-        #         valid_edge = find_valid_edge(block1, block2, non_adj_list)
-        #         if valid_edge:
-        #             potential_edges.add(valid_edge)
+        # Initialize block statuses
+        for block in blocks:
+            block_tuple = tuple(block)  # Convert the list to a tuple
+            if block_tuple not in block_status:
+                block_status[block_tuple] = False
+
         cycle_iter = itertools.cycle(blocks)
-        for i in range(len(blocks) - 1):
-            current_block = next(cycle_iter)
-            next_block = next(cycle_iter)
-            cycle_iter = itertools.cycle(itertools.islice(itertools.cycle(blocks), i+1, None))
-            valid_edges = find_valid_edge_multi(current_block, next_block, non_adj_list,potential_edges)
-            if valid_edges:
-                potential_edges = potential_edges | valid_edges
-            else:
-                # Fallback: Try connecting the current block to another block
+        for i in range(len(blocks)):
+            current_block = tuple(next(cycle_iter))  # Convert to tuple for consistency
+
+            # Skip processing if the current block is already connected
+            if block_status.get(current_block, False):
+                continue
+
+            next_block = tuple(next(cycle_iter))
+            cycle_iter = itertools.cycle(itertools.islice(itertools.cycle(blocks), i + 1, None))
+
+            # Prioritize connecting to an unconnected block
+            valid_edges = None
+            for alt_block in blocks:
+                alt_block_tuple = tuple(alt_block)
+                if alt_block_tuple != current_block and not block_status.get(alt_block_tuple, False):
+                    valid_edges = find_valid_edge_multi(current_block, alt_block_tuple, non_adj_list, potential_edges)
+                    if valid_edges:
+                        potential_edges = potential_edges | valid_edges
+                        block_status[current_block] = True
+                        block_status[alt_block_tuple] = True
+                        break
+                    else:
+                        continue
+
+            # If no unconnected blocks are available, connect to a connected block
+            if not valid_edges:
                 for alt_block in blocks:
-                    if alt_block != current_block:
-                        valid_edges = find_valid_edge_multi(current_block, alt_block, non_adj_list, potential_edges)
+                    alt_block_tuple = tuple(alt_block)
+                    if alt_block_tuple != current_block and block_status.get(alt_block_tuple, False):
+                        valid_edges = find_valid_edge_multi(current_block, alt_block_tuple, non_adj_list, potential_edges)
                         if valid_edges:
                             potential_edges = potential_edges | valid_edges
+                            block_status[current_block] = True
                             break
+                        else:
+                            continue
 
-                # If still no valid edges found, apply the fallback mechanism
-                if not valid_edges:
-                    for node_in_block in current_block:
-                        for neighbor in neighbors:
-                            if not same_component(nxgraph, node_in_block, neighbor):
-                                added_edge = (node_in_block, neighbor)
-                                potential_edges.add(added_edge)
-                                nxgraph.add_edge(*added_edge)
-                                print(f"Added fallback edge: {added_edge}")
-                                break
+            # If still no valid edges found, apply the fallback mechanism
+            if not valid_edges:
+                # Attempt to connect a member of the block to another neighbor not in the same block
+                for node in current_block:
+                    for neighbor in neighbors:
+                        if neighbor not in current_block:
+                            added_edge = (node, neighbor)
+                            potential_edges.add(added_edge)
+                            block_status[current_block] = True
+                            print(f"Added fallback edge: {added_edge}")
                             break
-                
+                    if block_status.get(current_block, False):  # Break outer loop if a connection was made
+                        break
 
-    # Check all combinations of potential edges
     for r in range(1, len(potential_edges) + 1):
         for edge_combo in combinations(potential_edges, r):
             # Temporarily add edges to the graph
@@ -276,6 +296,8 @@ def make_biconnected_permutations(matrix, non_adj_list):
                     all_bicon_edges.add(edge_combo)
                 else:
                     pass
+                if(len(all_bicon_edges) > 20):
+                    break
 
             # Remove edges to restore the original state
             for edge in edge_combo:
