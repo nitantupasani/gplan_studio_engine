@@ -871,9 +871,9 @@ def handle_non_trivial_non_adj_ST_Door_connectivity(one_connected,adjacency,posi
                     total_STs -= 1
                     separating_triangles.remove(separating_triangle) 
             continue
-    for edge_rem in remove_edges:
-        separating_edges.remove(edge_rem)
-        del separating_edge_to_triangles[tuple(edge_rem)]
+    # for edge_rem in remove_edges:
+    #     separating_edges.remove(edge_rem)
+    #     del separating_edge_to_triangles[tuple(edge_rem)]
 
     ##Case 4 -  remove interior edge which is given by user and is not in non-adjacency
     for edge_trg in separating_edge_to_triangles:

@@ -226,8 +226,28 @@ def make_biconnected_permutations(matrix, non_adj_list):
             next_block = next(cycle_iter)
             cycle_iter = itertools.cycle(itertools.islice(itertools.cycle(blocks), i+1, None))
             valid_edges = find_valid_edge_multi(current_block, next_block, non_adj_list,potential_edges)
-            if valid_edges is not None:
+            if valid_edges:
                 potential_edges = potential_edges | valid_edges
+            else:
+                # Fallback: Try connecting the current block to another block
+                for alt_block in blocks:
+                    if alt_block != current_block:
+                        valid_edges = find_valid_edge_multi(current_block, alt_block, non_adj_list, potential_edges)
+                        if valid_edges:
+                            potential_edges = potential_edges | valid_edges
+                            break
+
+                # If still no valid edges found, apply the fallback mechanism
+                if not valid_edges:
+                    for node_in_block in current_block:
+                        for neighbor in neighbors:
+                            if not same_component(nxgraph, node_in_block, neighbor):
+                                added_edge = (node_in_block, neighbor)
+                                potential_edges.add(added_edge)
+                                nxgraph.add_edge(*added_edge)
+                                print(f"Added fallback edge: {added_edge}")
+                                break
+                            break
                 
 
     # Check all combinations of potential edges
