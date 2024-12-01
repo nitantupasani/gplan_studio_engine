@@ -159,16 +159,17 @@ def get_nontriangular_face(positions, G):
     non_tri_faces = sorted(non_tri_faces ,  key=lambda x: len(x), reverse = True)
     outer_face = []
     for face in non_tri_faces:
-        outer_face_found = False
+        outer_face_found = True
         face_vertices = find_face_node(face)
         face_coordinates = [positions[node] for node in face_vertices]
         for node in G.nodes:
             bbPath = mplPath.Path(np.array(face_coordinates))
-            if bbPath.contains_point((positions[node][0],positions[node][1])) and node not in face_vertices:
-                outer_face_found = True
+            if not bbPath.contains_point((positions[node][0],positions[node][1])) and node not in face_vertices:
+                outer_face_found = False
                 break
         if outer_face_found == True:
             outer_face.append(face)
+            break
     non_tri_faces = [item for item in non_tri_faces if item not in outer_face]
     return non_tri_faces
 

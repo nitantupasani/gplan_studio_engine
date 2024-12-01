@@ -9,7 +9,6 @@ This module contains the following functions:
     * generate_multiple_bdy - generates multiple boundary for given matrix and extra edges.
 """
 import copy
-import random
 import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -366,12 +365,12 @@ class InputGraph:
 
         # Triangularity
         if(is_non_adj):
-            trng_edges, positions, tri_faces = trng_non_adj.triangulate(self.matrix
-                                                                , bcn_edges_added
-                                                                , self.coordinates, non_adj_list)
-            # trng_edges, positions, tri_faces = trng.triangulate(self.matrix
-            #                                                 , bcn_edges_added
-            #                                                 , self.coordinates)
+            # trng_edges, positions, tri_faces = trng_non_adj.triangulate(self.matrix
+            #                                                     , bcn_edges_added
+            #                                                     , self.coordinates, non_adj_list)
+            trng_edges, positions, tri_faces = trng.triangulate(self.matrix
+                                                            , bcn_edges_added
+                                                            , self.coordinates)
         else:
             trng_edges, positions, tri_faces = trng.triangulate(self.matrix
                                                             , bcn_edges_added
