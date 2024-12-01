@@ -194,82 +194,57 @@ def make_biconnected_permutations(matrix, non_adj_list):
         non_adj_list: List of edges that should not be added.
 
     Returns:
-        all_bicon_edges: A list of sets of edges, each set representing a combination that makes the graph biconnected.
+        potential_edges: A set of edges that can be added to make the graph biconnected.
     """
     nxgraph = nx.from_numpy_array(matrix)
-    articulation_points = get_cutvertices(nxgraph)
+    articulation_points = list(nx.articulation_points(nxgraph))
     potential_edges = set()
     all_bicon_edges = set()
-    block_status = {}  # Dictionary to track the connection status of each block
+    connected_components = {}
 
     print("Non-Adjacency List Applied in Biconnectivity:", non_adj_list)
 
+    # Initialize connected components for blocks
+    for point in articulation_points:
+        blocks = find_blocks(nxgraph, point)
+        for block in blocks:
+            connected_components[tuple(block)] = tuple(block)
+
+    # Function to find the root of a block in connected components
+    def find_root(block):
+        if connected_components[block] != block:
+            connected_components[block] = find_root(connected_components[block])
+        return connected_components[block]
+
+    # Union function to connect two blocks
+    def union(block1, block2):
+        root1, root2 = find_root(block1), find_root(block2)
+        if root1 != root2:
+            connected_components[root2] = root1
+
     # Identify potential edges to add by iterating over articulation points
     for point in articulation_points:
-        neighbors = list(nx.neighbors(nxgraph, point))
-        neighbors = sort_list(nxgraph, neighbors)
+        blocks = find_blocks(nxgraph, point)
+        neighbors = sort_list(nxgraph, list(nx.neighbors(nxgraph, point)))
         print(f"{point}: Sorted List: ", neighbors)
 
-        blocks = find_blocks(nxgraph, point)
-        print(f"{point}: Blocks List: ", blocks)
-
-        # Initialize block statuses
-        for block in blocks:
-            block_tuple = tuple(block)  # Convert the list to a tuple
-            if block_tuple not in block_status:
-                block_status[block_tuple] = False
-
-        cycle_iter = itertools.cycle(blocks)
-        for i in range(len(blocks)):
-            current_block = tuple(next(cycle_iter))  # Convert to tuple for consistency
-
-            # Skip processing if the current block is already connected
-            if block_status.get(current_block, False):
-                continue
-
-            next_block = tuple(next(cycle_iter))
-            cycle_iter = itertools.cycle(itertools.islice(itertools.cycle(blocks), i + 1, None))
-
-            # Prioritize connecting to an unconnected block
-            valid_edges = None
-            for alt_block in blocks:
-                alt_block_tuple = tuple(alt_block)
-                if alt_block_tuple != current_block and not block_status.get(alt_block_tuple, False):
-                    valid_edges = find_valid_edge_multi(current_block, alt_block_tuple, non_adj_list, potential_edges)
+        for i, block in enumerate(blocks):
+            valid_edge_found = False
+            for j, other_block in enumerate(blocks):
+                if i < j and find_root(tuple(block)) != find_root(tuple(other_block)):
+                    # First attempt to find valid edge with non-adjacency constraints
+                    valid_edges = find_valid_edge_multi(block, other_block, non_adj_list, potential_edges)
+                    # If valid edges are found in either attempt, update potential edges and merge blocks
                     if valid_edges:
+                        valid_edge_found = True
                         potential_edges = potential_edges | valid_edges
-                        block_status[current_block] = True
-                        block_status[alt_block_tuple] = True
-                        break
-                    else:
-                        continue
-
-            # If no unconnected blocks are available, connect to a connected block
-            if not valid_edges:
-                for alt_block in blocks:
-                    alt_block_tuple = tuple(alt_block)
-                    if alt_block_tuple != current_block and block_status.get(alt_block_tuple, False):
-                        valid_edges = find_valid_edge_multi(current_block, alt_block_tuple, non_adj_list, potential_edges)
-                        if valid_edges:
-                            potential_edges = potential_edges | valid_edges
-                            block_status[current_block] = True
-                            break
-                        else:
-                            continue
-
-            # If still no valid edges found, apply the fallback mechanism
-            if not valid_edges:
-                # Attempt to connect a member of the block to another neighbor not in the same block
-                for node in current_block:
-                    for neighbor in neighbors:
-                        if neighbor not in current_block:
-                            added_edge = (node, neighbor)
-                            potential_edges.add(added_edge)
-                            block_status[current_block] = True
-                            print(f"Added fallback edge: {added_edge}")
-                            break
-                    if block_status.get(current_block, False):  # Break outer loop if a connection was made
-                        break
+                        union(tuple(block), tuple(other_block))
+            
+            # If no valid edge, relaxing constraints
+            if not valid_edge_found:
+                print(f"No valid edge found for {block}. Relaxing constraints.")
+                valid_edges = find_valid_edge_multi(block, neighbors, [], potential_edges)
+                potential_edges = potential_edges | valid_edges
 
     for r in range(1, len(potential_edges) + 1):
         for edge_combo in combinations(potential_edges, r):
