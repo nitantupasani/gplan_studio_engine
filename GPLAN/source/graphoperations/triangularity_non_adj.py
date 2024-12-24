@@ -189,7 +189,7 @@ def find_face_node(face):
         nodes.append(edge[0])
     return nodes
 
-def get_nontriangular_face( positions,G):
+def get_nontriangular_face(positions, G):
     """Finds non-triangular interior faces in a given planar embedding
        of the graph.
 
@@ -210,18 +210,27 @@ def get_nontriangular_face( positions,G):
         nbr_sorted = [x[0] for x in nbr_sorted]
         nodes_ordered_nbr[node] = nbr_sorted
     faces = get_faces(G.edges,nodes_ordered_nbr)
+    if len(faces) == 2:
+        faces = [faces[0]]
     non_tri_faces = [face for face in faces if len(face) > 3]
     non_tri_faces = sorted(non_tri_faces ,  key=lambda x: len(x), reverse = True)
     outer_face = []
     for face in non_tri_faces:
-        outer_face_found = True
+        outer_face_found = False
         face_vertices = find_face_node(face)
         face_coordinates = [positions[node] for node in face_vertices]
         for node in G.nodes:
             bbPath = mplPath.Path(np.array(face_coordinates))
-            if not bbPath.contains_point((positions[node][0],positions[node][1])) and node not in face_vertices:
-                outer_face_found = False
+            if bbPath.contains_point((positions[node][0],positions[node][1])) and node not in face_vertices:
+                outer_face_found = True
                 break
+            if node in face_vertices:
+                for node2 in face_vertices:
+                    if G.has_edge(node,node2) and ((node,node2) not in face and (node2,node) not in face)and bbPath.contains_point(((positions[node][0]+positions[node2][0])/2,(positions[node][1]+positions[node2][1])/2)):
+                        outer_face_found = True
+                        break
+                if outer_face_found:
+                    break
         if outer_face_found == True:
             outer_face.append(face)
             break
@@ -438,7 +447,8 @@ def triangulate(matrix, bcn_edges_added, pos, non_adj_list):
         positions = {i:pos[i] for i in range(len(pos))}
     else:
         positions = nx.planar_layout(nxgraph)
-
+    nx.draw_networkx(nxgraph,positions, label=None,node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+    plt.show()
 
     non_tri_faces = get_nontriangular_face(positions, nxgraph)
 

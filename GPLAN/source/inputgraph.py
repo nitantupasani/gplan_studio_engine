@@ -349,11 +349,11 @@ class InputGraph:
         if(is_non_adj):
             if (not bcn.is_biconnected(self.matrix)):
                 # bcn_edges = bcn_new.biconnect(self.matrix, non_adj_list)
-                bcn_edges_set = bcn_non_adj.make_biconnected_permutations(self.matrix, non_adj_list)
-                if(len(bcn_edges_set) == 0):
-                    print("No Biconnectivity augmentation found")
-                    return self ,False,False
-                bcn_edges = next(iter(bcn_edges_set))#Here multiple edge sets are there we have to choose 1 here
+                bcn_edges = bcn_non_adj.biconnect(self.matrix, non_adj_list)
+                # if(len(bcn_edges_set) == 0):
+                #     print("No Biconnectivity augmentation found")
+                #     return self ,False,False
+                # bcn_edges = next(iter(bcn_edges_set))#Here multiple edge sets are there we have to choose 1 here
         else:
             if (not bcn.is_biconnected(self.matrix)):
                 bcn_edges = bcn.biconnect(self.matrix)
@@ -365,12 +365,10 @@ class InputGraph:
 
         # Triangularity
         if(is_non_adj):
-            # trng_edges, positions, tri_faces = trng_non_adj.triangulate(self.matrix
-            #                                                     , bcn_edges_added
-            #                                                     , self.coordinates, non_adj_list)
-            trng_edges, positions, tri_faces = trng.triangulate(self.matrix
-                                                            , bcn_edges_added
-                                                            , self.coordinates)
+            trng_edges, positions, tri_faces = trng_non_adj.triangulate(self.matrix
+                                                                , bcn_edges_added
+                                                                , self.coordinates, non_adj_list)
+
         else:
             trng_edges, positions, tri_faces = trng.triangulate(self.matrix
                                                             , bcn_edges_added

@@ -1,6 +1,7 @@
 import networkx as nx
 import itertools
 from itertools import combinations
+from collections import defaultdict
 
 def is_biconnected(matrix):
     """Returns a boolean representing whether the graph 
@@ -129,6 +130,94 @@ def find_blocks(nxgraph, ap):
     
     return components
 
+def find_valid_edges(blocks, non_adj):
+    """
+    Finds all valid edges between nodes of different blocks.
+
+    Args:
+        blocks (list of lists): Each block contains a list of nodes.
+        non_adj (list of tuples): List of non-adjacent edges.
+
+    Returns:
+        valid_edges (list of tuples): List of valid edges.
+    """
+    non_adj_set = set(non_adj)
+    valid_edges = []
+
+    for i, block1 in enumerate(blocks):
+        for j, block2 in enumerate(blocks):
+            if i >= j:  # Avoid duplicate checks and self-loops
+                continue
+            for u in block1:
+                for v in block2:
+                    if (u, v) not in non_adj_set and (v, u) not in non_adj_set:
+                        valid_edges.append((u, v))
+
+    return valid_edges
+
+def connect_blocks(blocks, valid_edges, non_adj):
+    """
+    Connects all blocks with a minimum number of edges.
+
+    Args:
+        blocks (list of lists): Each block contains a list of nodes.
+        valid_edges (list of tuples): List of valid edges.
+        non_adj (list of tuples): List of non-adjacent edges.
+
+    Returns:
+        selected_edges (list of tuples): List of selected edges to connect blocks.
+    """
+    block_graph = defaultdict(set)
+    block_count = len(blocks)
+
+    # Map nodes to their blocks
+    node_to_block = {}
+    for block_idx, block in enumerate(blocks):
+        for node in block:
+            node_to_block[node] = block_idx
+
+    # Kruskal's algorithm for Minimum Spanning Tree (MST)
+    parent = list(range(block_count))
+
+    def find(x):
+        if parent[x] != x:
+            parent[x] = find(parent[x])
+        return parent[x]
+
+    def union(x, y):
+        root_x = find(x)
+        root_y = find(y)
+        if root_x != root_y:
+            parent[root_y] = root_x
+
+    # Sort valid edges by weight (default: unit weight)
+    valid_edges.sort()
+    selected_edges = []
+
+    for u, v in valid_edges:
+        block_u = node_to_block[u]
+        block_v = node_to_block[v]
+        if find(block_u) != find(block_v):
+            union(block_u, block_v)
+            selected_edges.append((u, v))
+            block_graph[block_u].add(block_v)
+            block_graph[block_v].add(block_u)
+
+    # Check if all blocks are connected
+    connected_blocks = len(set(find(i) for i in range(block_count)))
+
+    if connected_blocks > 1:
+        # Add non-adjacent edges if necessary to connect all blocks
+        for u, v in non_adj:
+            block_u = node_to_block[u]
+            block_v = node_to_block[v]
+            if find(block_u) != find(block_v):
+                union(block_u, block_v)
+                selected_edges.append((u, v))
+                block_graph[block_u].add(block_v)
+                block_graph[block_v].add(block_u)
+
+    return selected_edges
 def biconnect(matrix, non_adj_list):
     """Returns the edges to be added to make the graph biconnected.
     Args:
@@ -151,37 +240,13 @@ def biconnect(matrix, non_adj_list):
         print(f"{point}: Sorted List: ", neighbors)
 
         blocks = find_blocks(nxgraph, point)
-
-        print (f"{point}: Blocks List: ", blocks)
-
-        cycle_iter = itertools.cycle(blocks)
-        for i in range(len(blocks) - 1):
-            current_block = next(cycle_iter)
-            next_block = next(cycle_iter)
-            cycle_iter = itertools.cycle(itertools.islice(itertools.cycle(blocks), i+1, None))
+        valid_edges = find_valid_edges(blocks, non_adj_list)
+        selected_edges = connect_blocks(blocks, valid_edges, non_adj_list)
     
-            valid_edge = find_valid_edge(current_block, next_block, non_adj_list)
-            if valid_edge is not None:
-                added_edges.add(valid_edge)
+    return selected_edges
 
-        if valid_edge is None:
-            print("No valid edge found.")
-            for j in range(len(neighbors) - 1):
-                if not same_component(nxgraph, neighbors[j], neighbors[j + 1]):
-                    added_edges.add((neighbors[j], neighbors[j + 1]))                    
 
-    for edge in added_edges:
-        nxgraph.add_edge(*edge)
-    for edge in added_edges:
-        nxgraph.remove_edge(*edge)  
-        if not nx.is_biconnected(nxgraph):
-            nxgraph.add_edge(*edge)  
-        else:
-            redundant_edges.add(edge)
-
-    bicon_edges = added_edges - redundant_edges
-
-    return bicon_edges
+       
 
 
 
