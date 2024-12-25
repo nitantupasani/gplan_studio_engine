@@ -557,9 +557,6 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
                 if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
                     total_STs -= 1
                     separating_triangles.remove(separating_triangle) 
-        for edge_rem in remove_edges:
-            separating_edges.remove(edge_rem)
-            del separating_edge_to_triangles[tuple(edge_rem)]
     ## case 4 - remove interior edge which is given by the user
     for edge_trg in separating_edge_to_triangles:
         all_trig_done = True
