@@ -233,7 +233,6 @@ def get_nontriangular_face(positions, G):
                     break
         if outer_face_found == True:
             outer_face.append(face)
-            break
     non_tri_faces = [item for item in non_tri_faces if item not in outer_face]
     return non_tri_faces
 
