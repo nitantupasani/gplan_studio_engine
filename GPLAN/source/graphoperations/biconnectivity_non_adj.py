@@ -3,6 +3,8 @@ import itertools
 from itertools import combinations
 from collections import defaultdict
 
+from networkx import second_order_centrality
+
 def is_biconnected(matrix):
     """Returns a boolean representing whether the graph 
     is vertex biconnected or not.
@@ -233,7 +235,7 @@ def biconnect(matrix, non_adj_list):
     redundant_edges = set()
     bicon_edges = set()
     print("Non-Adjacency List Applied in Biconnectivity:", non_adj_list)
-    
+    selected_edges = []
     for point in articulation_points: 
         neighbors = list(nx.neighbors(nxgraph, point))
         neighbors = sort_list(nxgraph, neighbors)
@@ -241,7 +243,8 @@ def biconnect(matrix, non_adj_list):
 
         blocks = find_blocks(nxgraph, point)
         valid_edges = find_valid_edges(blocks, non_adj_list)
-        selected_edges = connect_blocks(blocks, valid_edges, non_adj_list)
+        bcn_edges = connect_blocks(blocks, valid_edges, non_adj_list)
+        selected_edges.extend(bcn_edges)    
     
     return selected_edges
 
