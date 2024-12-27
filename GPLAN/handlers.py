@@ -1910,8 +1910,6 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         Adds the graph data to output_data for downloading the catalogue and
                         multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
                         '''
-                        # ui._append_output_data(graph.graph_list[i])
-                        # ui._set_multiple_output_found(1)
                     
                 print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
 
@@ -2097,9 +2095,107 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     # ui._set_multiple_output_found(1)
 
             if not floorplan_found:
-                print("No floorplan found which satisfies the minimum dimensions input by user.")
                 #Here tell front that no floorplan was made
-                #Here later on change it to remove plot width and height
+                print("No floorplan found which satisfies the minimum dimensions input by user.")
+                print("Getting optimal floorplan with same info just plot data is 0")
+                if gclass is not None:
+                    messagebox.showwarning("Warning",
+                                    "No floorplan found which satisfies the given plot dimensions drawing optimal floorplan and resizing based on plot inputs.")
+                else:
+                    pass#Return warning message to front from here later on
+        
+                ui._set_output_data([])
+                ui._set_multiple_output_found(0)
+
+                # Variables for storing the data of the floorplan with minimal area
+                min_area = -1
+                min_graph = None
+                areas = []
+                # Iterate through all possible floorplans to find one which satisfies the given conditions
+                for i in range(number_of_floorplans):
+                    print("Trying floorplan number", i + 1, "to see if minimum dimension floorplan can be constructed.")
+                    floorplan_obj = input_for_min_dim.floorplan(ui.get_fptype(), ui.get_isDimensioned(),
+                                                                ui.get_isDimensionedCirculation(), ui.get_isRemoveAddCirculation(),
+                                                                ui.get_corridor_thickness())
+                    enc_mat = get_encoded_matrix(ui.get_noOfNodes(), graph.graph_list[i].room_x, graph.graph_list[i].room_y, graph.graph_list[i].room_width,
+                                                graph.graph_list[i].room_height)
+                    floorplan_data = floorplan_obj.get_floorplan_details(
+                        ui.get_roomNames(), ui.get_roomColors(), ui.get_nodeCoordinates(), min_width, min_height, graph.graph_list[i].room_x,
+                        graph.graph_list[i].room_y, graph.graph_list[i].room_width, graph.graph_list[i].room_height,
+                        ui.get_edges(), enc_mat
+                    )
+
+                    # Storing the dummy merge nodes, and the irregular room they will be adjacent to
+                    dummy_node_data = {'mergednodes': graph.graph_list[i].mergednodes, 'irreg_nodes1': graph.graph_list[i].irreg_nodes1,
+                                    'irreg_nodes2': graph.graph_list[i].irreg_nodes2,
+                                    'dummy_node_adj': graph.graph_list[i].dummy_node_adjacencies}
+                    floorplan_data.update(dummy_node_data)
+                    for merge_node in graph.graph_list[i].mergednodes:
+                        node_min_width = 1
+                        node_min_height = 1
+                        for j in range(0,graph.graph_list[i].nodecnt):
+                            if(graph.graph_list[i].matrix[merge_node][j] == 1):
+                                node_min_width = max(node_min_width, floorplan_data['nodes'][j]['min_width'])
+                                node_min_height = max(node_min_height,floorplan_data['nodes'][j]['min_height'])
+                        floorplan_data['nodes'][merge_node]['min_width'] = node_min_width/2
+                        floorplan_data['nodes'][merge_node]['min_height'] = node_min_height/2
+
+                    # If floorplan satisfying the given constraints is satisfied
+                    [status, out_data] = min_dim.main(floorplan_data, 0, 0)
+                    if status == True:
+                        room_x = []
+                        room_y = []
+                        room_width = []
+                        room_height = []
+                        room_area = []
+                        room_name = []
+                        for room_detail in out_data["nodes"]:
+                            room_x.append(room_detail["room_x"])
+                            room_y.append(room_detail["room_y"])
+                            room_width.append(room_detail["width"])
+                            room_height.append(room_detail["height"])
+                            room_area.append(room_detail["width"] * room_detail["height"])
+
+                        # Store the room labels if they have been entered
+                        for room_id in range(len(out_data["nodes"])):
+                            if "label" not in out_data["nodes"][room_id]:
+                                room_name.append(str(room_id))
+                            else:
+                                room_name.append(out_data["nodes"][room_id]["label"])
+
+
+                        graph.graph_list[i].room_x = room_x
+                        graph.graph_list[i].room_y = room_y
+                        graph.graph_list[i].room_width = room_width
+                        graph.graph_list[i].room_height = room_height
+                        graph.graph_list[i].area = room_area
+
+
+                        area_sum = sum(room_area)
+                        areas.append(area_sum)
+                        
+                        graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(graph.graph_list[i])
+                        ui._append_output_data(graph.graph_list[i]) 
+
+                        if min_area < 0 or area_sum < min_area:
+                            min_graph = i
+                            min_area = area_sum
+                        '''
+                        Adds the graph data to output_data for downloading the catalogue and
+                        multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
+                        '''
+
+                    print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
+                    graph.scale_plot_dimension(plot_width, plot_height)
+                    for graphz in graph.graph_list:
+                        ui._append_output_data(graphz)
+                        ui._set_multiple_output_found(1)
+                    min_graph = 0
+                    if drawGUI:
+                        drawFunction(ui, graph.graph_list[min_graph], origin, ui.get_roomNames(), gclass=gclass)
+
+
+
             elif optimal_floorplan == 1 and multiple_door is not True:
                 ui._append_output_data(graph.graph_list[min_graph])
                 print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
