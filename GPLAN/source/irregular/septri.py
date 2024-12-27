@@ -441,11 +441,14 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
             #remove edge 
             graph.remove_edge(edge[0],edge[1])
             remove_edges.append(edge)
+            removing_st = []
             #remove a separating triangle if it has one of the edges which was removed
             for separating_triangle in separating_triangles:
                 if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
                     total_STs -= 1
-                    separating_triangles.remove(separating_triangle) 
+                    removing_st.append(separating_triangle)
+            for separating_triangle in removing_st:
+                separating_triangles.remove(separating_triangle) 
     
     ## case 2 -  remove interior edge which is not given by user.
     for edge_trg in separating_edge_to_triangles:
