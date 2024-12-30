@@ -109,9 +109,11 @@ class GuiParameters:
     __letter: str
     __corridor_thickness: float
     __message: str = ""
+    __isNonAdj: int
     __is_multiple_door: bool
     output_data: list = []
     min_dim_inputs: DimParameters = None
+    non_adj_list: list = []
 
     def get_min_dim_inputs(self) -> DimParameters:
         return self.min_dim_inputs
@@ -164,6 +166,20 @@ class GuiParameters:
             self.__isPublic = isPublic
         return self
         
+    def get_isNonAdj(self) -> int:
+        return self.__isNonAdj
+
+    def set_isNonAdj(self, isNonAdj: int):
+        self.__isNonAdj = isNonAdj
+        return self
+    
+    def get_non_adj_list(self) -> list:
+        return self.non_adj_list
+    
+    def set_non_adj_list(self, non_adj_list: list):
+        self.non_adj_list = non_adj_list
+        return self
+    
     def get_isRemoveAddCirculation(self) -> int:
         return self.__isRemoveAddCirculation
     
@@ -308,6 +324,7 @@ class GuiParameters:
             self.set_isRemoveAddCirculation(gclass.value[9])
             self.set_isMinDimensioned(gclass.value[10])
             self.set_isPublic(gclass.value[11])
+            self.set_isNonAdj(gclass.value[12])
             self.set_isGui(True)
             self.set_letter(gclass.letter)
             self.set_corridor_thickness(gclass.corridor_thickness)

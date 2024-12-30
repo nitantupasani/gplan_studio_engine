@@ -110,7 +110,7 @@ class Documents:
 
     @staticmethod
     def get_floorplans(starting_from: int, count: int, caller, nodes_list: list, graph: InputGraph, rectangular: bool, corridor=False,
-                         dimensioned = False, dimensionedCirculation = False, minDimEnabled = False, removeAddCirculation = False, publicEnabled = False,normalize_const=40, limit=FLOORPLAN_LIMIT, corridor_thickness=None,documentID=None, name=None, dim_inputs={},edges_list=[]):
+                         dimensioned = False, dimensionedCirculation = False, minDimEnabled = False, removeAddCirculation = False, publicEnabled = False, nonAdj = False, normalize_const=40, limit=FLOORPLAN_LIMIT, corridor_thickness=None,documentID=None, name=None, dim_inputs={},edges_list=[], non_adj_edge_list=[]):
         original_print = builtins.print
 
         def null_print(*args, **kwargs):
@@ -196,6 +196,9 @@ class Documents:
                     handle_single(ui, graph)
 
             elif caller == "door_connectivity":
+                ui.set_isNonAdj(nonAdj)
+                ui.set_non_adj_list(non_adj_edge_list)
+                ui.set_is_multiple_door(False) 
                 handle_door_connectivity(ui, graph)
             else:
                 message = f"Support for {caller} Not yet Handled from Backend for Single Floorplan"
@@ -216,6 +219,8 @@ class Documents:
             elif caller == 'irregular':
                 handle_multiple(ui, graph)
             elif caller == "door_connectivity":
+                ui.set_isNonAdj(nonAdj)
+                ui.set_non_adj_list(non_adj_edge_list)
                 ui.set_is_multiple_door(True)
                 handle_door_connectivity(ui, graph)
                 message = 'Generated Multiple Door connectivity floorplan.'+ ui.get_message()

@@ -415,12 +415,130 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
     not_removed = False
     import matplotlib.pyplot as plt
 
-    plt.figure()
-    graphtemp = nx.from_numpy_array(adjacency)
-    nx.draw_networkx(graphtemp,positions, label='BEFORE ST REMOVEAL',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
-    plt.show()
+    # plt.figure()
+    # graphtemp = nx.from_numpy_array(adjacency)
+    # nx.draw_networkx(graphtemp,positions, label='BEFORE ST REMOVEAL',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+    # plt.show()
 
     not_removed = False
+    remove_edges = []
+
+    ## case 1 - we remove exrerior edge which is not given by user.
+    for edge_trg in separating_edge_to_triangles:
+        all_trig_done = True
+        for separating_triangle in separating_edge_to_triangles[edge_trg]:
+            if(separating_triangle not in separating_triangles):
+                continue
+            else:
+                all_trig_done = False
+                break
+        if(all_trig_done):
+            continue
+        edge = edge_trg
+        edge = sorted(edge)
+        edge = tuple(edge)
+        if(one_connected[edge[0]][edge[1]]!=1 and (len(edge_to_faces[edge]) == 1)):
+            #remove edge 
+            graph.remove_edge(edge[0],edge[1])
+            remove_edges.append(edge)
+            removing_st = []
+            #remove a separating triangle if it has one of the edges which was removed
+            for separating_triangle in separating_triangles:
+                if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
+                    total_STs -= 1
+                    removing_st.append(separating_triangle)
+            for separating_triangle in removing_st:
+                separating_triangles.remove(separating_triangle) 
+    
+    ## case 2 -  remove interior edge which is not given by user.
+    for edge_trg in separating_edge_to_triangles:
+        all_trig_done = True
+        for separating_triangle in separating_edge_to_triangles[edge_trg]:
+            if(separating_triangle not in separating_triangles):
+                continue
+            else:
+                all_trig_done = False
+                break
+        if(all_trig_done):
+            continue
+        edge = edge_trg
+        edge = sorted(edge)
+        edge = tuple(edge)
+        if (one_connected[edge[0]][edge[1]]!=1 and len(edge_to_faces[edge]) == 2):
+            #Identify the remainig two nodes
+            node1 = edge_to_faces[edge][0]
+            node2 = edge_to_faces[edge][1]
+            for node in node1:
+                if node == edge[0] or node == edge[1]:
+                    continue
+                else:
+                    node1 = node
+                    break
+            for node in node2:
+                if node == edge[0] or node == edge[1]:
+                    continue
+                else:
+                    node2 = node
+                    break
+            
+            #Remove edge
+            graph.remove_edge(edge[0],edge[1])
+
+            #Add edge in between the remainign two nodes
+            added_edge = sorted([node1,node2])
+            graph.add_edge(added_edge[0],added_edge[1])
+
+            #incase addition leads to new separating triangle then revert change and continue
+            all_triangles = calc_all_triangles(graph)
+            planar = nx.is_planar(graph)
+            if(planar):
+                # origin_pos = positions
+                origin_pos = nx.planar_layout(graph)
+                final_positions = origin_pos
+                adjacency=nx.adjacency_matrix(graph).toarray()
+                new_separating_triangles, new_separating_edges, new_separating_edge_to_triangles, new_edge_to_faces = get_sep_triangles_and_edges(all_triangles, num_nodes, origin_pos, adjacency)
+            if((not planar )or (len(new_separating_triangles) > total_STs-1)):
+            # if(not planar):
+                graph.add_edge(edge[0], edge[1])
+                graph.remove_edge(added_edge[0],added_edge[1])
+                all_triangles = calc_all_triangles(graph)
+
+                print("changes revoked")
+                continue
+                
+
+            #Update faces due to removal and addition of edge 
+            edge_to_faces[tuple(sorted((node1, node2)))] = [tuple(sorted([node1, node2, edge[0]])),tuple(sorted([node1,node2,edge[1]]))]
+            removed_face1 = tuple(sorted([node1, edge[0], edge[1]]))
+            removed_face2 = tuple(sorted([node2, edge[0], edge[1]]))
+            for edge_1 in get_edges(removed_face1):
+                if sorted(edge_1) == edge:
+                    continue
+                edge_to_faces[tuple(sorted(edge_1))].remove(removed_face1)
+                edge_to_faces[tuple(sorted(edge_1))].append(tuple(sorted([edge_1[0],edge_1[1],node2])))
+            for edge_2 in get_edges(removed_face2):
+                if sorted(edge_2) == edge:
+                    continue
+                edge_to_faces[tuple(sorted(edge_2))].remove(removed_face2)
+                edge_to_faces[tuple(sorted(edge_2))].append(tuple(sorted([edge_2[0],edge_2[1],node1])))
+            del edge_to_faces[edge]
+
+            
+            #remove a separating triangle if it has one of the edges which was removed
+            removing_st = []
+            for separating_triangle in separating_triangles:
+                if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
+                    total_STs -= 1
+                    removing_st.append(separating_triangle)
+            for separating_triangle in removing_st:
+                separating_triangles.remove(separating_triangle) 
+        else:
+            #separating triangle was given from user
+            not_removed = True
+            continue
+##Case 3 - we remove exterior edge which is given by the user
+    ##TODO: give choice / take choice from user to remove or not to remove
+    print("user gave ST")
     remove_edges = []
     for edge_trg in separating_edge_to_triangles:
         all_trig_done = True
@@ -435,7 +553,6 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
         edge = edge_trg
         edge = sorted(edge)
         edge = tuple(edge)
-        # if(one_connected[edge[0]][edge[1]]!=1 and len(edge_to_faces[edge])):
         if(True and (len(edge_to_faces[edge]) == 1)):
             #remove edge 
             graph.remove_edge(edge[0],edge[1])
@@ -445,11 +562,7 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
                 if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
                     total_STs -= 1
                     separating_triangles.remove(separating_triangle) 
-            continue
-    for edge_rem in remove_edges:
-        separating_edges.remove(edge_rem)
-        del separating_edge_to_triangles[tuple(edge_rem)]
-    
+    ## case 4 - remove interior edge which is given by the user
     for edge_trg in separating_edge_to_triangles:
         all_trig_done = True
         for separating_triangle in separating_edge_to_triangles[edge_trg]:
@@ -535,14 +648,408 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
             #separating triangle was given from user
             not_removed = True
             continue
-    if (not_removed):
-        #give choice / take choice from user to remove or not to remove
-        print("user gave ST")
-        pass
+    
+    pass
 
     adjacencies = [nx.to_numpy_array(graph).astype(int)]
     return adjacencies , [], positions
             
+
+def handle_non_trivial_non_adj_ST_Door_connectivity(one_connected,adjacency,positions,non_adj_list):
+    ## Create non-adjacency matrix
+    
+    non_adj_matrix = np.zeros((len(adjacency),len(adjacency)))
+    for edge in non_adj_list:
+        non_adj_matrix[edge[0]][edge[1]] = 1
+        non_adj_matrix[edge[1]][edge[0]] = 1
+
+    # print("Non-Adjacency Matrix:",non_adj_matrix)
+
+    graph = nx.Graph()
+    num_nodes = len(adjacency)
+    for i in range(num_nodes):
+        graph.add_node(i, pos = positions[i])
+    for row in range(num_nodes):
+        for column in range(num_nodes):
+            if(adjacency[row][column]):
+                graph.add_edge(row, column)
+    origin_pos = positions
+
+
+    ## The following block finds separating triangle in the graph
+    
+    ## Get all cycles of length 3
+    all_cliques = list(nx.enumerate_all_cliques(graph))
+    all_triangles = [sorted(i) for i in all_cliques if len(i) == 3]
+    all_triangles = [list(triangle) for triangle in np.unique(all_triangles, axis=0)]
+
+    trianlular_faces = []
+    separating_triangles = []
+    separating_edges = []       ## edges of separating triangles
+    separating_edge_to_triangles = dict()
+    edge_to_faces = dict()
+
+    for face in all_triangles:
+        flag = False
+        for NodeID in range(num_nodes):
+            if NodeID in face:
+                continue
+
+            ## Search for node within triangle
+            if (point_in_triangle(origin_pos[face[0]][0], origin_pos[face[0]][1], origin_pos[face[1]][0],
+                                origin_pos[face[1]][1], origin_pos[face[2]][0],
+                                origin_pos[face[2]][1], origin_pos[NodeID][0], origin_pos[NodeID][1])):
+                flag = True
+                break
+
+        if not flag:
+            ## Add face information to edge_to_faces
+            trianlular_faces.append(face)
+            for edge in get_edges(face):
+                if(edge not in edge_to_faces):
+                    edge_to_faces[edge] = []
+                edge_to_faces[edge].append(tuple(face))
+
+        else:
+            ## Add ST information to separating_triangles, separating_edges and separating_edge_to_triangles
+            separating_triangle = tuple(sorted([face[0], face[1], face[2]]))
+            separating_triangles.append(separating_triangle)
+
+            edges = get_edges(face)
+            separating_edges.extend(edges)
+
+            for edge in edges:
+                if(edge not in separating_edge_to_triangles):
+                    separating_edge_to_triangles[edge] = []
+                separating_edge_to_triangles[edge].append(separating_triangle)
+    total_STs = len(separating_triangles)
+
+
+    not_removed = False
+
+    remove_edges = []
+    ##Case 1 - we remove exterior edge which is not given by user and is an exterior edge.
+    for edge_trg in separating_edge_to_triangles:
+        all_trig_done = True
+        for separating_triangle in separating_edge_to_triangles[edge_trg]:
+            if(separating_triangle not in separating_triangles):
+                continue
+            else:
+                all_trig_done = False
+                break
+        if(all_trig_done):
+            continue
+        edge = edge_trg
+        edge = sorted(edge)
+        edge = tuple(edge)
+        if(one_connected[edge[0]][edge[1]]!=1 and len(edge_to_faces[edge])==1):
+            #remove edge 
+            graph.remove_edge(edge[0],edge[1])
+            remove_edges.append(edge)
+            removing_st=[]
+            #remove a separating triangle if it has one of the edges which was removed
+            for separating_triangle in separating_triangles:
+                if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
+                    total_STs -= 1
+                    removing_st.append(separating_triangle)
+            for separating_triangle in removing_st:
+                separating_triangles.remove(separating_triangle) 
+            continue
+    for edge_rem in remove_edges:
+        separating_edges.remove(edge_rem)
+        del separating_edge_to_triangles[tuple(edge_rem)]
+
+    ##Case 2 -  remove interior edge which is not given by user and is not in non-adjacency
+    for edge_trg in separating_edge_to_triangles:
+        all_trig_done = True
+        for separating_triangle in separating_edge_to_triangles[edge_trg]:
+            if(separating_triangle not in separating_triangles):
+                continue
+            else:
+                all_trig_done = False
+                break
+        if(all_trig_done):
+            continue
+        edge = edge_trg
+        edge = sorted(edge)
+        edge = tuple(edge)
+        if (one_connected[edge[0]][edge[1]]!=1 and len(edge_to_faces[edge]) == 2 ):
+            #Identify the remainig two nodes
+            node1 = edge_to_faces[edge][0]
+            node2 = edge_to_faces[edge][1]
+            for node in node1:
+                if node == edge[0] or node == edge[1]:
+                    continue
+                else:
+                    node1 = node
+                    break
+            for node in node2:
+                if node == edge[0] or node == edge[1]:
+                    continue
+                else:
+                    node2 = node
+                    break
+            
+            #Add edge in between the remainign two nodes
+            added_edge = sorted([node1,node2])
+            ##if edge to be added is in non-adj continue
+            if added_edge in non_adj_list:
+                continue
+            else:
+                graph.remove_edge(edge[0],edge[1])
+                graph.add_edge(added_edge[0],added_edge[1])
+
+            #incase addition leads to new separating triangle then revert change and continue
+            all_triangles = calc_all_triangles(graph)
+            planar = nx.is_planar(graph)
+            if(planar):
+                # origin_pos = positions
+                origin_pos = nx.planar_layout(graph)
+                final_positions = origin_pos
+                adjacency=nx.adjacency_matrix(graph).toarray()
+                new_separating_triangles, new_separating_edges, new_separating_edge_to_triangles, new_edge_to_faces = get_sep_triangles_and_edges(all_triangles, num_nodes, origin_pos, adjacency)
+            if((not planar )or (len(new_separating_triangles) > total_STs-1)):
+            # if(not planar):
+                graph.add_edge(edge[0], edge[1])
+                graph.remove_edge(added_edge[0],added_edge[1])
+                all_triangles = calc_all_triangles(graph)
+
+                print("changes revoked")
+                
+
+            #Update faces due to removal and addition of edge 
+            edge_to_faces[tuple(sorted((node1, node2)))] = [tuple(sorted([node1, node2, edge[0]])),tuple(sorted([node1,node2,edge[1]]))]
+            removed_face1 = tuple(sorted([node1, edge[0], edge[1]]))
+            removed_face2 = tuple(sorted([node2, edge[0], edge[1]]))
+            for edge_1 in get_edges(removed_face1):
+                if sorted(edge_1) == edge:
+                    continue
+                edge_to_faces[tuple(sorted(edge_1))].remove(removed_face1)
+                edge_to_faces[tuple(sorted(edge_1))].append(tuple(sorted([edge_1[0],edge_1[1],node2])))
+            for edge_2 in get_edges(removed_face2):
+                if sorted(edge_2) == edge:
+                    continue
+                edge_to_faces[tuple(sorted(edge_2))].remove(removed_face2)
+                edge_to_faces[tuple(sorted(edge_2))].append(tuple(sorted([edge_2[0],edge_2[1],node1])))
+            del edge_to_faces[edge]
+
+            
+            #remove a separating triangle if it has one of the edges which was removed
+            removing_st = []
+            for separating_triangle in separating_triangles:
+                if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
+                    removing_st.append(separating_triangle)
+            for separating_triangle in removing_st:
+                separating_triangles.remove(separating_triangle) 
+            continue
+        else:
+            not_removed = True
+            continue
+    
+    ##Case 3 - we remove exterior edge which is given by user.
+    for edge_trg in separating_edge_to_triangles:
+        all_trig_done = True
+        for separating_triangle in separating_edge_to_triangles[edge_trg]:
+            if(separating_triangle not in separating_triangles):
+                continue
+            else:
+                all_trig_done = False
+                break
+        if(all_trig_done):
+            continue
+        edge = edge_trg
+        edge = sorted(edge)
+        edge = tuple(edge)
+        if(len(edge_to_faces[edge])==1):
+            #remove edge 
+            graph.remove_edge(edge[0],edge[1])
+            remove_edges.append(edge)
+            removing_st=[]
+            #remove a separating triangle if it has one of the edges which was removed
+            for separating_triangle in separating_triangles:
+                if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
+                    total_STs -= 1
+                    removing_st.append(separating_triangle)
+            for separating_triangle in removing_st:
+                separating_triangles.remove(separating_triangle) 
+            continue
+    # for edge_rem in remove_edges:
+    #     separating_edges.remove(edge_rem)
+    #     del separating_edge_to_triangles[tuple(edge_rem)]
+
+    ##Case 4 -  remove interior edge which is given by user and is not in non-adjacency
+    for edge_trg in separating_edge_to_triangles:
+        all_trig_done = True
+        for separating_triangle in separating_edge_to_triangles[edge_trg]:
+            if(separating_triangle not in separating_triangles):
+                continue
+            else:
+                all_trig_done = False
+                break
+        if(all_trig_done):
+            continue
+        edge = edge_trg
+        edge = sorted(edge)
+        edge = tuple(edge)
+        if (len(edge_to_faces[edge]) == 2 ):
+            #Identify the remainig two nodes
+            node1 = edge_to_faces[edge][0]
+            node2 = edge_to_faces[edge][1]
+            for node in node1:
+                if node == edge[0] or node == edge[1]:
+                    continue
+                else:
+                    node1 = node
+                    break
+            for node in node2:
+                if node == edge[0] or node == edge[1]:
+                    continue
+                else:
+                    node2 = node
+                    break
+            
+            #Add edge in between the remainign two nodes
+            added_edge = sorted([node1,node2])
+            ##if edge to be added is in non-adj continue
+            if added_edge in non_adj_list:
+                continue
+            else:
+                graph.remove_edge(edge[0],edge[1])
+                graph.add_edge(added_edge[0],added_edge[1])
+
+            #incase addition leads to new separating triangle then revert change and continue
+            all_triangles = calc_all_triangles(graph)
+            planar = nx.is_planar(graph)
+            if(planar):
+                # origin_pos = positions
+                origin_pos = nx.planar_layout(graph)
+                final_positions = origin_pos
+                adjacency=nx.adjacency_matrix(graph).toarray()
+                new_separating_triangles, new_separating_edges, new_separating_edge_to_triangles, new_edge_to_faces = get_sep_triangles_and_edges(all_triangles, num_nodes, origin_pos, adjacency)
+            if((not planar )or (len(new_separating_triangles) > total_STs-1)):
+            # if(not planar):
+                graph.add_edge(edge[0], edge[1])
+                graph.remove_edge(added_edge[0],added_edge[1])
+                all_triangles = calc_all_triangles(graph)
+
+                print("changes revoked")
+                
+
+            #Update faces due to removal and addition of edge 
+            edge_to_faces[tuple(sorted((node1, node2)))] = [tuple(sorted([node1, node2, edge[0]])),tuple(sorted([node1,node2,edge[1]]))]
+            removed_face1 = tuple(sorted([node1, edge[0], edge[1]]))
+            removed_face2 = tuple(sorted([node2, edge[0], edge[1]]))
+            for edge_1 in get_edges(removed_face1):
+                if sorted(edge_1) == edge:
+                    continue
+                edge_to_faces[tuple(sorted(edge_1))].remove(removed_face1)
+                edge_to_faces[tuple(sorted(edge_1))].append(tuple(sorted([edge_1[0],edge_1[1],node2])))
+            for edge_2 in get_edges(removed_face2):
+                if sorted(edge_2) == edge:
+                    continue
+                edge_to_faces[tuple(sorted(edge_2))].remove(removed_face2)
+                edge_to_faces[tuple(sorted(edge_2))].append(tuple(sorted([edge_2[0],edge_2[1],node1])))
+            del edge_to_faces[edge]
+
+            
+            #remove a separating triangle if it has one of the edges which was removed
+            removing_st = []
+            for separating_triangle in separating_triangles:
+                if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
+                    removing_st.append(separating_triangle)
+            for separating_triangle in removing_st:
+                separating_triangles.remove(separating_triangle) 
+            continue
+        else:
+            continue
+
+    ##Case 5 - remove irrespective of non-adjacency
+    for edge_trg in separating_edge_to_triangles:
+        all_trig_done = True
+        for separating_triangle in separating_edge_to_triangles[edge_trg]:
+            if(separating_triangle not in separating_triangles):
+                continue
+            else:
+                all_trig_done = False
+                break
+        if(all_trig_done):
+            continue
+        edge = edge_trg
+        edge = sorted(edge)
+        edge = tuple(edge)
+        if (len(edge_to_faces[edge]) == 2 ):
+            #Identify the remainig two nodes
+            node1 = edge_to_faces[edge][0]
+            node2 = edge_to_faces[edge][1]
+            for node in node1:
+                if node == edge[0] or node == edge[1]:
+                    continue
+                else:
+                    node1 = node
+                    break
+            for node in node2:
+                if node == edge[0] or node == edge[1]:
+                    continue
+                else:
+                    node2 = node
+                    break
+            
+            #Add edge in between the remainign two nodes
+            added_edge = sorted([node1,node2])
+            graph.remove_edge(edge[0],edge[1])
+            graph.add_edge(added_edge[0],added_edge[1])
+
+            #incase addition leads to new separating triangle then revert change and continue
+            all_triangles = calc_all_triangles(graph)
+            planar = nx.is_planar(graph)
+            if(planar):
+                # origin_pos = positions
+                origin_pos = nx.planar_layout(graph)
+                final_positions = origin_pos
+                adjacency=nx.adjacency_matrix(graph).toarray()
+                new_separating_triangles, new_separating_edges, new_separating_edge_to_triangles, new_edge_to_faces = get_sep_triangles_and_edges(all_triangles, num_nodes, origin_pos, adjacency)
+            if((not planar )or (len(new_separating_triangles) > total_STs-1)):
+            # if(not planar):
+                graph.add_edge(edge[0], edge[1])
+                graph.remove_edge(added_edge[0],added_edge[1])
+                all_triangles = calc_all_triangles(graph)
+
+                print("changes revoked")
+                
+
+            #Update faces due to removal and addition of edge 
+            edge_to_faces[tuple(sorted((node1, node2)))] = [tuple(sorted([node1, node2, edge[0]])),tuple(sorted([node1,node2,edge[1]]))]
+            removed_face1 = tuple(sorted([node1, edge[0], edge[1]]))
+            removed_face2 = tuple(sorted([node2, edge[0], edge[1]]))
+            for edge_1 in get_edges(removed_face1):
+                if sorted(edge_1) == edge:
+                    continue
+                edge_to_faces[tuple(sorted(edge_1))].remove(removed_face1)
+                edge_to_faces[tuple(sorted(edge_1))].append(tuple(sorted([edge_1[0],edge_1[1],node2])))
+            for edge_2 in get_edges(removed_face2):
+                if sorted(edge_2) == edge:
+                    continue
+                edge_to_faces[tuple(sorted(edge_2))].remove(removed_face2)
+                edge_to_faces[tuple(sorted(edge_2))].append(tuple(sorted([edge_2[0],edge_2[1],node1])))
+            del edge_to_faces[edge]
+
+            
+            #remove a separating triangle if it has one of the edges which was removed
+            removing_st = []
+            for separating_triangle in separating_triangles:
+                if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
+                    removing_st.append(separating_triangle)
+            for separating_triangle in removing_st:
+                separating_triangles.remove(separating_triangle) 
+            continue
+        else:
+            #separating triangle was given from user
+            not_removed = True
+            continue
+    pass
+
+    adjacencies = [nx.to_numpy_array(graph).astype(int)]
+    return adjacencies , [], positions
 
 def handle_STs_Door_connectivity(adjacency, positions):
     """Handles separating triangles in a given adjacency matrix.

@@ -169,7 +169,7 @@ def compute_partition(p, viz=False):
         ax.scatter(y, x, color='black')
         for i in range(len(x)):
             ax.annotate(i, (y[i],x[i]))
-        plt.show()
+        #plt.show()
         plt.clf()
     
         print("collinear_vertices = ", collinear_vertices)
@@ -189,7 +189,7 @@ def compute_partition(p, viz=False):
             ax.plot([y[i],y[j]],[x[i],x[j]],color='black')
         for i,j in vertical_chords:
             ax.plot([y[i],y[j]],[x[i],x[j]],color='black')
-        plt.show()
+        #plt.show()
         plt.clf()
     # MAXIMUM PARTITION CODE ENDS ---------------------------------
 
@@ -341,8 +341,8 @@ def compute_partition(p, viz=False):
             ax.plot([y[i], y[i]+dist], [x[i],x[i]], color='black')
         nearest_chord[k] = [[x[i],y[i]], [x[i],y[i]+dist]]
     
-    if viz:
-        plt.show()
+    #if viz:
+        #plt.show()
 
     # MAXIMUM PARTITION CODE ENDS
     
@@ -1289,7 +1289,7 @@ def run():
 	ax.set_aspect('equal', 'box')
 	G.draw_rfp(i.get_orthogonal_rooms(), ax,  draw_partitions = True)
 
-	plt.show()
+	#plt.show()
 	# plt.clf(
 
 if __name__=='__main__':
