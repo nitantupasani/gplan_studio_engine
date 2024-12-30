@@ -1849,6 +1849,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
 
 
                 print("Total possible floorplans = ",number_of_floorplans)
+                valid = []
                 for i in range(number_of_floorplans):
                     # print("Trying floorplan number", i + 1,
                     #     "to see if minimum dimension floorplan can be constructed.")
@@ -1902,6 +1903,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         # graph.graph_list[i].area = area_sum #Check if this line is really needed also look into gui function not writing areas
                         graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(
                                 graph.graph_list[i])
+                        valid.append(i)
                         if min_area < 0 or area_sum < min_area:
                             min_graph = i
                             min_area = area_sum
@@ -1914,10 +1916,12 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
 
                 # graph.graph_list[min_graph].final_traversal=inputgraph.get_final_traversal(graph.graph_list[min_graph])
-                graph.scale_plot_dimension(plot_width, plot_height)
-                for graphz in graph.graph_list:
-                    ui._append_output_data(graphz)
-                    ui._set_multiple_output_found(1)
+                graph.scale_plot_dimension(plot_width, plot_height,valid)
+                for i in range(len(graph.graph_list)):
+                    graphz = graph.graph_list[i]
+                    if(i in valid):
+                        ui._append_output_data(graphz)
+                        ui._set_multiple_output_found(1)
                 min_graph = 0
                 if drawGUI:
                     drawFunction(ui, graph.graph_list[min_graph], origin, ui.get_roomNames(), gclass=gclass)
@@ -2111,6 +2115,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 min_area = -1
                 min_graph = None
                 areas = []
+                valid = []
                 # Iterate through all possible floorplans to find one which satisfies the given conditions
                 for i in range(number_of_floorplans):
                     print("Trying floorplan number", i + 1, "to see if minimum dimension floorplan can be constructed.")
@@ -2175,7 +2180,8 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         areas.append(area_sum)
                         
                         graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(graph.graph_list[i])
-                        ui._append_output_data(graph.graph_list[i]) 
+                        valid.append(i)
+                        # ui._append_output_data(graph.graph_list[i]) 
 
                         if min_area < 0 or area_sum < min_area:
                             min_graph = i
@@ -2185,14 +2191,16 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
                         '''
 
-                    print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
-                    graph.scale_plot_dimension(plot_width, plot_height)
-                    for graphz in graph.graph_list:
+                print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
+                graph.scale_plot_dimension(plot_width, plot_height,valid)
+                for i in range(len(graph.graph_list)):
+                    graphz = graph.graph_list[i]
+                    if(i in valid):
                         ui._append_output_data(graphz)
                         ui._set_multiple_output_found(1)
-                    min_graph = 0
-                    if drawGUI:
-                        drawFunction(ui, graph.graph_list[min_graph], origin, ui.get_roomNames(), gclass=gclass)
+                min_graph = 0
+                if drawGUI:
+                    drawFunction(ui, graph.graph_list[min_graph], origin, ui.get_roomNames(), gclass=gclass)
 
 
 

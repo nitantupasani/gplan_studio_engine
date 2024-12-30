@@ -110,6 +110,167 @@ def post(request, shape):
 
 
 if __name__ == '__main__':
-    sample ={"rectangular":true,"corridor":false,"dimensioned":false,"non_adj":false,"dimensionedCirculation":false,"minDimEnabled":true,"removeAddCirculation":false,"publicEnabled":false,"normalizeConst":true,"limit":10,"corridorThickness":0.5,"starting_from":0,"count":10,"nodes":[{"id":0,"x":100,"y":320,"label":"1","color":"#1C4C82","width":{"max":99999,"min":3},"height":{"max":99999,"min":3},"ratio":{"max":99999,"min":3}},{"id":1,"x":380,"y":320,"label":"2","color":"#1C4C82","width":{"max":99999,"min":3},"height":{"max":99999,"min":3},"ratio":{"max":99999,"min":3}},{"id":2,"x":380,"y":560,"label":"3","color":"#1C4C82","width":{"max":99999,"min":3},"height":{"max":99999,"min":3},"ratio":{"max":99999,"min":3}},{"id":3,"x":100,"y":560,"label":"4","color":"#1C4C82","width":{"max":99999,"min":3},"height":{"max":99999,"min":3},"ratio":{"max":99999,"min":3}},{"id":4,"x":500,"y":440,"label":"5","color":"#1C4C82","width":{"max":99999,"min":3},"height":{"max":99999,"min":3},"ratio":{"max":99999,"min":3}},{"id":5,"x":260,"y":180,"label":"6","color":"#1C4C82","width":{"max":99999,"min":3},"height":{"max":99999,"min":3},"ratio":{"max":99999,"min":3}},{"id":6,"x":240,"y":720,"label":"7","color":"#1C4C82","width":{"max":99999,"min":3},"height":{"max":99999,"min":3},"ratio":{"max":99999,"min":3}}],"edges":[{"source":1,"target":0,"color":"black"},{"source":1,"target":2,"color":"black"},{"source":2,"target":3,"color":"black"}],"plot_width":0,"plot_height":0} 
-    
+    sample ={
+  "rectangular": true,
+  "corridor": false,
+  "dimensioned": false,
+  "non_adj": true,
+  "dimensionedCirculation": false,
+  "minDimEnabled": true,
+  "removeAddCirculation": false,
+  "publicEnabled": false,
+  "normalizeConst": true,
+  "limit": 10,
+  "corridorThickness": 0.5,
+  "starting_from": 0,
+  "count": 10,
+  "nodes": [
+    {
+      "id": 0,
+      "x": 580,
+      "y": 320,
+      "label": "1(Dining)",
+      "color": "#1C4C82",
+      "width": {
+        "max": 99999,
+        "min": 8
+      },
+      "height": {
+        "max": 99999,
+        "min": 6
+      },
+      "ratio": {
+        "max": 3,
+        "min": 3
+      }
+    },
+    {
+      "id": 1,
+      "x": 900,
+      "y": 360,
+      "label": "2(Kitchen)",
+      "color": "#1C4C82",
+      "width": {
+        "max": 99999,
+        "min": 6
+      },
+      "height": {
+        "max": 99999,
+        "min": 10
+      },
+      "ratio": {
+        "max": 3,
+        "min": 3
+      }
+    },
+    {
+      "id": 2,
+      "x": 600,
+      "y": 580,
+      "label": "3(Bedroom)",
+      "color": "#1C4C82",
+      "width": {
+        "max": 99999,
+        "min": 12
+      },
+      "height": {
+        "max": 99999,
+        "min": 14
+      },
+      "ratio": {
+        "max": 3,
+        "min": 3
+      }
+    },
+    {
+      "id": 3,
+      "x": 260,
+      "y": 480,
+      "label": "4(Bathroom)",
+      "color": "#1C4C82",
+      "width": {
+        "max": 99999,
+        "min": 7
+      },
+      "height": {
+        "max": 99999,
+        "min": 5
+      },
+      "ratio": {
+        "max": 3,
+        "min": 3
+      }
+    },
+    {
+      "id": 4,
+      "x": 240,
+      "y": 220,
+      "label": "5(WC)",
+      "color": "#1C4C82",
+      "width": {
+        "max": 99999,
+        "min": 4
+      },
+      "height": {
+        "max": 99999,
+        "min": 6
+      },
+      "ratio": {
+        "max": 3,
+        "min": 3
+      }
+    },
+    {
+      "id": 5,
+      "x": 540,
+      "y": 120,
+      "label": "6(Bedroom)",
+      "color": "#1C4C82",
+      "width": {
+        "max": 99999,
+        "min": 11
+      },
+      "height": {
+        "max": 99999,
+        "min": 11
+      },
+      "ratio": {
+        "max": 3,
+        "min": 3
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": 0,
+      "target": 4
+    },
+    {
+      "source": 2,
+      "target": 3
+    },
+    {
+      "source": 2,
+      "target": 0
+    },
+    {
+      "source": 0,
+      "target": 1
+    },
+    {
+      "source": 0,
+      "target": 5
+    },
+    {
+      "source": 5,
+      "target": 4
+    },
+    {
+      "source": 2,
+      "target": 5
+    }
+  ],
+  "plot_width": 20,
+  "plot_height": 20
+}
     post(sample,'door_connectivity')
