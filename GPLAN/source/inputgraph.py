@@ -349,11 +349,11 @@ class InputGraph:
         if(is_non_adj):
             if (not bcn.is_biconnected(self.matrix)):
                 # bcn_edges = bcn_new.biconnect(self.matrix, non_adj_list)
-                bcn_edges_set = bcn_non_adj.make_biconnected_permutations(self.matrix, non_adj_list)
-                if(len(bcn_edges_set) == 0):
-                    print("No Biconnectivity augmentation found")
-                    return self ,False,False
-                bcn_edges = next(iter(bcn_edges_set))#Here multiple edge sets are there we have to choose 1 here
+                bcn_edges = bcn_non_adj.biconnect(self.matrix, non_adj_list)
+                # if(len(bcn_edges_set) == 0):
+                #     print("No Biconnectivity augmentation found")
+                #     return self ,False,False
+                # bcn_edges = next(iter(bcn_edges_set))#Here multiple edge sets are there we have to choose 1 here
         else:
             if (not bcn.is_biconnected(self.matrix)):
                 bcn_edges = bcn.biconnect(self.matrix)
@@ -365,12 +365,10 @@ class InputGraph:
 
         # Triangularity
         if(is_non_adj):
-            # trng_edges, positions, tri_faces = trng_non_adj.triangulate(self.matrix
-            #                                                     , bcn_edges_added
-            #                                                     , self.coordinates, non_adj_list)
-            trng_edges, positions, tri_faces = trng.triangulate(self.matrix
-                                                            , bcn_edges_added
-                                                            , self.coordinates)
+            trng_edges, positions, tri_faces = trng_non_adj.triangulate(self.matrix
+                                                                , bcn_edges_added
+                                                                , self.coordinates, non_adj_list)
+
         else:
             trng_edges, positions, tri_faces = trng.triangulate(self.matrix
                                                             , bcn_edges_added
@@ -570,9 +568,12 @@ class InputGraph:
         #                                                                                    self.mergednodes,
         #                                                                                    self.irreg_nodes1)
 
-    def scale_plot_dimension(self,plot_width,plot_height):
+    def scale_plot_dimension(self,plot_width,plot_height,valid):
         reorder_mapping = []
-        for graph in self.graph_list:
+        for i in range(len(self.graph_list)):
+            if i not in valid:
+                continue
+            graph = self.graph_list[i]
             width = 0
             height = 0
             for room in graph.final_traversal:
@@ -588,7 +589,7 @@ class InputGraph:
             diff = width if width >= 1 else 1/width
             diff = diff*height if height >= 1 else diff/height
             
-            reorder_mapping.append([diff,len(reorder_mapping)])
+            reorder_mapping.append([diff,i])
             #Things to change area , final_traversal,room_height,room_width,room_x,room_y
             for i in range(len(graph.final_traversal)):
                 for j in range(len(graph.final_traversal[i])):
@@ -604,7 +605,7 @@ class InputGraph:
             print(reorder_mapping)
         reorder_mapping.sort(key=lambda x: x[0])
         new_graph_list = copy.deepcopy(self.graph_list)
-        for index in range(len(self.graph_list)):
+        for index in range(len(reorder_mapping)):
             new_graph_list[index] = self.graph_list[reorder_mapping[index][1]]
         self.graph_list = new_graph_list
 
