@@ -986,6 +986,8 @@ def handle_staircase_shaped(ui, graph, drawGUI = False, gclass = None):
     return graph
 #
 def handle_multiple(ui, graph, gclass = None):
+    if not graph.is_connected():#Check if the graph is connected or not
+            connect_graph.one_connected(graph.matrix)
     if(ui.get_isDimensioned() == 0):#Non-Dimensioned multiple dual
         start = time.time()
         # Resets the data already present for downloading catalogues
