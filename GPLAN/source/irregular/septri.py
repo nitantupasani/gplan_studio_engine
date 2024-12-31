@@ -617,6 +617,7 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
                 all_triangles = calc_all_triangles(graph)
 
                 print("changes revoked")
+                continue
                 
 
             #Update faces due to removal and addition of edge 
