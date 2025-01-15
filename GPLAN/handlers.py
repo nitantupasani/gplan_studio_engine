@@ -1670,6 +1670,9 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
     
     if (checkPTPG):
         print("PTPG going with RFP")
+        if(ui.get_isCirculation() == 1):
+            handle_circulation(ui,graph,drawGUI,gclass)
+            return
 
         if (ui.get_isMinDimensioned() == 0):  # Non-Dimensioned single rectangular dual
             if gclass is None:

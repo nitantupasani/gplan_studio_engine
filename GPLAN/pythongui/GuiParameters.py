@@ -109,7 +109,8 @@ class GuiParameters:
     __letter: str
     __corridor_thickness: float
     __message: str = ""
-    __isNonAdj: int
+    __isNonAdj: int #gclass.value[12]
+    __isCirculation: int #gclass.value[13]
     __is_multiple_door: bool
     output_data: list = []
     min_dim_inputs: DimParameters = None
@@ -156,6 +157,16 @@ class GuiParameters:
             self.__isMinDimensioned = isMinDimensioned
         return self
         
+    
+    def get_isCirculation(self) -> int:
+        return self.__isCirculation
+    
+    def set_isCirculation(self, isCirculation):
+        if isCirculation is None:
+            self.__isCirculation = False
+        else:
+            self.__isCirculation = isCirculation
+        return self
     def get_isPublic(self) -> int:
         return self.__isPublic
     
@@ -325,6 +336,7 @@ class GuiParameters:
             self.set_isMinDimensioned(gclass.value[10])
             self.set_isPublic(gclass.value[11])
             self.set_isNonAdj(gclass.value[12])
+            self.set_isCirculation(gclass.value[13])
             self.set_isGui(True)
             self.set_letter(gclass.letter)
             self.set_corridor_thickness(gclass.corridor_thickness)
