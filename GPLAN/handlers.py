@@ -1815,17 +1815,28 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         if drawGUI:
                             drawFunction(ui, graph.graph_list[i], origin, ui.get_roomNames(), gclass=gclass)
                         break
+                    
+                    #Calculate bound area
+                    hMax = 0
+                    wMax = 0
+                    for j in range(len(room_x)):
+                        if room_x[j] + room_width[j] > wMax:
+                            wMax = room_x[j] + room_width[j]
+                        if room_y[j] + room_height[j] > hMax:
+                            hMax = room_y[j] + room_height[j]
 
+                    boundArea = hMax * wMax
                     # Store graph data if graph area is less than current minimal area
                     area_sum = sum(room_area)
                     areas.append(area_sum)
-                    areas_mapping.append((area_sum,i))
+                    areas_mapping.append(((boundArea - area_sum,area_sum),i))
                     # graph.graph_list[i].area = area_sum
                     graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(graph.graph_list[i])
                     if min_area < 0 or area_sum < min_area:
                         min_graph = i
                         min_area = area_sum
                     
+
                     '''
                     Adds the graph data to output_data for downloading the catalogue and
                     multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
@@ -1932,14 +1943,19 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     drawFunction(ui, graph.graph_list[min_graph], origin, ui.get_roomNames(), gclass=gclass)
 
             elif optimal_floorplan == 1 and multiple_door is not True: # Display floorplan with optimal area if required  
+                areas_mapping.sort()#sort all bound areas
+                min_graph = areas_mapping[0][1]
+                min_area = areas_mapping[0][0][1]
+                print("Area mapping", areas_mapping)
                 print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
                 ui._append_output_data(graph.graph_list[min_graph])
                 # graph.graph_list[min_graph].final_traversal=inputgraph.get_final_traversal(graph.graph_list[min_graph])
                 if drawGUI:
                     drawFunction(ui, graph.graph_list[min_graph], origin, ui.get_roomNames(), gclass=gclass)
             elif multiple_door == 1:#Sort all the given floorplans based on area then append them at the end of the output list
-                areas_mapping.sort()#sort all areas
+                areas_mapping.sort()#sort all bound areas
                 print("plot height",plot_height,"plot width",plot_width)
+                print("area mapping", areas_mapping)
                 for floorplan in areas_mapping:
                     ui._append_output_data(graph.graph_list[floorplan[1]])
                     ui._set_multiple_output_found(1)
@@ -2092,10 +2108,20 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     Adds the graph data to output_data for downloading the catalogue and
                     multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
                     '''
+                    #Calculate bound area
+                    hMax = 0
+                    wMax = 0
+                    for j in range(len(room_x)):
+                        if room_x[j] + room_width[j] > wMax:
+                            wMax = room_x[j] + room_width[j]
+                        if room_y[j] + room_height[j] > hMax:
+                            hMax = room_y[j] + room_height[j]
+
+                    boundArea = hMax * wMax
                     # Store graph data if graph area is less than current minimal area
                     area_sum = sum(room_area)
                     areas.append(area_sum)
-                    areas_mapping.append((area_sum,i))
+                    areas_mapping.append(((boundArea-area_sum,area_sum),i))
                     # graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(graph.graph_list[i])
                     if min_area < 0 or area_sum < min_area:
                         min_graph = i
@@ -2210,6 +2236,9 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
 
 
             elif optimal_floorplan == 1 and multiple_door is not True:
+                areas_mapping.sort()
+                min_graph = areas_mapping[0][1]
+                min_area = areas_mapping[0][0][1]
                 ui._append_output_data(graph.graph_list[min_graph])
                 print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
                 if drawGUI:
