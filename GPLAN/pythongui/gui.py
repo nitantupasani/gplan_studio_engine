@@ -224,7 +224,6 @@ class gui_class:
         self.circ_check.set(0)
 
 
-
         self.e1 = tk.IntVar()
         self.e2 = tk.IntVar()
 

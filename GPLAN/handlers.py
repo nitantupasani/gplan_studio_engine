@@ -1724,13 +1724,15 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         old_dims[1][i] = old_min_height[i]
                     old_dims.extend([plot_width, plot_height])
                     gclass.open = False
-                min_width, min_height, plot_width, plot_height, optimal_floorplan= mindimgui.gui_fnc(ui,old_dims,
+                min_width, min_height, plot_width, plot_height, optimal_floorplan,allow_rotation= mindimgui.gui_fnc(ui,old_dims,
                                                                                                     ui.get_noOfNodes(),
                                                                                                     ui.get_roomNames(), gclass)
                 multiple_door = False
             else:
-                min_width, min_height, plot_width, plot_height, optimal_floorplan,multiple_door = ui.min_dim_inputs.get_min_width(), ui.min_dim_inputs.get_min_height(), ui.min_dim_inputs.get_plot_width(), ui.min_dim_inputs.get_plot_height(), ui.min_dim_inputs.get_isOptimalEnabled(),ui.get_is_multiple_door()
+                min_width, min_height, plot_width, plot_height, optimal_floorplan,allow_rotation,multiple_door = ui.min_dim_inputs.get_min_width(), ui.min_dim_inputs.get_min_height(), ui.min_dim_inputs.get_plot_width(), ui.min_dim_inputs.get_plot_height(), ui.min_dim_inputs.get_isOptimalEnabled(),ui.min_dim_inputs.get_isRotationAllowed(),ui.get_is_multiple_door()
             start = time.time()
+            if allow_rotation:
+                print("Will try rotation the floorplans")
             try:
                 graph.oneconnected_dual("multiple")
             except inputgraph.OCError:

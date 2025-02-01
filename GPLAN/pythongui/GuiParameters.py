@@ -15,8 +15,10 @@ class DimParameters:
     __plot_width: float
     __symmetric: bool
     __isOptimalEnabled: int
-    def __init__(self, min_width, max_width, plot_height, plot_width,isOptimalEnabled,symmetric = False, min_height = [], max_height = [], min_ratio = [], max_ratio = []):
+    __isRotationAllowed: int
+    def __init__(self, min_width, max_width, plot_height, plot_width,isOptimalEnabled,isRotationAllowed = 0,symmetric = False, min_height = [], max_height = [], min_ratio = [], max_ratio = []):
         self.__isOptimalEnabled = isOptimalEnabled
+        self.__isRotationAllowed = isRotationAllowed
         self.__min_width = min_width
         self.__max_width = max_width
         self.__plot_height = plot_height
@@ -32,6 +34,12 @@ class DimParameters:
 
     def set_isOptimalEnabled(self, value):
         self.__isOptimalEnabled = value
+
+    def get_isRotationAllowed(self):
+        return self.__isRotationAllowed
+    
+    def set_isRotationAllowed(self, value):
+        self.__isRotationAllowed = value
 
     def get_min_width(self):
         return self.__min_width
