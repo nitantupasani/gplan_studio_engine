@@ -220,7 +220,8 @@ class gui_class:
         self.checkvar4 = tk.IntVar()
         self.checkvar6 = tk.IntVar(None) 
         self.checkvar6.set(0)
-
+        self.circ_check = tk.IntVar()
+        self.circ_check.set(0)
 
 
         self.e1 = tk.IntVar()
@@ -338,7 +339,7 @@ class gui_class:
                 temp_node_data.append(i.pos_y)
                 node_coordinate.append(temp_node_data)
             return [len(self.nodes_data), self.edge_count, self.edges, self.command, self.master.checkvar1.get(),
-                    list(filter(None, [row[1].get() for row in self.table._data_vars])), self.hex_list, node_coordinate, self.master.checkvar2.get(), self.master.checkvar3.get(), self.master.checkvar4.get(),self.master.checkvar5.get(),self.master.checkvar6.get()]
+                    list(filter(None, [row[1].get() for row in self.table._data_vars])), self.hex_list, node_coordinate, self.master.checkvar2.get(), self.master.checkvar3.get(), self.master.checkvar4.get(),self.master.checkvar5.get(),self.master.checkvar6.get(),self.master.circ_check.get()]
 
         def createCanvas(self):
             self.id_circle.clear()
@@ -1477,7 +1478,7 @@ class gui_class:
                 (tk.Button(master.frame1, text='Irregular Floor Plan', relief='flat', command=master.single_floorplan), 0, 0),
                 (tk.Button(master.frame1, text='Rectangular Floor Plan', relief='flat', command=master.single_oc_floorplan), 0, 1),
                 (tk.Button(master.frame1, text='Polygonal Floorplans', relief='flat', command=master.polygonal_inputbox), 1, 0),
-                (tk.Button(master.frame1, text='Circulation', relief='flat', command=master.circ_menu), 1, 1),
+                (tk.Button(master.frame1, text='Circulation', relief='flat', command=master.circ_starter), 1, 1),
                 (tk.Button(master.frame1, text='Letter Shaped Floor Plan', relief='flat', command=master.letter_inputbox), 2, 0),
                 (tk.Button(master.frame1, text='Staircase Shaped Floor Plan', relief='flat', command=master.staircase_shaped), 2, 1),
                 (tk.Button(master.frame1, text='Multiple Irregular Floor Plans', relief='flat', command=master.multiple_floorplan), 3, 0),
@@ -1485,11 +1486,13 @@ class gui_class:
                 (tk.Button(master.frame1, text='Multiple L-shaped', relief='flat', command=master.multiple_l_floorplan), 4, 0),
                 (tk.Button(master.frame1, text='Modify Room', relief='flat', command=master.change_limits), 4, 1),
                 (tk.Button(master.frame1, text='Door Connectivity', relief='flat', command=master.door_connectivity), 5, 0),
-                (tk.Button(master.frame1, text='EXIT', relief='flat', command=master.exit), 5, 1),
+                (tk.Button(master.frame1, text='EXIT', relief='flat', command=master.exit), 8, 0),
+                (tk.Checkbutton(master.frame1, text="Circulation Door", relief='flat', selectcolor='#4A4E69', width=checkbox_width, variable=master.circ_check, onvalue=1, offvalue=0), 5, 1),
                 (tk.Checkbutton(master.frame1, text="Dimensioned", relief='flat', selectcolor='#4A4E69', width=checkbox_width, variable=master.checkvar1, onvalue=1, offvalue=0), 6, 0),
                 (tk.Checkbutton(master.frame1, text="Public", relief='flat', selectcolor='#4A4E69', width=checkbox_width, variable=master.checkvar5, onvalue=1, offvalue=0), 6, 1),
                 (tk.Checkbutton(master.frame1, text="Min Dim", relief='flat', selectcolor='#4A4E69', width=checkbox_width, variable=master.checkvar4, onvalue=1, offvalue=0), 7, 0),
-                (tk.Checkbutton(master.frame1, text="Non Adj", relief='flat', selectcolor='#4A4E69', width=checkbox_width, variable=master.checkvar6, onvalue=1, offvalue=0), 7, 1)
+                (tk.Checkbutton(master.frame1, text="Non Adj", relief='flat', selectcolor='#4A4E69', width=checkbox_width, variable=master.checkvar6, onvalue=1, offvalue=0), 7, 1),
+
             ]
 
             # Grid buttons and checkboxes
@@ -1642,9 +1645,9 @@ class gui_class:
     def graph_ret(self):
         # value is set here, dimensioned and mindim flags are set for graphs from input file
         if self.open == True and len(self.value) > 0 and len(self.value) > 10: #No one should change self.value add variables differently
-            isDimensioned, isMindim, isNonAdj = self.value[4], self.value[10], self.value[11]
+            isDimensioned, isMindim, isNonAdj = self.value[4], self.value[10], self.value[12]
             self.value = self.app.return_everything()
-            self.value[4], self.value[10], self.value[11] = isDimensioned, isMindim, isNonAdj
+            self.value[4], self.value[10], self.value[12] = isDimensioned, isMindim, isNonAdj
         else:
             self.value = self.app.return_everything()
         self.textbox = self.tbox.gettext()
@@ -1659,7 +1662,10 @@ class gui_class:
     def door_connectivity(self):
         self.app.command = "door_connectivity"
         self.command = "door_connectivity"
-        self.end.set(self.end.get() + 1)
+        if(self.circ_check.get() == 1):
+            self.circ_menu()
+        else:
+            self.end.set(self.end.get() + 1)
         # self.root.state('zoomed')
         # root.destroy()
 
@@ -2259,6 +2265,11 @@ class gui_class:
         # ex = tk.Button(root,text = "Submit",command = self.corridor_thickness_gui, justify=tk.CENTER)
         # ex.grid(padx=100, pady=20)
 
+    def circ_starter(self):
+        self.app.command = "circulation"
+        self.command = "circulation"
+        self.circ_menu()
+
     def change_entry_gui(self):
         """This function takes user input for starting edge/door for the corridor
         """
@@ -2307,9 +2318,8 @@ class gui_class:
         self.end.set(self.end.get()+1)
         self.top1.destroy()
         self.top2.destroy()
-        
-        self.app.command="circulation"
-        self.command = "circulation"
+        # self.app.command="circulation"
+        # self.command = "circulation"
         self.end.set(self.end.get()+1)
 
     def remove_corridor_gui(self, adjacency):

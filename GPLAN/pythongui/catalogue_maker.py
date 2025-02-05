@@ -74,7 +74,8 @@ class PDF(FPDF):
 
 def save_graph(edges):
     G = nx.Graph()
-    G.add_edges_from(edges)
+    formatted_edges = [(edge[0], edge[1], {'color': edge[2]}) for edge in edges]
+    G.add_edges_from(formatted_edges)
     nx.draw_planar(G,node_color=hex_colors[:G.number_of_nodes()], with_labels = True)
     plt.savefig('latest_adj_graph.png')
     plt.close()
@@ -596,4 +597,4 @@ def save(pdf):
     # Create a button
     btn = Button(win, text="Save", command=lambda: save_file())
     btn.pack(pady=10)
-    win.after(3000, lambda: win.destroy())
+    win.after(10000, lambda: win.destroy())

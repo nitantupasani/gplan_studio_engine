@@ -19,7 +19,7 @@ def gui_fnc(ui,old_dims, nodes, room_name = [] , gclass=None):
 
     if gclass == None:
         dim_parameters : DimParameters = ui.get_min_dim_inputs()
-        return dim_parameters.get_min_width(), dim_parameters.get_min_height(), dim_parameters.get_plot_width(), dim_parameters.get_plot_height(), dim_parameters.get_optimal_floorplan()
+        return dim_parameters.get_min_width(), dim_parameters.get_min_height(), dim_parameters.get_plot_width(), dim_parameters.get_plot_height(), dim_parameters.get_isOptimalEnabled(),dim_parameters.get_isRotationAllowed()
 
     min_width = []
     min_height = []
@@ -49,6 +49,7 @@ def gui_fnc(ui,old_dims, nodes, room_name = [] , gclass=None):
     plot_height = tk.IntVar(root, 0)
     plot_width = tk.IntVar(root, 0)
     optimal_floorplan = tk.IntVar(root)
+    allow_rotation = tk.IntVar(root)
     
     for i in range(0, nodes):
         i_value_x = 0
@@ -119,6 +120,10 @@ def gui_fnc(ui,old_dims, nodes, room_name = [] , gclass=None):
     optimal_floorplan_checkbox = tk.Checkbutton(root, text="Generate Optimal Floorplan", variable=optimal_floorplan, onvalue=1, offvalue=0)
     optimal_floorplan_checkbox.place(relx=0.55, rely=0.4, anchor='nw')
 
+    # Placing checkbox for allowing floorplan rotation
+    optimal_floorplan_checkbox = tk.Checkbutton(root, text="Allow Floorplan Rotation", variable=allow_rotation, onvalue=1, offvalue=0)
+    optimal_floorplan_checkbox.place(relx=0.55, rely=0.5, anchor='nw')
+
     def submit_clicked():
         # Helper function for submit button click
         for i in range(0, nodes):
@@ -149,7 +154,7 @@ def gui_fnc(ui,old_dims, nodes, room_name = [] , gclass=None):
     # destroying the GUI window
     root.wait_window(root)
     
-    return min_width, min_height, plot_width.get(), plot_height.get(), optimal_floorplan.get()
+    return min_width, min_height, plot_width.get(), plot_height.get(), optimal_floorplan.get(),allow_rotation.get()
 
 
 if __name__ == "__main__":
