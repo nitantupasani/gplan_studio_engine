@@ -38,7 +38,8 @@ def post(request, shape):
             "plot_width": 0,
             "plot_height": 0,
             "symmetric": False,
-            "optimal_floorplan": 0
+            "optimal_floorplan": 0,
+            "rotation_enabled" : 0
         }
         if dimensioned or min_dim_enabled:
             dim_inputs["plot_width"] = request.get('plot_width', 0)
@@ -77,6 +78,7 @@ def post(request, shape):
             dim_inputs['plot_height'] = request.get('plot_height', 0)
             dim_inputs['symmetric'] = request.get('symmetric', False)
             dim_inputs['optimal_floorplan'] = request.get('optimal_floorplan', True)  # Default is set
+            dim_inputs['rotation_enabled'] = request.get('rotation_enabled', 0) # Default is set
 
         floorplans, message = Documents.get_floorplans(
             starting_from=starting_from,

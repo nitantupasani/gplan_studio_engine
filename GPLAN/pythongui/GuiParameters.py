@@ -15,8 +15,10 @@ class DimParameters:
     __plot_width: float
     __symmetric: bool
     __isOptimalEnabled: int
-    def __init__(self, min_width, max_width, plot_height, plot_width,isOptimalEnabled,symmetric = False, min_height = [], max_height = [], min_ratio = [], max_ratio = []):
+    __isRotationAllowed: int
+    def __init__(self, min_width, max_width, plot_height, plot_width,isOptimalEnabled,isRotationAllowed = 0,symmetric = False, min_height = [], max_height = [], min_ratio = [], max_ratio = []):
         self.__isOptimalEnabled = isOptimalEnabled
+        self.__isRotationAllowed = isRotationAllowed
         self.__min_width = min_width
         self.__max_width = max_width
         self.__plot_height = plot_height
@@ -32,6 +34,12 @@ class DimParameters:
 
     def set_isOptimalEnabled(self, value):
         self.__isOptimalEnabled = value
+
+    def get_isRotationAllowed(self):
+        return self.__isRotationAllowed
+    
+    def set_isRotationAllowed(self, value):
+        self.__isRotationAllowed = value
 
     def get_min_width(self):
         return self.__min_width
@@ -109,7 +117,8 @@ class GuiParameters:
     __letter: str
     __corridor_thickness: float
     __message: str = ""
-    __isNonAdj: int
+    __isNonAdj: int #gclass.value[12]
+    __isCirculation: int #gclass.value[13]
     __is_multiple_door: bool
     output_data: list = []
     min_dim_inputs: DimParameters = None
@@ -156,6 +165,16 @@ class GuiParameters:
             self.__isMinDimensioned = isMinDimensioned
         return self
         
+    
+    def get_isCirculation(self) -> int:
+        return self.__isCirculation
+    
+    def set_isCirculation(self, isCirculation):
+        if isCirculation is None:
+            self.__isCirculation = False
+        else:
+            self.__isCirculation = isCirculation
+        return self
     def get_isPublic(self) -> int:
         return self.__isPublic
     
@@ -325,6 +344,7 @@ class GuiParameters:
             self.set_isMinDimensioned(gclass.value[10])
             self.set_isPublic(gclass.value[11])
             self.set_isNonAdj(gclass.value[12])
+            self.set_isCirculation(gclass.value[13])
             self.set_isGui(True)
             self.set_letter(gclass.letter)
             self.set_corridor_thickness(gclass.corridor_thickness)
