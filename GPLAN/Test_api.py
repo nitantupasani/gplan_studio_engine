@@ -129,8 +129,8 @@ if __name__ == '__main__':
   "nodes": [
     {
       "id": 0,
-      "x": 340,
-      "y": 220,
+      "x": 640,
+      "y": 440,
       "label": "1",
       "color": "#1C4C82",
       "width": {
@@ -148,8 +148,8 @@ if __name__ == '__main__':
     },
     {
       "id": 1,
-      "x": 660,
-      "y": 200,
+      "x": 480,
+      "y": 220,
       "label": "2",
       "color": "#1C4C82",
       "width": {
@@ -167,8 +167,8 @@ if __name__ == '__main__':
     },
     {
       "id": 2,
-      "x": 1040,
-      "y": 220,
+      "x": 1120,
+      "y": 160,
       "label": "3",
       "color": "#1C4C82",
       "width": {
@@ -186,28 +186,9 @@ if __name__ == '__main__':
     },
     {
       "id": 3,
-      "x": 880,
-      "y": 640,
+      "x": 1040,
+      "y": 460,
       "label": "4",
-      "color": "#1C4C82",
-      "width": {
-        "max": 99999,
-        "min": 3
-      },
-      "height": {
-        "max": 99999,
-        "min": 3
-      },
-      "ratio": {
-        "max": 99999,
-        "min": 3
-      }
-    },
-    {
-      "id": 4,
-      "x": 600,
-      "y": 640,
-      "label": "5",
       "color": "#1C4C82",
       "width": {
         "max": 99999,
@@ -225,38 +206,23 @@ if __name__ == '__main__':
   ],
   "edges": [
     {
-      "source": 0,
-      "target": 1,
-      "color": "black"
-    },
-    {
-      "source": 1,
+      "source": 3,
       "target": 2,
       "color": "black"
     },
     {
       "source": 2,
-      "target": 3,
-      "color": "black"
-    },
-    {
-      "source": 3,
       "target": 1,
       "color": "black"
     },
     {
       "source": 1,
-      "target": 4,
-      "color": "black"
-    },
-    {
-      "source": 4,
-      "target": 3,
-      "color": "black"
-    },
-    {
-      "source": 4,
       "target": 0,
+      "color": "black"
+    },
+    {
+      "source": 0,
+      "target": 3,
       "color": "black"
     }
   ],

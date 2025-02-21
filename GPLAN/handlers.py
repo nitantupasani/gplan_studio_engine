@@ -1821,11 +1821,11 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     #Calculate bound area
                     hMax = 0
                     wMax = 0
-                    for j in range(len(room_x)):
-                        if room_x[j] + room_width[j] > wMax:
-                            wMax = room_x[j] + room_width[j]
-                        if room_y[j] + room_height[j] > hMax:
-                            hMax = room_y[j] + room_height[j]
+                    for itr2 in range(len(room_x)):
+                        if room_x[itr2] + room_width[itr2] > wMax:
+                            wMax = room_x[itr2] + room_width[itr2]
+                        if room_y[itr2] + room_height[itr2] > hMax:
+                            hMax = room_y[itr2] + room_height[itr2]
 
                     boundArea = hMax * wMax
                     # Store graph data if graph area is less than current minimal area
@@ -1850,10 +1850,12 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             if allow_rotation :
                 print("Rotation is allowed duplicating all floorplans")
                 number_of_floorplans = len(graph.graph_list)
-                for j in range(number_of_floorplans):
-                    curr_graph = copy.deepcopy(graph.graph_list[j])
+                for itr in range(number_of_floorplans):
+                    curr_graph = copy.deepcopy(graph.graph_list[itr])
+                    curr_graph.final_traversal = []
+                    curr_graph.circular_traversal = []
                     graph.graph_list.append(curr_graph)
-                    i = j + number_of_floorplans
+                    i = itr + number_of_floorplans
                     # print("Trying floorplan number", i + 1,
                     #       "to see if minimum dimension floorplan can be constructed.")
                     floorplan_obj = input_for_min_dim.floorplan(ui.get_fptype(), ui.get_isDimensioned(),
@@ -1920,11 +1922,11 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         #Calculate bound area
                         hMax = 0
                         wMax = 0
-                        for j in range(len(room_x)):
-                            if room_x[j] + room_width[j] > wMax:
-                                wMax = room_x[j] + room_width[j]
-                            if room_y[j] + room_height[j] > hMax:
-                                hMax = room_y[j] + room_height[j]
+                        for itr2 in range(len(room_x)):
+                            if room_x[itr2] + room_width[itr2] > wMax:
+                                wMax = room_x[itr2] + room_width[itr2]
+                            if room_y[itr2] + room_height[itr2] > hMax:
+                                hMax = room_y[itr2] + room_height[itr2]
 
                         boundArea = hMax * wMax
                         # Store graph data if graph area is less than current minimal area
@@ -2225,10 +2227,12 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             if allow_rotation :
                 print("Rotation is allowed duplicating all floorplans")
                 number_of_floorplans = len(graph.graph_list)
-                for j in range(number_of_floorplans):
-                    curr_graph = copy.deepcopy(graph.graph_list[j])
+                for itr in range(number_of_floorplans):
+                    curr_graph = copy.deepcopy(graph.graph_list[itr])
+                    curr_graph.circular_traversal = []
+                    curr_graph.final_traversal = []
                     graph.graph_list.append(curr_graph)
-                    i = j + number_of_floorplans
+                    i = itr + number_of_floorplans
                     print("Trying floorplan number", i + 1, "to see if minimum dimension floorplan can be constructed.")
                     floorplan_obj = input_for_min_dim.floorplan(ui.get_fptype(), ui.get_isDimensioned(),
                                                                 ui.get_isDimensionedCirculation(), ui.get_isRemoveAddCirculation(),
@@ -2249,10 +2253,10 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     for merge_node in graph.graph_list[i].mergednodes:
                         node_min_width = 1
                         node_min_height = 1
-                        for j in range(0,graph.graph_list[i].nodecnt):
+                        for itr2 in range(0,graph.graph_list[i].nodecnt):
                             if(graph.graph_list[i].matrix[merge_node][j] == 1):
-                                node_min_width = max(node_min_width, floorplan_data['nodes'][j]['min_width'])
-                                node_min_height = max(node_min_height,floorplan_data['nodes'][j]['min_height'])
+                                node_min_width = max(node_min_width, floorplan_data['nodes'][itr2]['min_width'])
+                                node_min_height = max(node_min_height,floorplan_data['nodes'][itr2]['min_height'])
                         floorplan_data['nodes'][merge_node]['min_width'] = node_min_width/2
                         floorplan_data['nodes'][merge_node]['min_height'] = node_min_height/2
 
@@ -2306,11 +2310,11 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         #Calculate bound area
                         hMax = 0
                         wMax = 0
-                        for j in range(len(room_x)):
-                            if room_x[j] + room_width[j] > wMax:
-                                wMax = room_x[j] + room_width[j]
-                            if room_y[j] + room_height[j] > hMax:
-                                hMax = room_y[j] + room_height[j]
+                        for itr3 in range(len(room_x)):
+                            if room_x[itr3] + room_width[itr3] > wMax:
+                                wMax = room_x[itr3] + room_width[itr3]
+                            if room_y[itr3] + room_height[itr3] > hMax:
+                                hMax = room_y[itr3] + room_height[itr3]
 
                         boundArea = hMax * wMax
                         # Store graph data if graph area is less than current minimal area
