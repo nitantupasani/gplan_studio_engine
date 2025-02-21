@@ -131,6 +131,7 @@ class InputGraph:
         self.nodecnt_list = []
         self.nonrect = False
         self.extranodes = []
+        self.extraedges = []
         self.area = []
         self.rel_matrix_list = []
         self.floorplan_exist = False
@@ -311,9 +312,16 @@ class InputGraph:
             for j in range(i + 1, n):  # Iterate only the upper triangle to avoid duplicates
                 if self.matrix[i][j] != 0:  # Assuming non-zero entries indicate edges
                     edges.add((i, j))
-
+        extraedges = self.extraedges
         # Update gclass.value[2] with edges and default color 'black'
         edge_set = [[start, end, 'black'] for start, end in edges]
+        #change colour of extra edges added
+        for edge in edge_set:
+            curr_edge = [edge[0],edge[1]]
+            curr_edge_rev = [edge[1],edge[0]]
+            if curr_edge in extraedges or curr_edge_rev in extraedges:
+                edge[2] = 'red'
+            
         if gclass is not None:
             gclass.value[2] = edge_set
             print(gclass.value[2])
@@ -329,7 +337,6 @@ class InputGraph:
         Returns:
             None
         """
-
         is_non_adj = False
         if (non_adj_list is not None):
             is_non_adj = True
@@ -341,6 +348,7 @@ class InputGraph:
             self.room_width = np.array([1.0, 1.0])
             self.room_height = np.array([1.0, 1.0])
             return
+        original_one_connected = copy.deepcopy(self.matrix)
         one_connected=  copy.deepcopy(self.matrix)
         if(is_non_adj):
             print("Non-Adjacency List Applied in Door Connectivity:", non_adj_list)         
@@ -490,6 +498,13 @@ class InputGraph:
                 nx.draw_networkx(graphtemp,positions, label='After retriangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
                 plt.show()
             
+        #add the extra edges to extraedges list by comparing original matrix with new matrix
+        for i in range(len(original_one_connected)):
+            for j in range(i+1,len(original_one_connected)):
+                if original_one_connected[i][j] == 0 and self.matrix[i][j] == 1:
+                    self.extraedges.append([i,j])
+
+
 
         return self, check_ptpg(separating_triangles1)
 

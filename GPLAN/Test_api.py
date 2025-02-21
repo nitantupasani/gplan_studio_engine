@@ -39,7 +39,7 @@ def post(request, shape):
             "plot_height": 0,
             "symmetric": False,
             "optimal_floorplan": 0,
-            "rotation_enabled" : 0
+            "rotation_enabled" : 1
         }
         if dimensioned or min_dim_enabled:
             dim_inputs["plot_width"] = request.get('plot_width', 0)
@@ -78,7 +78,7 @@ def post(request, shape):
             dim_inputs['plot_height'] = request.get('plot_height', 0)
             dim_inputs['symmetric'] = request.get('symmetric', False)
             dim_inputs['optimal_floorplan'] = request.get('optimal_floorplan', True)  # Default is set
-            dim_inputs['rotation_enabled'] = request.get('rotation_enabled', 0) # Default is set
+            dim_inputs['rotation_enabled'] = request.get('rotation_enabled', 1) # Default is set
 
         floorplans, message = Documents.get_floorplans(
             starting_from=starting_from,
@@ -129,115 +129,96 @@ if __name__ == '__main__':
   "nodes": [
     {
       "id": 0,
-      "x": 580,
-      "y": 320,
-      "label": "1(Dining)",
+      "x": 340,
+      "y": 220,
+      "label": "1",
       "color": "#1C4C82",
       "width": {
         "max": 99999,
-        "min": 8
+        "min": 3
       },
       "height": {
         "max": 99999,
-        "min": 6
+        "min": 3
       },
       "ratio": {
-        "max": 3,
+        "max": 99999,
         "min": 3
       }
     },
     {
       "id": 1,
-      "x": 900,
-      "y": 360,
-      "label": "2(Kitchen)",
+      "x": 660,
+      "y": 200,
+      "label": "2",
       "color": "#1C4C82",
       "width": {
         "max": 99999,
-        "min": 6
+        "min": 3
       },
       "height": {
         "max": 99999,
-        "min": 10
+        "min": 3
       },
       "ratio": {
-        "max": 3,
+        "max": 99999,
         "min": 3
       }
     },
     {
       "id": 2,
-      "x": 600,
-      "y": 580,
-      "label": "3(Bedroom)",
+      "x": 1040,
+      "y": 220,
+      "label": "3",
       "color": "#1C4C82",
       "width": {
         "max": 99999,
-        "min": 12
+        "min": 3
       },
       "height": {
         "max": 99999,
-        "min": 14
+        "min": 3
       },
       "ratio": {
-        "max": 3,
+        "max": 99999,
         "min": 3
       }
     },
     {
       "id": 3,
-      "x": 260,
-      "y": 480,
-      "label": "4(Bathroom)",
+      "x": 880,
+      "y": 640,
+      "label": "4",
       "color": "#1C4C82",
       "width": {
         "max": 99999,
-        "min": 7
+        "min": 3
       },
       "height": {
         "max": 99999,
-        "min": 5
+        "min": 3
       },
       "ratio": {
-        "max": 3,
+        "max": 99999,
         "min": 3
       }
     },
     {
       "id": 4,
-      "x": 240,
-      "y": 220,
-      "label": "5(WC)",
+      "x": 600,
+      "y": 640,
+      "label": "5",
       "color": "#1C4C82",
       "width": {
         "max": 99999,
-        "min": 4
-      },
-      "height": {
-        "max": 99999,
-        "min": 6
-      },
-      "ratio": {
-        "max": 3,
         "min": 3
-      }
-    },
-    {
-      "id": 5,
-      "x": 540,
-      "y": 120,
-      "label": "6(Bedroom)",
-      "color": "#1C4C82",
-      "width": {
-        "max": 99999,
-        "min": 11
       },
       "height": {
         "max": 99999,
-        "min": 11
+        "min": 3
       },
       "ratio": {
-        "max": 3,
+        "max": 99999,
         "min": 3
       }
     }
@@ -245,34 +226,41 @@ if __name__ == '__main__':
   "edges": [
     {
       "source": 0,
-      "target": 4
+      "target": 1,
+      "color": "black"
+    },
+    {
+      "source": 1,
+      "target": 2,
+      "color": "black"
     },
     {
       "source": 2,
-      "target": 3
+      "target": 3,
+      "color": "black"
     },
     {
-      "source": 2,
-      "target": 0
+      "source": 3,
+      "target": 1,
+      "color": "black"
     },
     {
-      "source": 0,
-      "target": 1
+      "source": 1,
+      "target": 4,
+      "color": "black"
     },
     {
-      "source": 0,
-      "target": 5
+      "source": 4,
+      "target": 3,
+      "color": "black"
     },
     {
-      "source": 5,
-      "target": 4
-    },
-    {
-      "source": 2,
-      "target": 5
+      "source": 4,
+      "target": 0,
+      "color": "black"
     }
   ],
-  "plot_width": 20,
-  "plot_height": 20
+  "plot_width": 6,
+  "plot_height": 10
 }
     post(sample,'door_connectivity')
