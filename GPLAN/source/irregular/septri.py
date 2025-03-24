@@ -424,31 +424,41 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
     remove_edges = []
 
     ## case 1 - we remove exrerior edge which is not given by user.
-    for edge_trg in separating_edge_to_triangles:
-        all_trig_done = True
-        for separating_triangle in separating_edge_to_triangles[edge_trg]:
-            if(separating_triangle not in separating_triangles):
+    removed = True
+    while(removed):
+        removed = False
+        for edge_trg in separating_edge_to_triangles:
+            all_trig_done = True
+            for separating_triangle in separating_edge_to_triangles[edge_trg]:
+                if(separating_triangle not in separating_triangles):
+                    continue
+                else:
+                    all_trig_done = False
+                    break
+            if(all_trig_done):
                 continue
-            else:
-                all_trig_done = False
-                break
-        if(all_trig_done):
-            continue
-        edge = edge_trg
-        edge = sorted(edge)
-        edge = tuple(edge)
-        if(one_connected[edge[0]][edge[1]]!=1 and (len(edge_to_faces[edge]) == 1)):
-            #remove edge 
-            graph.remove_edge(edge[0],edge[1])
-            remove_edges.append(edge)
-            removing_st = []
-            #remove a separating triangle if it has one of the edges which was removed
-            for separating_triangle in separating_triangles:
-                if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
-                    total_STs -= 1
-                    removing_st.append(separating_triangle)
-            for separating_triangle in removing_st:
-                separating_triangles.remove(separating_triangle) 
+            edge = edge_trg
+            edge = sorted(edge)
+            edge = tuple(edge)
+            if(one_connected[edge[0]][edge[1]]!=1 and (len(edge_to_faces[edge]) == 1)):
+                #remove edge
+                removed = True 
+                graph.remove_edge(edge[0],edge[1])
+                remove_edges.append(edge)
+                #update the edge to faces because removing an exterior edge makes all the edges in that triangle have one less face with them
+                for face in edge_to_faces[edge]:
+                    curr_edges = get_edges(face)
+                    for curr_edge in curr_edges:
+                        curr_edge = tuple(curr_edge)
+                        edge_to_faces[curr_edge].remove(face)
+                removing_st = []
+                #remove a separating triangle if it has one of the edges which was removed
+                for separating_triangle in separating_triangles:
+                    if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
+                        total_STs -= 1
+                        removing_st.append(separating_triangle)
+                for separating_triangle in removing_st:
+                    separating_triangles.remove(separating_triangle) 
     
     ## case 2 -  remove interior edge which is not given by user.
     for edge_trg in separating_edge_to_triangles:
@@ -540,28 +550,38 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
     ##TODO: give choice / take choice from user to remove or not to remove
     print("user gave ST")
     remove_edges = []
-    for edge_trg in separating_edge_to_triangles:
-        all_trig_done = True
-        for separating_triangle in separating_edge_to_triangles[edge_trg]:
-            if(separating_triangle not in separating_triangles):
+    removed = True
+    while(removed):
+        removed =False
+        for edge_trg in separating_edge_to_triangles:
+            all_trig_done = True
+            for separating_triangle in separating_edge_to_triangles[edge_trg]:
+                if(separating_triangle not in separating_triangles):
+                    continue
+                else:
+                    all_trig_done = False
+                    break
+            if(all_trig_done):
                 continue
-            else:
-                all_trig_done = False
-                break
-        if(all_trig_done):
-            continue
-        edge = edge_trg
-        edge = sorted(edge)
-        edge = tuple(edge)
-        if(True and (len(edge_to_faces[edge]) == 1)):
-            #remove edge 
-            graph.remove_edge(edge[0],edge[1])
-            remove_edges.append(edge)
-            #remove a separating triangle if it has one of the edges which was removed
-            for separating_triangle in separating_triangles:
-                if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
-                    total_STs -= 1
-                    separating_triangles.remove(separating_triangle) 
+            edge = edge_trg
+            edge = sorted(edge)
+            edge = tuple(edge)
+            if(True and (len(edge_to_faces[edge]) == 1)):
+                #remove edge
+                removed = True 
+                graph.remove_edge(edge[0],edge[1])
+                remove_edges.append(edge)
+                #update the edge to faces because removing an exterior edge makes all the edges in that triangle have one less face with them
+                for face in edge_to_faces[edge]:
+                    curr_edges = get_edges(face)
+                    for curr_edge in curr_edges:
+                        curr_edge = tuple(curr_edge)
+                        edge_to_faces[curr_edge].remove(face)
+                #remove a separating triangle if it has one of the edges which was removed
+                for separating_triangle in separating_triangles:
+                    if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
+                        total_STs -= 1
+                        separating_triangles.remove(separating_triangle) 
     ## case 4 - remove interior edge which is given by the user
     for edge_trg in separating_edge_to_triangles:
         all_trig_done = True
@@ -651,7 +671,7 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
             continue
     
     pass
-
+    positions = origin_pos
     adjacencies = [nx.to_numpy_array(graph).astype(int)]
     return adjacencies , [], positions
             
@@ -730,35 +750,45 @@ def handle_non_trivial_non_adj_ST_Door_connectivity(one_connected,adjacency,posi
 
     remove_edges = []
     ##Case 1 - we remove exterior edge which is not given by user and is an exterior edge.
-    for edge_trg in separating_edge_to_triangles:
-        all_trig_done = True
-        for separating_triangle in separating_edge_to_triangles[edge_trg]:
-            if(separating_triangle not in separating_triangles):
+    removed = True
+    while(removed):
+        removed = False
+        for edge_trg in separating_edge_to_triangles:
+            all_trig_done = True
+            for separating_triangle in separating_edge_to_triangles[edge_trg]:
+                if(separating_triangle not in separating_triangles):
+                    continue
+                else:
+                    all_trig_done = False
+                    break
+            if(all_trig_done):
                 continue
-            else:
-                all_trig_done = False
-                break
-        if(all_trig_done):
-            continue
-        edge = edge_trg
-        edge = sorted(edge)
-        edge = tuple(edge)
-        if(one_connected[edge[0]][edge[1]]!=1 and len(edge_to_faces[edge])==1):
-            #remove edge 
-            graph.remove_edge(edge[0],edge[1])
-            remove_edges.append(edge)
-            removing_st=[]
-            #remove a separating triangle if it has one of the edges which was removed
-            for separating_triangle in separating_triangles:
-                if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
-                    total_STs -= 1
-                    removing_st.append(separating_triangle)
-            for separating_triangle in removing_st:
-                separating_triangles.remove(separating_triangle) 
-            continue
-    for edge_rem in remove_edges:
-        separating_edges.remove(edge_rem)
-        del separating_edge_to_triangles[tuple(edge_rem)]
+            edge = edge_trg
+            edge = sorted(edge)
+            edge = tuple(edge)
+            if(one_connected[edge[0]][edge[1]]!=1 and len(edge_to_faces[edge])==1):
+                #remove edge 
+                removed = True
+                graph.remove_edge(edge[0],edge[1])
+                remove_edges.append(edge)
+                #update the edge to faces because removing an exterior edge makes all the edges in that triangle have one less face with them
+                for face in edge_to_faces[edge]:
+                    curr_edges = get_edges(face)
+                    for curr_edge in curr_edges:
+                        curr_edge = tuple(curr_edge)
+                        edge_to_faces[curr_edge].remove(face)
+                removing_st=[]
+                #remove a separating triangle if it has one of the edges which was removed
+                for separating_triangle in separating_triangles:
+                    if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
+                        total_STs -= 1
+                        removing_st.append(separating_triangle)
+                for separating_triangle in removing_st:
+                    separating_triangles.remove(separating_triangle) 
+                continue
+    # for edge_rem in remove_edges:
+    #     separating_edges.remove(edge_rem)
+    #     del separating_edge_to_triangles[tuple(edge_rem)]
 
     ##Case 2 -  remove interior edge which is not given by user and is not in non-adjacency
     for edge_trg in separating_edge_to_triangles:
@@ -848,32 +878,42 @@ def handle_non_trivial_non_adj_ST_Door_connectivity(one_connected,adjacency,posi
             continue
     
     ##Case 3 - we remove exterior edge which is given by user.
-    for edge_trg in separating_edge_to_triangles:
-        all_trig_done = True
-        for separating_triangle in separating_edge_to_triangles[edge_trg]:
-            if(separating_triangle not in separating_triangles):
+    removed = True
+    while(removed):
+        removed = False
+        for edge_trg in separating_edge_to_triangles:
+            all_trig_done = True
+            for separating_triangle in separating_edge_to_triangles[edge_trg]:
+                if(separating_triangle not in separating_triangles):
+                    continue
+                else:
+                    all_trig_done = False
+                    break
+            if(all_trig_done):
                 continue
-            else:
-                all_trig_done = False
-                break
-        if(all_trig_done):
-            continue
-        edge = edge_trg
-        edge = sorted(edge)
-        edge = tuple(edge)
-        if(len(edge_to_faces[edge])==1):
-            #remove edge 
-            graph.remove_edge(edge[0],edge[1])
-            remove_edges.append(edge)
-            removing_st=[]
-            #remove a separating triangle if it has one of the edges which was removed
-            for separating_triangle in separating_triangles:
-                if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
-                    total_STs -= 1
-                    removing_st.append(separating_triangle)
-            for separating_triangle in removing_st:
-                separating_triangles.remove(separating_triangle) 
-            continue
+            edge = edge_trg
+            edge = sorted(edge)
+            edge = tuple(edge)
+            if(len(edge_to_faces[edge])==1):
+                removed = True
+                #remove edge 
+                graph.remove_edge(edge[0],edge[1])
+                remove_edges.append(edge)
+                #update the edge to faces because removing an exterior edge makes all the edges in that triangle have one less face with them
+                for face in edge_to_faces[edge]:
+                    curr_edges = get_edges(face)
+                    for curr_edge in curr_edges:
+                        curr_edge = tuple(curr_edge)
+                        edge_to_faces[curr_edge].remove(face)
+                removing_st=[]
+                #remove a separating triangle if it has one of the edges which was removed
+                for separating_triangle in separating_triangles:
+                    if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
+                        total_STs -= 1
+                        removing_st.append(separating_triangle)
+                for separating_triangle in removing_st:
+                    separating_triangles.remove(separating_triangle) 
+                continue
     # for edge_rem in remove_edges:
     #     separating_edges.remove(edge_rem)
     #     del separating_edge_to_triangles[tuple(edge_rem)]
