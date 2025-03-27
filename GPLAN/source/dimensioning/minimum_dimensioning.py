@@ -220,7 +220,7 @@ def construct_constraintgraphX(small_positive = 2):
             for j in range(len(data['edges'])):
                 if (data['edges'][j]['source'] == x and data['edges'][j]['target'] == i) or (data['edges'][j]['source'] == i and data['edges'][j]['target'] == x) :
                     if(data ['edges'][j]['color'] == 'red') :
-                        small_positive = 0
+                        small_positive = 0.1
                     elif(data ['edges'][j]['color'] == 'black') :
                         small_positive= 2
 
@@ -296,7 +296,7 @@ def construct_constraintgraphY(small_positive = 2):
             for j in range(len(data['edges'])):
                 if (data['edges'][j]['source'] == x and data['edges'][j]['target'] == i) or (data['edges'][j]['source'] == i and data['edges'][j]['target'] == x) :
                     if(data ['edges'][j]['color'] == 'red') :
-                        small_positive = 0
+                        small_positive = 0.1
                     elif(data ['edges'][j]['color'] == 'black'):
                         small_positive= 2
         
@@ -546,7 +546,7 @@ def compute_rot(small_positive = 2):
              for j in range(len(data['edges'])):
                 if (data['edges'][j]['source'] == x and data['edges'][j]['target'] == i) or (data['edges'][j]['source'] == i and data['edges'][j]['target'] == x) :
                     if(data ['edges'][j]['color'] == 'red') :
-                        small_positive = 0
+                        small_positive = 0.1
                     elif(data ['edges'][j]['color'] == 'black'):
                         small_positive = 2
              #print("Change to be noted",small_positive)
