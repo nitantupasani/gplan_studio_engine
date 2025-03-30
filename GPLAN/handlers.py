@@ -1731,15 +1731,17 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             else:
                 min_width, min_height, plot_width, plot_height, optimal_floorplan,allow_rotation,multiple_door = ui.min_dim_inputs.get_min_width(), ui.min_dim_inputs.get_min_height(), ui.min_dim_inputs.get_plot_width(), ui.min_dim_inputs.get_plot_height(), ui.min_dim_inputs.get_isOptimalEnabled(),ui.min_dim_inputs.get_isRotationAllowed(),ui.get_is_multiple_door()
             start = time.time()
+            input_dims = [min_width, min_height, plot_width, plot_height]
+            input_dims = copy.deepcopy(input_dims)
             if allow_rotation:
                 print("Will try rotation the floorplans")
             try:
                 graph.oneconnected_dual("multiple")
             except inputgraph.OCError:
                 show_warning("Can not generate rectangular floorplan.")
-                graph.irreg_multiple_dual()
+                graph.irreg_multiple_dual(input_dims)
             except inputgraph.BCNError:
-                graph.irreg_multiple_dual()
+                graph.irreg_multiple_dual(input_dims)
             number_of_floorplans = graph.fpcnt
             floorplan_found = False
 
