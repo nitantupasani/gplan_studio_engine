@@ -46,8 +46,8 @@ def point_in_triangle(x1, y1, x2, y2, x3, y3, x, y):
     d1 = sign(x, y, x1, y1, x2, y2)
     d2 = sign(x, y, x2, y2, x3, y3)
     d3 = sign(x, y, x3, y3, x1, y1)
-    has_neg = (d1 < 0) or (d2 < 0) or (d3 < 0)
-    has_pos = (d1 > 0) or (d2 > 0) or (d3 > 0)
+    has_neg = (d1 < 1e-7) or (d2 < 1e-7) or (d3 < 1e-7)
+    has_pos = (d1 > -1e-7) or (d2 > -1e-7) or (d3 > -1e-7)
 
     return not (has_neg and has_pos)
 
