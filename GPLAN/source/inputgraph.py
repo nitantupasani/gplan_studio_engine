@@ -921,6 +921,7 @@ class InputGraph:
                 self.matrix, cip_list, self.nodecnt, self.edgecnt, mergednodes, irreg_nodes1, irreg_nodes2,bdy_edges = generate_multiple_bdy(
                     self.matrix, self.nodecnt, self.edgecnt, bcn_edges, trng_edges, mergednodes, irreg_nodes1,
                     irreg_nodes2)
+                print("these are all the boundaries above in the code: ", cip_list)
 
                 end_time = time.time()
                 elapsed_time = end_time - start_time
@@ -977,6 +978,7 @@ class InputGraph:
                 self.edgecnt += extra_edges_cnt
             self.matrix, cip_list, self.nodecnt, self.edgecnt, mergednodes, irreg_nodes1, irreg_nodes2,bdy_edges = generate_multiple_bdy(
                 self.matrix, self.nodecnt, self.edgecnt, bcn_edges, trng_edges, mergednodes, irreg_nodes1, irreg_nodes2)
+            print("these are all the boundaries: ", cip_list)
             start_time1 = time.time()
             end_time = time.time()
             elapsed_time = end_time - start_time
@@ -992,7 +994,7 @@ class InputGraph:
                     room_width, room_height, plot_width,plot_height,bdy_edges)
 
 
-
+            print("these are the selected boundaries:", selected_list)
             for bdys in selected_list:
                 if is_floorplan_limit_reached:
                     break
