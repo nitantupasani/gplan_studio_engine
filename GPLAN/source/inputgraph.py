@@ -144,6 +144,7 @@ class InputGraph:
         self.circular_traversal = []
         self.final_traversal=[]
         self.graph_list =[]
+        self.graph_list_by_bdy = []
         self.logger = logger
         self.name_coords = []
 
@@ -996,6 +997,7 @@ class InputGraph:
 
             print("these are the selected boundaries:", selected_list)
             for bdys in selected_list:
+                curr_list = []
                 if is_floorplan_limit_reached:
                     break
                 matrix = copy.deepcopy(self.matrix)
@@ -1022,7 +1024,10 @@ class InputGraph:
                     new_graph.irreg_nodes2 = []
                     new_graph.extranodes = extranodes
                     new_graph.nodecnt_list = self.nodecnt
-                    self.graph_list.append(new_graph)
+                    curr_list.append(new_graph)
+                    # self.graph_list.append(new_graph)
+                if len(curr_list) != 0:
+                    self.graph_list_by_bdy.append(curr_list)
 
 
 
@@ -1039,13 +1044,14 @@ class InputGraph:
         # self.room_width = []
         # self.room_height = []
         # self.area = []
-                    
-        for cnt in range(self.fpcnt):
-            [self.graph_list[cnt].room_x, self.graph_list[cnt].room_y, self.graph_list[cnt].room_width, self.graph_list[cnt].room_height] = rdg.construct_dual(self.graph_list[cnt].rel_matrix_list,
-                                                                           self.graph_list[cnt].nodecnt_list + 4,
-                                                                           self.graph_list[cnt].mergednodes,
-                                                                           self.graph_list[cnt].irreg_nodes1)
-            
+
+        for i in range(len(self.graph_list_by_bdy)):            
+            for cnt in range(len(self.graph_list_by_bdy[i])):
+                [self.graph_list_by_bdy[i][cnt].room_x, self.graph_list_by_bdy[i][cnt].room_y, self.graph_list_by_bdy[i][cnt].room_width, self.graph_list_by_bdy[i][cnt].room_height] = rdg.construct_dual(self.graph_list_by_bdy[i][cnt].rel_matrix_list,
+                                                                            self.graph_list_by_bdy[i][cnt].nodecnt_list + 4,
+                                                                            self.graph_list_by_bdy[i][cnt].mergednodes,
+                                                                            self.graph_list_by_bdy[i][cnt].irreg_nodes1)
+                
 
 
     @timing_decorator
