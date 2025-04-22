@@ -17,6 +17,7 @@ This module contains the following functions:
     * handle_STs - handles separating triangles in a given adjacency matrix.
 
 """
+from GPLAN.source.graphoperations.graph_crossings1 import check_intersection as check_intersection
 import networkx as nx
 import numpy as np
 from shapely.geometry import Point, Polygon
@@ -502,17 +503,27 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
             all_triangles = calc_all_triangles(graph)
             planar = nx.is_planar(graph)
             if(planar):
-                # origin_pos = positions
-                origin_pos = nx.planar_layout(graph)
+                origin_pos = copy.deepcopy(positions)
+                pos_check = [v for v in positions.values()]
+                adj_matrix = [nx.to_numpy_array(graph).astype(int)]
+                adj_matrix = adj_matrix[0]
+                x_coords = []
+                y_coords = []
+                for coord in enumerate(pos_check):
+                    x_coords.append(coord[1][0])
+                    y_coords.append(coord[1][1])
+                is_not_planar_embedding = check_intersection(x_coords,y_coords,adj_matrix)
+                if(is_not_planar_embedding):
+                    positions = nx.planar_layout(graph)
                 final_positions = origin_pos
                 adjacency=nx.adjacency_matrix(graph).toarray()
-                new_separating_triangles, new_separating_edges, new_separating_edge_to_triangles, new_edge_to_faces = get_sep_triangles_and_edges(all_triangles, num_nodes, origin_pos, adjacency)
+                new_separating_triangles, new_separating_edges, new_separating_edge_to_triangles, new_edge_to_faces = get_sep_triangles_and_edges(all_triangles, num_nodes, positions, adjacency)
             if((not planar )or (len(new_separating_triangles) > total_STs-1)):
             # if(not planar):
                 graph.add_edge(edge[0], edge[1])
                 graph.remove_edge(added_edge[0],added_edge[1])
                 all_triangles = calc_all_triangles(graph)
-
+                positions = origin_pos
                 print("changes revoked")
                 continue
                 
@@ -625,17 +636,27 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
             all_triangles = calc_all_triangles(graph)
             planar = nx.is_planar(graph)
             if(planar):
-                # origin_pos = positions
-                origin_pos = nx.planar_layout(graph)
+                origin_pos = copy.deepcopy(positions)
+                pos_check = [v for v in positions.values()]
+                adj_matrix = [nx.to_numpy_array(graph).astype(int)]
+                adj_matrix = adj_matrix[0]
+                x_coords = []
+                y_coords = []
+                for coord in enumerate(pos_check):
+                    x_coords.append(coord[1][0])
+                    y_coords.append(coord[1][1])
+                is_not_planar_embedding = check_intersection(x_coords,y_coords,adj_matrix)
+                if(is_not_planar_embedding):
+                    origin_pos = nx.planar_layout(graph)
                 final_positions = origin_pos
                 adjacency=nx.adjacency_matrix(graph).toarray()
-                new_separating_triangles, new_separating_edges, new_separating_edge_to_triangles, new_edge_to_faces = get_sep_triangles_and_edges(all_triangles, num_nodes, origin_pos, adjacency)
+                new_separating_triangles, new_separating_edges, new_separating_edge_to_triangles, new_edge_to_faces = get_sep_triangles_and_edges(all_triangles, num_nodes, positions, adjacency)
             if((not planar )or (len(new_separating_triangles) > total_STs-1)):
             # if(not planar):
                 graph.add_edge(edge[0], edge[1])
                 graph.remove_edge(added_edge[0],added_edge[1])
                 all_triangles = calc_all_triangles(graph)
-
+                positions = origin_pos
                 print("changes revoked")
                 continue
                 
@@ -834,17 +855,27 @@ def handle_non_trivial_non_adj_ST_Door_connectivity(one_connected,adjacency,posi
             all_triangles = calc_all_triangles(graph)
             planar = nx.is_planar(graph)
             if(planar):
-                # origin_pos = positions
-                origin_pos = nx.planar_layout(graph)
+                origin_pos = copy.deepcopy(positions)
+                pos_check = [v for v in positions.values()]
+                adj_matrix = [nx.to_numpy_array(graph).astype(int)]
+                adj_matrix = adj_matrix[0]
+                x_coords = []
+                y_coords = []
+                for coord in enumerate(pos_check):
+                    x_coords.append(coord[1][0])
+                    y_coords.append(coord[1][1])
+                is_not_planar_embedding = check_intersection(x_coords,y_coords,adj_matrix)
+                if(is_not_planar_embedding):
+                    origin_pos = nx.planar_layout(graph)
                 final_positions = origin_pos
                 adjacency=nx.adjacency_matrix(graph).toarray()
-                new_separating_triangles, new_separating_edges, new_separating_edge_to_triangles, new_edge_to_faces = get_sep_triangles_and_edges(all_triangles, num_nodes, origin_pos, adjacency)
+                new_separating_triangles, new_separating_edges, new_separating_edge_to_triangles, new_edge_to_faces = get_sep_triangles_and_edges(all_triangles, num_nodes, positions, adjacency)
             if((not planar )or (len(new_separating_triangles) > total_STs-1)):
             # if(not planar):
                 graph.add_edge(edge[0], edge[1])
                 graph.remove_edge(added_edge[0],added_edge[1])
                 all_triangles = calc_all_triangles(graph)
-
+                positions = origin_pos
                 print("changes revoked")
                 
 
@@ -962,17 +993,27 @@ def handle_non_trivial_non_adj_ST_Door_connectivity(one_connected,adjacency,posi
             all_triangles = calc_all_triangles(graph)
             planar = nx.is_planar(graph)
             if(planar):
-                # origin_pos = positions
-                origin_pos = nx.planar_layout(graph)
+                origin_pos = copy.deepcopy(positions)
+                pos_check = [v for v in positions.values()]
+                adj_matrix = [nx.to_numpy_array(graph).astype(int)]
+                adj_matrix = adj_matrix[0]
+                x_coords = []
+                y_coords = []
+                for coord in enumerate(pos_check):
+                    x_coords.append(coord[1][0])
+                    y_coords.append(coord[1][1])
+                is_not_planar_embedding = check_intersection(x_coords,y_coords,adj_matrix)
+                if(is_not_planar_embedding):
+                    origin_pos = nx.planar_layout(graph)
                 final_positions = origin_pos
                 adjacency=nx.adjacency_matrix(graph).toarray()
-                new_separating_triangles, new_separating_edges, new_separating_edge_to_triangles, new_edge_to_faces = get_sep_triangles_and_edges(all_triangles, num_nodes, origin_pos, adjacency)
+                new_separating_triangles, new_separating_edges, new_separating_edge_to_triangles, new_edge_to_faces = get_sep_triangles_and_edges(all_triangles, num_nodes, positions, adjacency)
             if((not planar )or (len(new_separating_triangles) > total_STs-1)):
             # if(not planar):
                 graph.add_edge(edge[0], edge[1])
                 graph.remove_edge(added_edge[0],added_edge[1])
                 all_triangles = calc_all_triangles(graph)
-
+                positions = origin_pos
                 print("changes revoked")
                 
 
@@ -1044,17 +1085,27 @@ def handle_non_trivial_non_adj_ST_Door_connectivity(one_connected,adjacency,posi
             all_triangles = calc_all_triangles(graph)
             planar = nx.is_planar(graph)
             if(planar):
-                # origin_pos = positions
-                origin_pos = nx.planar_layout(graph)
+                origin_pos = copy.deepcopy(positions)
+                pos_check = [v for v in positions.values()]
+                adj_matrix = [nx.to_numpy_array(graph).astype(int)]
+                adj_matrix = adj_matrix[0]
+                x_coords = []
+                y_coords = []
+                for coord in enumerate(pos_check):
+                    x_coords.append(coord[1][0])
+                    y_coords.append(coord[1][1])
+                is_not_planar_embedding = check_intersection(x_coords,y_coords,adj_matrix)
+                if(is_not_planar_embedding):
+                    origin_pos = nx.planar_layout(graph)
                 final_positions = origin_pos
                 adjacency=nx.adjacency_matrix(graph).toarray()
-                new_separating_triangles, new_separating_edges, new_separating_edge_to_triangles, new_edge_to_faces = get_sep_triangles_and_edges(all_triangles, num_nodes, origin_pos, adjacency)
+                new_separating_triangles, new_separating_edges, new_separating_edge_to_triangles, new_edge_to_faces = get_sep_triangles_and_edges(all_triangles, num_nodes, positions, adjacency)
             if((not planar )or (len(new_separating_triangles) > total_STs-1)):
             # if(not planar):
                 graph.add_edge(edge[0], edge[1])
                 graph.remove_edge(added_edge[0],added_edge[1])
                 all_triangles = calc_all_triangles(graph)
-
+                positions = origin_pos
                 print("changes revoked")
                 
 

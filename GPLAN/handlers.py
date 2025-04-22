@@ -1769,6 +1769,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
 
             # Iterate through all possible floorplans to find one which satisfies the given conditions
             print("Total possible floorplans = ",number_of_floorplans)
+            original_graph_list = copy.deepcopy(graph.graph_list)
             for i in range(number_of_floorplans):
                 # print("Trying floorplan number", i + 1,
                 #       "to see if minimum dimension floorplan can be constructed.")
@@ -1865,7 +1866,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 print("Rotation is allowed duplicating all floorplans")
                 number_of_floorplans = len(graph.graph_list)
                 for itr in range(number_of_floorplans):
-                    curr_graph = copy.deepcopy(graph.graph_list[itr])
+                    curr_graph = copy.deepcopy(original_graph_list[itr])
                     curr_graph.final_traversal = []
                     curr_graph.circular_traversal = []
                     graph.graph_list.append(curr_graph)
@@ -2143,6 +2144,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             areas_mapping = []
 
             # Iterate through all possible floorplans to find one which satisfies the given conditions
+            original_graph_list = copy.deepcopy(graph.graph_list)
             for i in range(number_of_floorplans):
                 print("Trying floorplan number", i + 1, "to see if minimum dimension floorplan can be constructed.")
                 floorplan_obj = input_for_min_dim.floorplan(ui.get_fptype(), ui.get_isDimensioned(),
@@ -2242,7 +2244,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 print("Rotation is allowed duplicating all floorplans")
                 number_of_floorplans = len(graph.graph_list)
                 for itr in range(number_of_floorplans):
-                    curr_graph = copy.deepcopy(graph.graph_list[itr])
+                    curr_graph = copy.deepcopy(original_graph_list[itr])
                     curr_graph.circular_traversal = []
                     curr_graph.final_traversal = []
                     graph.graph_list.append(curr_graph)
