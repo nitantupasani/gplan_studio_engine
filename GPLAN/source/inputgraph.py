@@ -17,6 +17,7 @@ from GPLAN.source.lettershape.ushape.ushape import *
 from GPLAN.source.lettershape.zshape.zshape import *
 from GPLAN.source.lettershape.tshape.tshape import *
 from GPLAN.source.staircaseshape.staircaseshape import *
+from GPLAN.source.path_map import *
 import logging
 import time
 
@@ -143,6 +144,7 @@ class InputGraph:
         self.circular_traversal = []
         self.final_traversal=[]
         self.graph_list =[]
+        self.graph_list_by_bdy = []
         self.logger = logger
         self.name_coords = []
 
@@ -828,7 +830,7 @@ class InputGraph:
     def polyonalinput(self, cano, v1, v2, vn, priority_order, edge_set, debug_cano):
         cano.runWithArguments(self.nodecnt, v1, v2, vn, priority_order, self, edge_set, debug_cano)
     @timing_decorator
-    def irreg_multiple_dual(self):
+    def irreg_multiple_dual(self,input_dims = []):
         """Generates multiple irregular duals for a given input graph.
 
         Args:
@@ -917,9 +919,10 @@ class InputGraph:
                     mergednodes.append(key)
                     irreg_nodes1.append(extra_nodes[cnt][key][0])
                     irreg_nodes2.append(extra_nodes[cnt][key][1])
-                self.matrix, cip_list, self.nodecnt, self.edgecnt, mergednodes, irreg_nodes1, irreg_nodes2 = generate_multiple_bdy(
+                self.matrix, cip_list, self.nodecnt, self.edgecnt, mergednodes, irreg_nodes1, irreg_nodes2,bdy_edges = generate_multiple_bdy(
                     self.matrix, self.nodecnt, self.edgecnt, bcn_edges, trng_edges, mergednodes, irreg_nodes1,
                     irreg_nodes2)
+                print("these are all the boundaries above in the code: ", cip_list)
 
                 end_time = time.time()
                 elapsed_time = end_time - start_time
@@ -974,15 +977,27 @@ class InputGraph:
                     self.matrix, edge, tri_faces, positions)
                 self.nodecnt += 1  # Extra node added
                 self.edgecnt += extra_edges_cnt
-            self.matrix, cip_list, self.nodecnt, self.edgecnt, mergednodes, irreg_nodes1, irreg_nodes2 = generate_multiple_bdy(
+            self.matrix, cip_list, self.nodecnt, self.edgecnt, mergednodes, irreg_nodes1, irreg_nodes2,bdy_edges = generate_multiple_bdy(
                 self.matrix, self.nodecnt, self.edgecnt, bcn_edges, trng_edges, mergednodes, irreg_nodes1, irreg_nodes2)
+            print("these are all the boundaries: ", cip_list)
             start_time1 = time.time()
             end_time = time.time()
             elapsed_time = end_time - start_time
             logger.info(f"{__name__}Transformations and Multiple Bdry to took {elapsed_time:.5f} seconds to execute.")
             start_time1 = time.time()
+            #optimal selection for bdy
+            if( len(input_dims) > 0):
+                room_width = input_dims[0]
+                room_height = input_dims[1]
+                plot_width = input_dims[2]
+                plot_height = input_dims[3]
+                selected_list = dim_on_paths_bdy(cip_list, 
+                    room_width, room_height, plot_width,plot_height,bdy_edges)
 
-            for bdys in cip_list:
+
+            print("these are the selected boundaries:", selected_list)
+            for bdys in selected_list:
+                curr_list = []
                 if is_floorplan_limit_reached:
                     break
                 matrix = copy.deepcopy(self.matrix)
@@ -1009,7 +1024,10 @@ class InputGraph:
                     new_graph.irreg_nodes2 = []
                     new_graph.extranodes = extranodes
                     new_graph.nodecnt_list = self.nodecnt
-                    self.graph_list.append(new_graph)
+                    curr_list.append(new_graph)
+                    # self.graph_list.append(new_graph)
+                if len(curr_list) != 0:
+                    self.graph_list_by_bdy.append(curr_list)
 
 
 
@@ -1026,13 +1044,14 @@ class InputGraph:
         # self.room_width = []
         # self.room_height = []
         # self.area = []
-                    
-        for cnt in range(self.fpcnt):
-            [self.graph_list[cnt].room_x, self.graph_list[cnt].room_y, self.graph_list[cnt].room_width, self.graph_list[cnt].room_height] = rdg.construct_dual(self.graph_list[cnt].rel_matrix_list,
-                                                                           self.graph_list[cnt].nodecnt_list + 4,
-                                                                           self.graph_list[cnt].mergednodes,
-                                                                           self.graph_list[cnt].irreg_nodes1)
-            
+
+        for i in range(len(self.graph_list_by_bdy)):            
+            for cnt in range(len(self.graph_list_by_bdy[i])):
+                [self.graph_list_by_bdy[i][cnt].room_x, self.graph_list_by_bdy[i][cnt].room_y, self.graph_list_by_bdy[i][cnt].room_width, self.graph_list_by_bdy[i][cnt].room_height] = rdg.construct_dual(self.graph_list_by_bdy[i][cnt].rel_matrix_list,
+                                                                            self.graph_list_by_bdy[i][cnt].nodecnt_list + 4,
+                                                                            self.graph_list_by_bdy[i][cnt].mergednodes,
+                                                                            self.graph_list_by_bdy[i][cnt].irreg_nodes1)
+                
 
 
     @timing_decorator
@@ -1346,7 +1365,7 @@ def generate_multiple_bdy(matrix, nodecnt, edgecnt, bcn_edges, trng_edges, merge
         outer_boundary = opr.ordered_bdy(bdy_nodes, bdy_edges)
         cip_list = news.find_multiple_boundary(
             news.all_boundaries(corner_pts, outer_boundary), outer_boundary)
-    return matrix, cip_list, nodecnt, edgecnt, mergednodes, irreg_nodes1, irreg_nodes2
+    return matrix, cip_list, nodecnt, edgecnt, mergednodes, irreg_nodes1, irreg_nodes2,bdy_edges
 
 # from .lettershape.lshape.Lshaped import *
 # def lettershape(graph, node_data, letter):
