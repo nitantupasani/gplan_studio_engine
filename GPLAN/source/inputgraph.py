@@ -972,6 +972,7 @@ class InputGraph:
                         new_graph.nodecnt_list= self.nodecnt
                         new_graph.dummy_node_adjacencies = self.dummy_node_adjacencies
                         curr_list.append(new_graph)
+                        self.graph_list.append(new_graph)
                     if len(curr_list) != 0:
                         self.graph_list_by_bdy.append(curr_list)
 
@@ -1041,7 +1042,7 @@ class InputGraph:
                     new_graph.extranodes = extranodes
                     new_graph.nodecnt_list = self.nodecnt
                     curr_list.append(new_graph)
-                    # self.graph_list.append(new_graph)
+                    self.graph_list.append(new_graph)
                 if len(curr_list) != 0:
                     self.graph_list_by_bdy.append(curr_list)
 
