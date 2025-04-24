@@ -3,6 +3,7 @@ import GPLAN.input.input_for_min_dim as input_for_min_dim
 import json
 # from system_functions.os_functions import delete_fileimport input.input_for_min_dim as input_for_min_dim
 from GPLAN.source.graphoperations.operations import get_encoded_matrix
+from GPLAN.source.graphoperations.graph_crossings1 import check_intersection as check_intersection
 from GPLAN.source.graphoperations import connect_graph
 from GPLAN.system_functions.os_functions import delete_file
 import GPLAN.source.dimensioning.minimum_dimensioning as min_dim
@@ -1633,6 +1634,19 @@ def handle_limits(ui, graph, drawGUI = False, gclass = None):
 def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
     if not graph.is_connected():#Check if the graph is connected or not
                 connect_graph.one_connected(graph.matrix)
+    # Check for edge intersections
+    # nxgraph = nx.from_numpy_array(graph.matrix)
+    # nx.draw_networkx(nxgraph,graph.coordinates , label=None,node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+    # x_coords = []
+    # y_coords = []
+    # for coord in enumerate(graph.coordinates):
+    #         x_coords.append(coord[1][0])
+    #         y_coords.append(coord[1][1])
+
+    # is_not_planar_embedding = check_intersection(x_coords,y_coords, graph.matrix)
+    # if is_not_planar_embedding:
+    #         nxgraph = nx.from_numpy_array(graph.matrix)
+    #         graph.coordinates = nx.planar_layout(nxgraph)  # Recalculate positions
   
     if ui.get_isNonAdj() == 1:#If Non adjacency edges are entered.
         if gclass is not None:#using glcass here because nonadjgui might be present
@@ -1758,6 +1772,9 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             # Iterate through all possible floorplans to find one which satisfies the given conditions
             i = -1
             print("Total possible floorplans = ",number_of_floorplans)
+
+            original_graph_list = copy.deepcopy(graph.graph_list)
+
             for bdy_itr in range(len(graph.graph_list_by_bdy)):
                 for rel_itr in range(len(graph.graph_list_by_bdy[bdy_itr])):
                     # print("Trying floorplan number", i + 1,
@@ -1776,6 +1793,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         graph.graph_list[i].room_height,
                         ui.get_edges(), enc_mat
                     )
+
 
                     # print(floorplan_data)
                     # input_path = "input_to_min_dim.json"
@@ -1860,7 +1878,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 print("Rotation is allowed duplicating all floorplans")
                 number_of_floorplans = len(graph.graph_list)
                 for itr in range(number_of_floorplans):
-                    curr_graph = copy.deepcopy(graph.graph_list[itr])
+                    curr_graph = copy.deepcopy(original_graph_list[itr])
                     curr_graph.final_traversal = []
                     curr_graph.circular_traversal = []
                     graph.graph_list.append(curr_graph)
@@ -2138,6 +2156,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             areas_mapping = []
 
             # Iterate through all possible floorplans to find one which satisfies the given conditions
+            original_graph_list = copy.deepcopy(graph.graph_list)
             for i in range(number_of_floorplans):
                 print("Trying floorplan number", i + 1, "to see if minimum dimension floorplan can be constructed.")
                 floorplan_obj = input_for_min_dim.floorplan(ui.get_fptype(), ui.get_isDimensioned(),
@@ -2237,7 +2256,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 print("Rotation is allowed duplicating all floorplans")
                 number_of_floorplans = len(graph.graph_list)
                 for itr in range(number_of_floorplans):
-                    curr_graph = copy.deepcopy(graph.graph_list[itr])
+                    curr_graph = copy.deepcopy(original_graph_list[itr])
                     curr_graph.circular_traversal = []
                     curr_graph.final_traversal = []
                     graph.graph_list.append(curr_graph)
