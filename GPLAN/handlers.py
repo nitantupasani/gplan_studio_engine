@@ -1747,6 +1747,8 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             start = time.time()
             input_dims = [min_width, min_height, plot_width, plot_height]
             input_dims = copy.deepcopy(input_dims)
+            if plot_width == 0 and plot_height == 0:
+                input_dims = []
             if allow_rotation:
                 print("Will try rotation the floorplans")
             try:
@@ -1777,7 +1779,10 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             original_graph_list = copy.deepcopy(graph.graph_list)
 
             for bdy_itr in range(len(graph.graph_list_by_bdy)):
+                bdy_fplans = 0
                 for rel_itr in range(len(graph.graph_list_by_bdy[bdy_itr])):
+                    if bdy_fplans >= graph.floorplan_per_bdy_limit:
+                        break
                     # print("Trying floorplan number", i + 1,
                     #       "to see if minimum dimension floorplan can be constructed.")
                     graph.graph_list.append(graph.graph_list_by_bdy[bdy_itr][rel_itr])#may cause issues later might need to deepcopy
@@ -1809,6 +1814,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     # If floorplan satisfying the given constraints is satisfied
                     [status, out_data] = min_dim.main(floorplan_data, plot_width, plot_height)
                     if status == True:
+                        bdy_fplans += 1
                         room_x = []
                         room_y = []
                         room_width = []
@@ -1994,7 +2000,10 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 print("Total possible floorplans = ",number_of_floorplans)
                 valid = []
                 for bdy_itr in range(len(graph.graph_list_by_bdy)):
+                    bdy_fplans = 0
                     for rel_itr in range(len(graph.graph_list_by_bdy[bdy_itr])):
+                        if bdy_fplans >= graph.floorplan_per_bdy_limit:
+                            break
                         # print("Trying floorplan number", i + 1,
                         #     "to see if minimum dimension floorplan can be constructed.")
                         graph.graph_list.append(graph.graph_list_by_bdy[bdy_itr][rel_itr])#may cause issues later might need to deepcopy
@@ -2017,6 +2026,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         # If floorplan satisfying the given constraints is satisfied
                         [status, out_data] = min_dim.main(floorplan_data, 0, 0)
                         if status == True:
+                            bdy_fplans += 1
                             room_x = []
                             room_y = []
                             room_width = []
@@ -2152,6 +2162,9 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             ui._set_dim_constraints([min_width, min_height, plot_width, plot_height])
             input_dims = [min_width, min_height, plot_width, plot_height]
             input_dims = copy.deepcopy(input_dims)
+            if plot_width == 0 and plot_height == 0:
+                input_dims = []
+
             start = time.time()
             graph.irreg_multiple_dual(input_dims)
             number_of_floorplans = graph.fpcnt
@@ -2170,7 +2183,10 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             # Iterate through all possible floorplans to find one which satisfies the given conditions
             original_graph_list = copy.deepcopy(graph.graph_list)
             for bdy_itr in range(len(graph.graph_list_by_bdy)):
+                bdy_fplans = 0
                 for rel_itr in range(len(graph.graph_list_by_bdy[bdy_itr])):
+                    if bdy_fplans >= graph.floorplan_per_bdy_limit:
+                        break
                     print("Trying floorplan number", i + 1, "to see if minimum dimension floorplan can be constructed.")
                     graph.graph_list.append(graph.graph_list_by_bdy[bdy_itr][rel_itr])#may cause issues later might need to deepcopy
                     temp_graph_copy = copy.deepcopy(graph.graph_list_by_bdy[bdy_itr][rel_itr])
@@ -2205,6 +2221,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     # If floorplan satisfying the given constraints is satisfied
                     [status, out_data] = min_dim.main(floorplan_data, plot_width, plot_height)
                     if status == True:
+                        bdy_fplans += 1
                         room_x = []
                         room_y = []
                         room_width = []
@@ -2399,7 +2416,10 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 i = -1
                 # Iterate through all possible floorplans to find one which satisfies the given conditions
                 for bdy_itr in range(len(graph.graph_list_by_bdy)):
+                    bdy_fplans = 0
                     for rel_itr in range(len(graph.graph_list_by_bdy[bdy_itr])):
+                        if bdy_fplans >= graph.floorplan_per_bdy_limit:
+                            break
                         print("Trying floorplan number", i + 1, "to see if minimum dimension floorplan can be constructed.")
                         graph.graph_list.append(graph.graph_list_by_bdy[bdy_itr][rel_itr])
                         i = i+1
@@ -2432,6 +2452,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         # If floorplan satisfying the given constraints is satisfied
                         [status, out_data] = min_dim.main(floorplan_data, 0, 0)
                         if status == True:
+                            bdy_fplans += 1
                             room_x = []
                             room_y = []
                             room_width = []
