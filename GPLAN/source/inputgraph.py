@@ -937,9 +937,11 @@ class InputGraph:
                     plot_height = input_dims[3]
                     selected_list = dim_on_paths_bdy(cip_list,
                         room_width, room_height, plot_width,plot_height,bdy_edges)
-                    
                     print("these are the selected boundaries:", selected_list)
                 else:
+                    selected_list = cip_list
+                #revert back to old cip list incase selected list is empty
+                if len(selected_list) == 0:
                     selected_list = cip_list
 
                 for bdys in selected_list:
@@ -1014,6 +1016,10 @@ class InputGraph:
             else:
                 selected_list = cip_list
 
+            #revert back to old cip list incase selected list is empty
+            if len(selected_list) == 0:
+                selected_list = cip_list
+                    
             for bdys in selected_list:
                 curr_list = []
                 if is_floorplan_limit_reached:
