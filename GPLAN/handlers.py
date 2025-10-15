@@ -2488,5 +2488,165 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
     end = time.time()
     ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
 
+def handle_space_optimization(ui, regions, rooms, fixed_rooms, adjacency, non_adjacency, entrance_coords=None, 
+                               max_attempts=100, enable_expansion=True, enable_compaction=True):
+    """
+    Handler for space optimization using the negNew FloorPlan engine.
+    
+    Args:
+        ui: GuiParameters object for storing output
+        regions: List of region dicts with x, y, width, height
+        rooms: List of room dicts with name, width, height, max_expansion
+        fixed_rooms: List of fixed room dicts with name, x, y, width, height, is_fixed, max_expansion
+        adjacency: List of [room1_name, room2_name] pairs
+        non_adjacency: List of [room1_name, room2_name] pairs
+        entrance_coords: List of [x, y] coordinate pairs for entrance line
+        max_attempts: Maximum placement attempts
+        enable_expansion: Whether to enable room expansion
+        enable_compaction: Whether to enable room compaction
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        # Import the FloorPlan class from Space_Optimization
+        import sys
+        import os
+        space_opt_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'Space_Optimization')
+        if space_opt_path not in sys.path:
+            sys.path.insert(0, space_opt_path)
+        
+        from negNew import FloorPlan
+        
+        # Create FloorPlan instance
+        floor_plan = FloorPlan(region_specs=regions, fixed_rooms=fixed_rooms)
+        
+        # Set entrance location if provided
+        if entrance_coords:
+            floor_plan.set_entrance_location(entrance_coords)
+        
+        # Add regular rooms
+        for room in rooms:
+            floor_plan.add_room(
+                name=room['name'],
+                width=room['width'],
+                height=room['height'],
+                max_expansion=room.get('max_expansion', 20)
+            )
+        
+        # Add fixed rooms
+        for fixed_room in fixed_rooms:
+            floor_plan.add_room(
+                name=fixed_room['name'],
+                width=fixed_room['width'],
+                height=fixed_room['height'],
+                max_expansion=fixed_room.get('max_expansion', 0),
+                fixed_x=fixed_room['x'],
+                fixed_y=fixed_room['y']
+            )
+        
+        # Add adjacency constraints
+        for adj_pair in adjacency:
+            floor_plan.add_adjacency(adj_pair[0], adj_pair[1])
+        
+        # Add non-adjacency constraints
+        for non_adj_pair in non_adjacency:
+            floor_plan.add_non_adjacency(non_adj_pair[0], non_adj_pair[1])
+        
+        # Generate layout
+        success = floor_plan.generate_layout(
+            max_attempts=max_attempts,
+            enable_expansion=enable_expansion,
+            enable_space_optimization=enable_compaction
+        )
+        
+        if not success:
+            ui.set_message("Failed to generate space-optimized layout")
+            return False
+        
+        # Compact rooms if enabled
+        if enable_compaction:
+            floor_plan.compact_rooms()
+        
+        # Calculate adjacency score and metrics
+        score, satisfied_pairs, violations = floor_plan.evaluate_adjacency_score()
+        
+        # Check entrance adjacency if entrance_coords provided
+        entrance_adjacent_rooms = []
+        if entrance_coords:
+            for room in floor_plan.rooms:
+                if room.is_adjacent_to_entrance(entrance_coords):
+                    entrance_adjacent_rooms.append(room.name)
+        
+        # Prepare output data
+        output_data = {
+            'rooms': [],
+            'floor_regions': regions,
+            'entrance_coords': entrance_coords,
+            'metrics': {
+                'adjacency_score': score,
+                'satisfied_pairs': satisfied_pairs,
+                'non_adjacency_violations': violations,
+                'entrance_adjacent_rooms': entrance_adjacent_rooms
+            }
+        }
+        
+        # Extract room data
+        total_region_area = 0
+        for region in floor_plan.floor_regions:
+            total_region_area += region['width'] * region['height']
+        
+        occupied_room_area = 0
+        occupied_fixed_area = 0
+        
+        for room in floor_plan.rooms:
+            room_dict = {
+                'name': room.name,
+                'x': room.x,
+                'y': room.y,
+                'width': room.width,
+                'height': room.height,
+                'rotated': room.rotated,
+                'is_fixed': getattr(room, 'is_fixed', False),
+                'original_width': room.original_width,
+                'original_height': room.original_height,
+                'area': room.get_area()
+            }
+            output_data['rooms'].append(room_dict)
+            
+            if getattr(room, 'is_fixed', False):
+                occupied_fixed_area += room.get_area()
+            else:
+                occupied_room_area += room.get_area()
+        
+        # Calculate area utilization
+        occupied_total_area = occupied_room_area + occupied_fixed_area
+        remaining_area = max(0, total_region_area - occupied_total_area)
+        remaining_percent = (remaining_area / total_region_area * 100.0) if total_region_area > 0 else 0.0
+        utilization_ratio = occupied_total_area / total_region_area if total_region_area > 0 else 0.0
+        
+        output_data['metrics']['area_utilization'] = {
+            'total_region_area': total_region_area,
+            'occupied_room_area': occupied_room_area,
+            'occupied_fixed_area': occupied_fixed_area,
+            'occupied_total_area': occupied_total_area,
+            'remaining_area': remaining_area,
+            'remaining_percent': remaining_percent,
+            'utilization_ratio': utilization_ratio
+        }
+        
+        # Store output in UI
+        ui._set_output_data([output_data])
+        ui.set_message(f"Space optimization successful. Adjacency score: {score}/{len(adjacency)}")
+        
+        return True
+        
+    except Exception as e:
+        ui.set_message(f"Space optimization error: {str(e)}")
+        print(f"Error in handle_space_optimization: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 def show_warning(str):
     messagebox.showinfo("Warning", str)
