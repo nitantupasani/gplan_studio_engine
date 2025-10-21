@@ -230,13 +230,6 @@ def test_space_optimization_l_shape():
     return result
 
 
-def save_result_to_file(result, filename):
-    """Save test result to a JSON file"""
-    with open(filename, 'w') as f:
-        json.dump(result, f, indent=2)
-    print(f"\n✓ Result saved to: {filename}")
-
-
 if __name__ == '__main__':
     print("\n" + "="*80)
     print("SPACE OPTIMIZATION API TEST SUITE")
@@ -248,7 +241,6 @@ if __name__ == '__main__':
         result1 = test_space_optimization_simple()
         if result1['status'] == 'ok':
             print("\n✓ Test 1 PASSED: Simple Space Optimization")
-            save_result_to_file(result1, 'test_result_simple.json')
         else:
             print("\n✗ Test 1 FAILED")
             print(f"Error: {result1.get('error', {}).get('message', 'Unknown error')}")
@@ -257,7 +249,6 @@ if __name__ == '__main__':
         result2 = test_space_optimization_with_fixed_rooms()
         if result2['status'] == 'ok':
             print("\n✓ Test 2 PASSED: With Fixed Rooms")
-            save_result_to_file(result2, 'test_result_fixed.json')
         else:
             print("\n✗ Test 2 FAILED")
             print(f"Error: {result2.get('error', {}).get('message', 'Unknown error')}")
@@ -266,7 +257,6 @@ if __name__ == '__main__':
         result3 = test_space_optimization_large()
         if result3['status'] == 'ok':
             print("\n✓ Test 3 PASSED: Large Example")
-            save_result_to_file(result3, 'test_result_large.json')
         else:
             print("\n✗ Test 3 FAILED")
             print(f"Error: {result3.get('error', {}).get('message', 'Unknown error')}")
@@ -275,7 +265,6 @@ if __name__ == '__main__':
         result4 = test_space_optimization_no_expansion()
         if result4['status'] == 'ok':
             print("\n✓ Test 4 PASSED: No Expansion")
-            save_result_to_file(result4, 'test_result_no_expand.json')
         else:
             print("\n✗ Test 4 FAILED")
             print(f"Error: {result4.get('error', {}).get('message', 'Unknown error')}")
@@ -284,7 +273,6 @@ if __name__ == '__main__':
         result5 = test_space_optimization_l_shape()
         if result5['status'] == 'ok':
             print("\n✓ Test 5 PASSED: L-shaped Region")
-            save_result_to_file(result5, 'test_result_lshape.json')
         else:
             print("\n✗ Test 5 FAILED")
             print(f"Error: {result5.get('error', {}).get('message', 'Unknown error')}")
