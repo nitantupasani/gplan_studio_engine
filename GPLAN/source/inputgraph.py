@@ -136,7 +136,8 @@ class InputGraph:
         self.area = []
         self.rel_matrix_list = []
         self.floorplan_exist = False
-        self.floorplan_limit = 50 # Maximum number of floorplans in multiple floorplans
+        self.floorplan_limit = 500 # Maximum number of floorplans in multiple floorplans
+        self.floorplan_per_bdy_limit = 20
         self.floorplan_limit_undimensioned = 500
         self.fpcnt = 0
         self.coordinates = [np.array(x) for x in node_coordinates]
@@ -928,8 +929,23 @@ class InputGraph:
                 elapsed_time = end_time - start_time
                 logger.info(f"{__name__}Transformations and Multiple Bdry to took {elapsed_time:.5f} seconds to execute.")
                 start_time1 = time.time()
+                # optimal selection for bdy
+                if( len(input_dims) > 0):
+                    room_width = input_dims[0]
+                    room_height = input_dims[1]
+                    plot_width = input_dims[2]
+                    plot_height = input_dims[3]
+                    selected_list = dim_on_paths_bdy(cip_list,
+                        room_width, room_height, plot_width,plot_height,bdy_edges)
+                    print("these are the selected boundaries:", selected_list)
+                else:
+                    selected_list = cip_list
+                #revert back to old cip list incase selected list is empty
+                if len(selected_list) == 0:
+                    selected_list = cip_list
 
-                for bdys in cip_list:
+                for bdys in selected_list:
+                    curr_list = []
                     if is_floorplan_limit_reached:
                         break
                     matrix = copy.deepcopy(self.matrix)
@@ -958,7 +974,10 @@ class InputGraph:
                         new_graph.extranodes= extranodes
                         new_graph.nodecnt_list= self.nodecnt
                         new_graph.dummy_node_adjacencies = self.dummy_node_adjacencies
+                        curr_list.append(new_graph)
                         self.graph_list.append(new_graph)
+                    if len(curr_list) != 0:
+                        self.graph_list_by_bdy.append(curr_list)
 
         else:
             mergednodes = []
@@ -993,9 +1012,14 @@ class InputGraph:
                 plot_height = input_dims[3]
                 selected_list = dim_on_paths_bdy(cip_list, 
                     room_width, room_height, plot_width,plot_height,bdy_edges)
+                print("these are the selected boundaries:", selected_list)
+            else:
+                selected_list = cip_list
 
-
-            print("these are the selected boundaries:", selected_list)
+            #revert back to old cip list incase selected list is empty
+            if len(selected_list) == 0:
+                selected_list = cip_list
+                    
             for bdys in selected_list:
                 curr_list = []
                 if is_floorplan_limit_reached:
@@ -1025,7 +1049,7 @@ class InputGraph:
                     new_graph.extranodes = extranodes
                     new_graph.nodecnt_list = self.nodecnt
                     curr_list.append(new_graph)
-                    # self.graph_list.append(new_graph)
+                    self.graph_list.append(new_graph)
                 if len(curr_list) != 0:
                     self.graph_list_by_bdy.append(curr_list)
 
