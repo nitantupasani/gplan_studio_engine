@@ -58,6 +58,11 @@ def run():
                 handle_limits(ui, graph, True, gclass)
             elif gclass.command == "door_connectivity":
                 handle_door_connectivity(ui, graph, True, gclass)
+            elif gclass.command == "space_optimization":
+                # Space optimization doesn't use graph-based approach
+                # It would need different parameters from GUI
+                # This is a placeholder for GUI integration
+                pass
             elif gclass.command == "not_connected":
                 pass
             # gclass.time_taken = (end - start) * 1000

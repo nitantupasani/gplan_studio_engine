@@ -268,3 +268,129 @@ class Documents:
         builtins.print = original_print
 
         return response, message
+
+    @staticmethod
+    def get_space_optimized_floorplan(request_data):
+        """
+        Generate a space-optimized floorplan using the negNew FloorPlan engine.
+        
+        Args:
+            request_data: Dictionary containing:
+                - request_id: Unique request identifier
+                - params: Dictionary with regions, rooms, fixed_rooms, adjacency, non_adjacency, entrance_coords
+                - ops: List of operations to perform (e.g., ["place", "compact", "expand", "score"])
+        
+        Returns:
+            Dictionary with response data matching the expected output format
+        """
+        original_print = builtins.print
+
+        def null_print(*args, **kwargs):
+            pass
+
+        builtins.print = null_print
+
+        try:
+            request_id = request_data.get('request_id', str(uuid.uuid4()))
+            params = request_data.get('params', {})
+            ops = request_data.get('ops', ['place', 'compact', 'expand', 'score'])
+            
+            # Extract parameters
+            regions = params.get('regions', [])
+            rooms = params.get('rooms', [])
+            fixed_rooms = params.get('fixed_rooms', [])
+            adjacency = params.get('adjacency', [])
+            non_adjacency = params.get('non_adjacency', [])
+            entrance_coords = params.get('entrance_coords', None)
+            
+            # Operation flags
+            enable_expansion = 'expand' in ops
+            enable_compaction = 'compact' in ops
+            max_attempts = params.get('max_attempts', 100)
+            
+            # Create UI object for output storage
+            from GPLAN.pythongui.GuiParameters import GuiParameters
+            ui = GuiParameters(graph=None)
+            
+            # Call the handler
+            success = handle_space_optimization(
+                ui=ui,
+                regions=regions,
+                rooms=rooms,
+                fixed_rooms=fixed_rooms,
+                adjacency=adjacency,
+                non_adjacency=non_adjacency,
+                entrance_coords=entrance_coords,
+                max_attempts=max_attempts,
+                enable_expansion=enable_expansion,
+                enable_compaction=enable_compaction
+            )
+            
+            if not success:
+                builtins.print = original_print
+                return {
+                    'request_id': request_id,
+                    'status': 'error',
+                    'data': {},
+                    'error': {'message': ui.get_message()}
+                }
+            
+            # Extract output data
+            output_data = ui.get_output_data()
+            if not output_data or len(output_data) == 0:
+                builtins.print = original_print
+                return {
+                    'request_id': request_id,
+                    'status': 'error',
+                    'data': {},
+                    'error': {'message': 'No output data generated'}
+                }
+            
+            result = output_data[0]
+            
+            # Calculate floor dimensions
+            floor_width = max(r['x'] + r['width'] for r in regions) if regions else 0
+            floor_height = max(r['y'] + r['height'] for r in regions) if regions else 0
+            
+            # Format response
+            response = {
+                'request_id': request_id,
+                'status': 'ok',
+                'data': {
+                    'floor': {
+                        'width': floor_width,
+                        'height': floor_height,
+                        'regions': regions,
+                        'entrance_coords': entrance_coords
+                    },
+                    'placements': result['rooms'],
+                    'metrics': {
+                        'ops_run': ops,
+                        'adjacency_score': result['metrics']['adjacency_score'] / len(adjacency) if adjacency else 1.0,
+                        'satisfied_pairs': result['metrics']['satisfied_pairs'],
+                        'non_adjacency_violations': result['metrics']['non_adjacency_violations'],
+                        'entrance_adjacent_rooms': result['metrics'].get('entrance_adjacent_rooms', []),
+                        'area_utilization': result['metrics']['area_utilization'],
+                        'integrity': {
+                            'overlaps': [],
+                            'out_of_bounds': [],
+                            'invalid_adjacent_edges': []
+                        }
+                    }
+                },
+                'error': {}
+            }
+            
+            builtins.print = original_print
+            return response
+            
+        except Exception as e:
+            builtins.print = original_print
+            import traceback
+            traceback.print_exc()
+            return {
+                'request_id': request_data.get('request_id', 'unknown'),
+                'status': 'error',
+                'data': {},
+                'error': {'message': str(e)}
+            }
