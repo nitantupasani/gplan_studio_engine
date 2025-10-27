@@ -1745,17 +1745,22 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             else:
                 min_width, min_height, plot_width, plot_height, optimal_floorplan,allow_rotation,multiple_door = ui.min_dim_inputs.get_min_width(), ui.min_dim_inputs.get_min_height(), ui.min_dim_inputs.get_plot_width(), ui.min_dim_inputs.get_plot_height(), ui.min_dim_inputs.get_isOptimalEnabled(),ui.min_dim_inputs.get_isRotationAllowed(),ui.get_is_multiple_door()
             start = time.time()
+            input_dims = [min_width, min_height, plot_width, plot_height]
+            input_dims = copy.deepcopy(input_dims)
+            if plot_width == 0 and plot_height == 0:
+                input_dims = []
             if allow_rotation:
                 print("Will try rotation the floorplans")
             try:
                 graph.oneconnected_dual("multiple")
             except inputgraph.OCError:
                 show_warning("Can not generate rectangular floorplan.")
-                graph.irreg_multiple_dual()
+                graph.irreg_multiple_dual(input_dims)
             except inputgraph.BCNError:
-                graph.irreg_multiple_dual()
+                graph.irreg_multiple_dual(input_dims)
             number_of_floorplans = graph.fpcnt
             floorplan_found = False
+            graph.graph_list = []
 
             # Resets the data already present for downloading catalogues
             ui._set_output_data([])
@@ -1768,99 +1773,116 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             areas_mapping = []
 
             # Iterate through all possible floorplans to find one which satisfies the given conditions
+            i = -1
             print("Total possible floorplans = ",number_of_floorplans)
+
             original_graph_list = copy.deepcopy(graph.graph_list)
-            for i in range(number_of_floorplans):
-                # print("Trying floorplan number", i + 1,
-                #       "to see if minimum dimension floorplan can be constructed.")
-                floorplan_obj = input_for_min_dim.floorplan(ui.get_fptype(), ui.get_isDimensioned(),
-                                                            ui.get_isDimensionedCirculation(), ui.get_isRemoveAddCirculation(),
-                                                            ui.get_corridor_thickness())
-                enc_mat = get_encoded_matrix(ui.get_noOfNodes(), graph.graph_list[i].room_x,
-                                             graph.graph_list[i].room_y, graph.graph_list[i].room_width,
-                                             graph.graph_list[i].room_height)
-                floorplan_data = floorplan_obj.get_floorplan_details(
-                    ui.get_roomNames(), ui.get_roomColors(), ui.get_nodeCoordinates(), min_width, min_height,
-                    graph.graph_list[i].room_x, graph.graph_list[i].room_y, graph.graph_list[i].room_width,
-                    graph.graph_list[i].room_height,
-                    ui.get_edges(), enc_mat
-                )
 
-                # print(floorplan_data)
-                # input_path = "input_to_min_dim.json"
-                # json_data = json.dumps(floorplan_data, indent=2)
-
-                # with open(input_path, 'w') as json_file:
-                #     json_file.write(json_data)
-                # print(f"JSON data has been written to {input_path}")
-
-                # If floorplan satisfying the given constraints is satisfied
-                [status, out_data] = min_dim.main(floorplan_data, plot_width, plot_height)
-                if status == True:
-                    room_x = []
-                    room_y = []
-                    room_width = []
-                    room_height = []
-                    room_area = []
-                    room_name = []
-                    for room_detail in out_data["nodes"]:
-                        room_x.append(room_detail["room_x"])
-                        room_y.append(room_detail["room_y"])
-                        room_width.append(room_detail["width"])
-                        room_height.append(room_detail["height"])
-                        room_area.append(room_detail["width"] * room_detail["height"])
-
-                    # Store the room labels if they have been entered
-                    # for room_id in range(len(out_data["nodes"])):
-                    #     if "label" not in out_data["nodes"][room_id]:
-                    #         room_name.append(str(room_id))
-                    #     else:
-                    #         room_name.append(out_data["nodes"][room_id]["label"])
-
-                    graph.graph_list[i].room_x = room_x
-                    graph.graph_list[i].room_y = room_y
-                    graph.graph_list[i].room_width = room_width
-                    graph.graph_list[i].room_height = room_height
-                    graph.graph_list[i].area = room_area          
-
-                    # If optimal area not required, display floorplan
-                    if optimal_floorplan == 0:
-                        graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(
-                            graph.graph_list[i])
-                        ui._append_output_data(graph.graph_list[i])
-                        floorplan_found = True
-                        if drawGUI:
-                            drawFunction(ui, graph.graph_list[i], origin, ui.get_roomNames(), gclass=gclass)
+            for bdy_itr in range(len(graph.graph_list_by_bdy)):
+                bdy_fplans = 0
+                for rel_itr in range(len(graph.graph_list_by_bdy[bdy_itr])):
+                    if bdy_fplans >= graph.floorplan_per_bdy_limit:
                         break
-                    
-                    #Calculate bound area
-                    hMax = 0
-                    wMax = 0
-                    for itr2 in range(len(room_x)):
-                        if room_x[itr2] + room_width[itr2] > wMax:
-                            wMax = room_x[itr2] + room_width[itr2]
-                        if room_y[itr2] + room_height[itr2] > hMax:
-                            hMax = room_y[itr2] + room_height[itr2]
+                    # print("Trying floorplan number", i + 1,
+                    #       "to see if minimum dimension floorplan can be constructed.")
+                    graph.graph_list.append(graph.graph_list_by_bdy[bdy_itr][rel_itr])#may cause issues later might need to deepcopy
+                    temp_graph_copy = copy.deepcopy(graph.graph_list_by_bdy[bdy_itr][rel_itr])
+                    original_graph_list.append(temp_graph_copy)
+                    i = i+1
+                    floorplan_obj = input_for_min_dim.floorplan(ui.get_fptype(), ui.get_isDimensioned(),
+                                                                ui.get_isDimensionedCirculation(), ui.get_isRemoveAddCirculation(),
+                                                                ui.get_corridor_thickness())
+                    enc_mat = get_encoded_matrix(ui.get_noOfNodes(), graph.graph_list[i].room_x,
+                                                graph.graph_list[i].room_y, graph.graph_list[i].room_width,
+                                                graph.graph_list[i].room_height)
+                    floorplan_data = floorplan_obj.get_floorplan_details(
+                        ui.get_roomNames(), ui.get_roomColors(), ui.get_nodeCoordinates(), min_width, min_height,
+                        graph.graph_list[i].room_x, graph.graph_list[i].room_y, graph.graph_list[i].room_width,
+                        graph.graph_list[i].room_height,
+                        ui.get_edges(), enc_mat
+                    )
 
-                    boundArea = hMax * wMax
-                    # Store graph data if graph area is less than current minimal area
-                    area_sum = sum(room_area)
-                    areas.append(area_sum)
-                    areas_mapping.append(((boundArea - area_sum,area_sum),i))
-                    # graph.graph_list[i].area = area_sum
-                    graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(graph.graph_list[i])
-                    if min_area < 0 or area_sum < min_area:
-                        min_graph = i
-                        min_area = area_sum
-                    
-                    floorplan_found = True
 
-                    '''
-                    Adds the graph data to output_data for downloading the catalogue and
-                    multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
-                    '''
-                    # ui._append_output_data(graph.graph_list[i])
-                    # ui._set_multiple_output_found(1)
+                    # print(floorplan_data)
+                    # input_path = "input_to_min_dim.json"
+                    # json_data = json.dumps(floorplan_data, indent=2)
+
+                    # with open(input_path, 'w') as json_file:
+                    #     json_file.write(json_data)
+                    # print(f"JSON data has been written to {input_path}")
+
+                    # If floorplan satisfying the given constraints is satisfied
+                    [status, out_data] = min_dim.main(floorplan_data, plot_width, plot_height)
+                    if status == True:
+                        bdy_fplans += 1
+                        room_x = []
+                        room_y = []
+                        room_width = []
+                        room_height = []
+                        room_area = []
+                        room_name = []
+                        for room_detail in out_data["nodes"]:
+                            room_x.append(room_detail["room_x"])
+                            room_y.append(room_detail["room_y"])
+                            room_width.append(room_detail["width"])
+                            room_height.append(room_detail["height"])
+                            room_area.append(room_detail["width"] * room_detail["height"])
+
+                        # Store the room labels if they have been entered
+                        # for room_id in range(len(out_data["nodes"])):
+                        #     if "label" not in out_data["nodes"][room_id]:
+                        #         room_name.append(str(room_id))
+                        #     else:
+                        #         room_name.append(out_data["nodes"][room_id]["label"])
+
+                        graph.graph_list[i].room_x = room_x
+                        graph.graph_list[i].room_y = room_y
+                        graph.graph_list[i].room_width = room_width
+                        graph.graph_list[i].room_height = room_height
+                        graph.graph_list[i].area = room_area          
+
+                        # If optimal area not required, display floorplan
+                        if optimal_floorplan == 0:
+                            graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(
+                                graph.graph_list[i])
+                            ui._append_output_data(graph.graph_list[i])
+                            floorplan_found = True
+                            if drawGUI:
+                                drawFunction(ui, graph.graph_list[i], origin, ui.get_roomNames(), gclass=gclass)
+                            break
+                        
+                        #Calculate bound area
+                        hMax = 0
+                        wMax = 0
+                        for itr2 in range(len(room_x)):
+                            if room_x[itr2] + room_width[itr2] > wMax:
+                                wMax = room_x[itr2] + room_width[itr2]
+                            if room_y[itr2] + room_height[itr2] > hMax:
+                                hMax = room_y[itr2] + room_height[itr2]
+
+                        boundArea = hMax * wMax
+                        # Store graph data if graph area is less than current minimal area
+                        area_sum = sum(room_area)
+                        areas.append(area_sum)
+                        areas_mapping.append(((boundArea - area_sum,area_sum),i))
+                        # graph.graph_list[i].area = area_sum
+                        graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(graph.graph_list[i])
+                        if min_area < 0 or area_sum < min_area:
+                            min_graph = i
+                            min_area = area_sum
+                        
+                        floorplan_found = True
+
+                        '''
+                        Adds the graph data to output_data for downloading the catalogue and
+                        multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
+                        '''
+                        # ui._append_output_data(graph.graph_list[i])
+                        # ui._set_multiple_output_found(1)
+                    else:
+                        i = i-1
+                        graph.graph_list.pop()
+                        original_graph_list.pop()
 
             if allow_rotation :
                 print("Rotation is allowed duplicating all floorplans")
@@ -1974,72 +1996,82 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 min_graph = None
                 areas = []
 
-
+                i = -1
                 print("Total possible floorplans = ",number_of_floorplans)
                 valid = []
-                for i in range(number_of_floorplans):
-                    # print("Trying floorplan number", i + 1,
-                    #     "to see if minimum dimension floorplan can be constructed.")
-                    floorplan_obj = input_for_min_dim.floorplan(ui.get_fptype(), ui.get_isDimensioned(),
-                                                                ui.get_isDimensionedCirculation(), ui.get_isRemoveAddCirculation(),
-                                                                ui.get_corridor_thickness())
-                    enc_mat = get_encoded_matrix(ui.get_noOfNodes(), graph.graph_list[i].room_x,
-                                                graph.graph_list[i].room_y, graph.graph_list[i].room_width,
-                                                graph.graph_list[i].room_height)
-                    floorplan_data = floorplan_obj.get_floorplan_details(
-                        ui.get_roomNames(), ui.get_roomColors(), ui.get_nodeCoordinates(), min_width, min_height,
-                        graph.graph_list[i].room_x, graph.graph_list[i].room_y, graph.graph_list[i].room_width,
-                        graph.graph_list[i].room_height,
-                        ui.get_edges(), enc_mat
-                    )
+                for bdy_itr in range(len(graph.graph_list_by_bdy)):
+                    bdy_fplans = 0
+                    for rel_itr in range(len(graph.graph_list_by_bdy[bdy_itr])):
+                        if bdy_fplans >= graph.floorplan_per_bdy_limit:
+                            break
+                        # print("Trying floorplan number", i + 1,
+                        #     "to see if minimum dimension floorplan can be constructed.")
+                        graph.graph_list.append(graph.graph_list_by_bdy[bdy_itr][rel_itr])#may cause issues later might need to deepcopy
+                        i = i+1
+                        floorplan_obj = input_for_min_dim.floorplan(ui.get_fptype(), ui.get_isDimensioned(),
+                                                                    ui.get_isDimensionedCirculation(), ui.get_isRemoveAddCirculation(),
+                                                                    ui.get_corridor_thickness())
+                        enc_mat = get_encoded_matrix(ui.get_noOfNodes(), graph.graph_list[i].room_x,
+                                                    graph.graph_list[i].room_y, graph.graph_list[i].room_width,
+                                                    graph.graph_list[i].room_height)
+                        floorplan_data = floorplan_obj.get_floorplan_details(
+                            ui.get_roomNames(), ui.get_roomColors(), ui.get_nodeCoordinates(), min_width, min_height,
+                            graph.graph_list[i].room_x, graph.graph_list[i].room_y, graph.graph_list[i].room_width,
+                            graph.graph_list[i].room_height,
+                            ui.get_edges(), enc_mat
+                        )
 
-                    # print(floorplan_data)
+                        # print(floorplan_data)
 
-                    # If floorplan satisfying the given constraints is satisfied
-                    [status, out_data] = min_dim.main(floorplan_data, 0, 0)
-                    if status == True:
-                        room_x = []
-                        room_y = []
-                        room_width = []
-                        room_height = []
-                        room_area = []
-                        room_name = []
-                        for room_detail in out_data["nodes"]:
-                            room_x.append(room_detail["room_x"])
-                            room_y.append(room_detail["room_y"])
-                            room_width.append(room_detail["width"])
-                            room_height.append(room_detail["height"])
-                            room_area.append(room_detail["width"] * room_detail["height"])
+                        # If floorplan satisfying the given constraints is satisfied
+                        [status, out_data] = min_dim.main(floorplan_data, 0, 0)
+                        if status == True:
+                            bdy_fplans += 1
+                            room_x = []
+                            room_y = []
+                            room_width = []
+                            room_height = []
+                            room_area = []
+                            room_name = []
+                            for room_detail in out_data["nodes"]:
+                                room_x.append(room_detail["room_x"])
+                                room_y.append(room_detail["room_y"])
+                                room_width.append(room_detail["width"])
+                                room_height.append(room_detail["height"])
+                                room_area.append(room_detail["width"] * room_detail["height"])
 
-                        # Store the room labels if they have been entered
-                        for room_id in range(len(out_data["nodes"])):
-                            if "label" not in out_data["nodes"][room_id]:
-                                room_name.append(str(room_id))
-                            else:
-                                room_name.append(out_data["nodes"][room_id]["label"])
+                            # Store the room labels if they have been entered
+                            for room_id in range(len(out_data["nodes"])):
+                                if "label" not in out_data["nodes"][room_id]:
+                                    room_name.append(str(room_id))
+                                else:
+                                    room_name.append(out_data["nodes"][room_id]["label"])
 
-                        graph.graph_list[i].room_x = room_x
-                        graph.graph_list[i].room_y = room_y
-                        graph.graph_list[i].room_width = room_width
-                        graph.graph_list[i].room_height = room_height
-                        graph.graph_list[i].area = room_area          
+                            graph.graph_list[i].room_x = room_x
+                            graph.graph_list[i].room_y = room_y
+                            graph.graph_list[i].room_width = room_width
+                            graph.graph_list[i].room_height = room_height
+                            graph.graph_list[i].area = room_area          
 
-                        # Store graph data if graph area is less than current minimal area
-                        area_sum = sum(room_area)
-                        areas.append(area_sum)
-                        # graph.graph_list[i].area = area_sum #Check if this line is really needed also look into gui function not writing areas
-                        graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(
-                                graph.graph_list[i])
-                        valid.append(i)
-                        if min_area < 0 or area_sum < min_area:
-                            min_graph = i
-                            min_area = area_sum
+                            # Store graph data if graph area is less than current minimal area
+                            area_sum = sum(room_area)
+                            areas.append(area_sum)
+                            # graph.graph_list[i].area = area_sum #Check if this line is really needed also look into gui function not writing areas
+                            graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(
+                                    graph.graph_list[i])
+                            valid.append(i)
+                            if min_area < 0 or area_sum < min_area:
+                                min_graph = i
+                                min_area = area_sum
+                            
+                            '''
+                            Adds the graph data to output_data for downloading the catalogue and
+                            multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
+                            '''
+                        else: 
+                            i = i-1
+                            graph.graph_list.pop()
                         
-                        '''
-                        Adds the graph data to output_data for downloading the catalogue and
-                        multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
-                        '''
-                    
                 print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
 
                 # graph.graph_list[min_graph].final_traversal=inputgraph.get_final_traversal(graph.graph_list[min_graph])
@@ -2083,7 +2115,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             messagebox.showwarning("Warning",
                                       "The given graph is not PTPG.Currently using irregular correctness not garunteed.")
         else:
-            multiple_door = ui.get_is_multiple_door()
+            multiple_door = ui.get_is_multiple_door()#would be better to move this down
             pass#Later on return the error message to front
 
         # use irregular because not ptpg
@@ -2128,11 +2160,16 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 min_width, min_height, plot_width, plot_height, optimal_floorplan,allow_rotation,multiple_door = ui.min_dim_inputs.get_min_width(), ui.min_dim_inputs.get_min_height(), ui.min_dim_inputs.get_plot_width(), ui.min_dim_inputs.get_plot_height(), ui.min_dim_inputs.get_isOptimalEnabled(),ui.min_dim_inputs.get_isRotationAllowed(),ui.get_is_multiple_door()
 
             ui._set_dim_constraints([min_width, min_height, plot_width, plot_height])
+            input_dims = [min_width, min_height, plot_width, plot_height]
+            input_dims = copy.deepcopy(input_dims)
+            if plot_width == 0 and plot_height == 0:
+                input_dims = []
 
             start = time.time()
-            graph.irreg_multiple_dual()
+            graph.irreg_multiple_dual(input_dims)
             number_of_floorplans = graph.fpcnt
             floorplan_found = False
+            graph.graph_list = []
 
             # Resets the data already present for downloading catalogues
             ui._set_output_data([])
@@ -2142,104 +2179,117 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             min_graph = None
             areas = []
             areas_mapping = []
-
+            i = -1
             # Iterate through all possible floorplans to find one which satisfies the given conditions
             original_graph_list = copy.deepcopy(graph.graph_list)
-            for i in range(number_of_floorplans):
-                print("Trying floorplan number", i + 1, "to see if minimum dimension floorplan can be constructed.")
-                floorplan_obj = input_for_min_dim.floorplan(ui.get_fptype(), ui.get_isDimensioned(),
-                                                            ui.get_isDimensionedCirculation(), ui.get_isRemoveAddCirculation(),
-                                                            ui.get_corridor_thickness())
-                enc_mat = get_encoded_matrix(ui.get_noOfNodes(), graph.graph_list[i].room_x, graph.graph_list[i].room_y, graph.graph_list[i].room_width,
-                                            graph.graph_list[i].room_height)
-                floorplan_data = floorplan_obj.get_floorplan_details(
-                    ui.get_roomNames(), ui.get_roomColors(), ui.get_nodeCoordinates(), min_width, min_height, graph.graph_list[i].room_x,
-                    graph.graph_list[i].room_y, graph.graph_list[i].room_width, graph.graph_list[i].room_height,
-                    ui.get_edges(), enc_mat
-                )
-
-                # Storing the dummy merge nodes, and the irregular room they will be adjacent to
-                dummy_node_data = {'mergednodes': graph.graph_list[i].mergednodes, 'irreg_nodes1': graph.graph_list[i].irreg_nodes1,
-                                'irreg_nodes2': graph.graph_list[i].irreg_nodes2,
-                                'dummy_node_adj': graph.graph_list[i].dummy_node_adjacencies}
-                floorplan_data.update(dummy_node_data)
-                for merge_node in graph.graph_list[i].mergednodes:
-                    node_min_width = 1
-                    node_min_height = 1
-                    for j in range(0,graph.graph_list[i].nodecnt):
-                        if(graph.graph_list[i].matrix[merge_node][j] == 1):
-                            node_min_width = max(node_min_width, floorplan_data['nodes'][j]['min_width'])
-                            node_min_height = max(node_min_height,floorplan_data['nodes'][j]['min_height'])
-                    floorplan_data['nodes'][merge_node]['min_width'] = node_min_width/2
-                    floorplan_data['nodes'][merge_node]['min_height'] = node_min_height/2
-
-                # If floorplan satisfying the given constraints is satisfied
-                [status, out_data] = min_dim.main(floorplan_data, plot_width, plot_height)
-                if status == True:
-                    room_x = []
-                    room_y = []
-                    room_width = []
-                    room_height = []
-                    room_area = []
-                    room_name = []
-                    for room_detail in out_data["nodes"]:
-                        room_x.append(room_detail["room_x"])
-                        room_y.append(room_detail["room_y"])
-                        room_width.append(room_detail["width"])
-                        room_height.append(room_detail["height"])
-                        room_area.append(room_detail["width"] * room_detail["height"])
-
-                    # Store the room labels if they have been entered
-                    for room_id in range(len(out_data["nodes"])):
-                        if "label" not in out_data["nodes"][room_id]:
-                            room_name.append(str(room_id))
-                        else:
-                            room_name.append(out_data["nodes"][room_id]["label"])
-
-                    # room_x = np.array(room_x)
-                    # room_y = np.array(room_y)
-                    # room_width = np.array(room_width)
-                    # room_height = np.array(room_height)
-
-                    graph.graph_list[i].room_x = room_x
-                    graph.graph_list[i].room_y = room_y
-                    graph.graph_list[i].room_width = room_width
-                    graph.graph_list[i].room_height = room_height
-                    graph.graph_list[i].area = room_area
-
-                    floorplan_found = True
-
-                    if optimal_floorplan == 0:
-                        graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(graph.graph_list[i])
-                        ui._append_output_data(graph.graph_list[i]) 
-                        if drawGUI:
-                            drawFunction(ui, graph.graph_list[i], origin, ui.get_roomNames(), gclass=gclass)
+            for bdy_itr in range(len(graph.graph_list_by_bdy)):
+                bdy_fplans = 0
+                for rel_itr in range(len(graph.graph_list_by_bdy[bdy_itr])):
+                    if bdy_fplans >= graph.floorplan_per_bdy_limit:
                         break
+                    print("Trying floorplan number", i + 1, "to see if minimum dimension floorplan can be constructed.")
+                    graph.graph_list.append(graph.graph_list_by_bdy[bdy_itr][rel_itr])#may cause issues later might need to deepcopy
+                    temp_graph_copy = copy.deepcopy(graph.graph_list_by_bdy[bdy_itr][rel_itr])
+                    original_graph_list.append(temp_graph_copy)
+                    i = i+1
+                    floorplan_obj = input_for_min_dim.floorplan(ui.get_fptype(), ui.get_isDimensioned(),
+                                                                ui.get_isDimensionedCirculation(), ui.get_isRemoveAddCirculation(),
+                                                                ui.get_corridor_thickness())
+                    enc_mat = get_encoded_matrix(ui.get_noOfNodes(), graph.graph_list[i].room_x, graph.graph_list[i].room_y, graph.graph_list[i].room_width,
+                                                graph.graph_list[i].room_height)
+                    floorplan_data = floorplan_obj.get_floorplan_details(
+                        ui.get_roomNames(), ui.get_roomColors(), ui.get_nodeCoordinates(), min_width, min_height, graph.graph_list[i].room_x,
+                        graph.graph_list[i].room_y, graph.graph_list[i].room_width, graph.graph_list[i].room_height,
+                        ui.get_edges(), enc_mat
+                    )
 
-                    '''
-                    Adds the graph data to output_data for downloading the catalogue and
-                    multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
-                    '''
-                    #Calculate bound area
-                    hMax = 0
-                    wMax = 0
-                    for j in range(len(room_x)):
-                        if room_x[j] + room_width[j] > wMax:
-                            wMax = room_x[j] + room_width[j]
-                        if room_y[j] + room_height[j] > hMax:
-                            hMax = room_y[j] + room_height[j]
+                    # Storing the dummy merge nodes, and the irregular room they will be adjacent to
+                    dummy_node_data = {'mergednodes': graph.graph_list[i].mergednodes, 'irreg_nodes1': graph.graph_list[i].irreg_nodes1,
+                                    'irreg_nodes2': graph.graph_list[i].irreg_nodes2,
+                                    'dummy_node_adj': graph.graph_list[i].dummy_node_adjacencies}
+                    floorplan_data.update(dummy_node_data)
+                    for merge_node in graph.graph_list[i].mergednodes:
+                        node_min_width = 1
+                        node_min_height = 1
+                        for j in range(0,graph.graph_list[i].nodecnt):
+                            if(graph.graph_list[i].matrix[merge_node][j] == 1):
+                                node_min_width = max(node_min_width, floorplan_data['nodes'][j]['min_width'])
+                                node_min_height = max(node_min_height,floorplan_data['nodes'][j]['min_height'])
+                        floorplan_data['nodes'][merge_node]['min_width'] = node_min_width/2
+                        floorplan_data['nodes'][merge_node]['min_height'] = node_min_height/2
 
-                    boundArea = hMax * wMax
-                    # Store graph data if graph area is less than current minimal area
-                    area_sum = sum(room_area)
-                    areas.append(area_sum)
-                    areas_mapping.append(((boundArea-area_sum,area_sum),i))
-                    # graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(graph.graph_list[i])
-                    if min_area < 0 or area_sum < min_area:
-                        min_graph = i
-                        min_area = area_sum
-                    # ui._append_output_data(graph.graph_list[i])
-                    # ui._set_multiple_output_found(1)
+                    # If floorplan satisfying the given constraints is satisfied
+                    [status, out_data] = min_dim.main(floorplan_data, plot_width, plot_height)
+                    if status == True:
+                        bdy_fplans += 1
+                        room_x = []
+                        room_y = []
+                        room_width = []
+                        room_height = []
+                        room_area = []
+                        room_name = []
+                        for room_detail in out_data["nodes"]:
+                            room_x.append(room_detail["room_x"])
+                            room_y.append(room_detail["room_y"])
+                            room_width.append(room_detail["width"])
+                            room_height.append(room_detail["height"])
+                            room_area.append(room_detail["width"] * room_detail["height"])
+
+                        # Store the room labels if they have been entered
+                        for room_id in range(len(out_data["nodes"])):
+                            if "label" not in out_data["nodes"][room_id]:
+                                room_name.append(str(room_id))
+                            else:
+                                room_name.append(out_data["nodes"][room_id]["label"])
+
+                        # room_x = np.array(room_x)
+                        # room_y = np.array(room_y)
+                        # room_width = np.array(room_width)
+                        # room_height = np.array(room_height)
+
+                        graph.graph_list[i].room_x = room_x
+                        graph.graph_list[i].room_y = room_y
+                        graph.graph_list[i].room_width = room_width
+                        graph.graph_list[i].room_height = room_height
+                        graph.graph_list[i].area = room_area
+
+                        floorplan_found = True
+
+                        if optimal_floorplan == 0:
+                            graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(graph.graph_list[i])
+                            ui._append_output_data(graph.graph_list[i]) 
+                            if drawGUI:
+                                drawFunction(ui, graph.graph_list[i], origin, ui.get_roomNames(), gclass=gclass)
+                            break
+
+                        '''
+                        Adds the graph data to output_data for downloading the catalogue and
+                        multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
+                        '''
+                        #Calculate bound area
+                        hMax = 0
+                        wMax = 0
+                        for j in range(len(room_x)):
+                            if room_x[j] + room_width[j] > wMax:
+                                wMax = room_x[j] + room_width[j]
+                            if room_y[j] + room_height[j] > hMax:
+                                hMax = room_y[j] + room_height[j]
+
+                        boundArea = hMax * wMax
+                        # Store graph data if graph area is less than current minimal area
+                        area_sum = sum(room_area)
+                        areas.append(area_sum)
+                        areas_mapping.append(((boundArea-area_sum,area_sum),i))
+                        # graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(graph.graph_list[i])
+                        if min_area < 0 or area_sum < min_area:
+                            min_graph = i
+                            min_area = area_sum
+                        # ui._append_output_data(graph.graph_list[i])
+                        # ui._set_multiple_output_found(1)
+                    else:
+                        i = i-1
+                        graph.graph_list.pop()
+                        original_graph_list.pop()
             if allow_rotation :
                 print("Rotation is allowed duplicating all floorplans")
                 number_of_floorplans = len(graph.graph_list)
@@ -2362,80 +2412,92 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 min_graph = None
                 areas = []
                 valid = []
+
+                i = -1
                 # Iterate through all possible floorplans to find one which satisfies the given conditions
-                for i in range(number_of_floorplans):
-                    print("Trying floorplan number", i + 1, "to see if minimum dimension floorplan can be constructed.")
-                    floorplan_obj = input_for_min_dim.floorplan(ui.get_fptype(), ui.get_isDimensioned(),
-                                                                ui.get_isDimensionedCirculation(), ui.get_isRemoveAddCirculation(),
-                                                                ui.get_corridor_thickness())
-                    enc_mat = get_encoded_matrix(ui.get_noOfNodes(), graph.graph_list[i].room_x, graph.graph_list[i].room_y, graph.graph_list[i].room_width,
-                                                graph.graph_list[i].room_height)
-                    floorplan_data = floorplan_obj.get_floorplan_details(
-                        ui.get_roomNames(), ui.get_roomColors(), ui.get_nodeCoordinates(), min_width, min_height, graph.graph_list[i].room_x,
-                        graph.graph_list[i].room_y, graph.graph_list[i].room_width, graph.graph_list[i].room_height,
-                        ui.get_edges(), enc_mat
-                    )
+                for bdy_itr in range(len(graph.graph_list_by_bdy)):
+                    bdy_fplans = 0
+                    for rel_itr in range(len(graph.graph_list_by_bdy[bdy_itr])):
+                        if bdy_fplans >= graph.floorplan_per_bdy_limit:
+                            break
+                        print("Trying floorplan number", i + 1, "to see if minimum dimension floorplan can be constructed.")
+                        graph.graph_list.append(graph.graph_list_by_bdy[bdy_itr][rel_itr])
+                        i = i+1
+                        floorplan_obj = input_for_min_dim.floorplan(ui.get_fptype(), ui.get_isDimensioned(),
+                                                                    ui.get_isDimensionedCirculation(), ui.get_isRemoveAddCirculation(),
+                                                                    ui.get_corridor_thickness())
+                        enc_mat = get_encoded_matrix(ui.get_noOfNodes(), graph.graph_list[i].room_x, graph.graph_list[i].room_y, graph.graph_list[i].room_width,
+                                                    graph.graph_list[i].room_height)
+                        floorplan_data = floorplan_obj.get_floorplan_details(
+                            ui.get_roomNames(), ui.get_roomColors(), ui.get_nodeCoordinates(), min_width, min_height, graph.graph_list[i].room_x,
+                            graph.graph_list[i].room_y, graph.graph_list[i].room_width, graph.graph_list[i].room_height,
+                            ui.get_edges(), enc_mat
+                        )
 
-                    # Storing the dummy merge nodes, and the irregular room they will be adjacent to
-                    dummy_node_data = {'mergednodes': graph.graph_list[i].mergednodes, 'irreg_nodes1': graph.graph_list[i].irreg_nodes1,
-                                    'irreg_nodes2': graph.graph_list[i].irreg_nodes2,
-                                    'dummy_node_adj': graph.graph_list[i].dummy_node_adjacencies}
-                    floorplan_data.update(dummy_node_data)
-                    for merge_node in graph.graph_list[i].mergednodes:
-                        node_min_width = 1
-                        node_min_height = 1
-                        for j in range(0,graph.graph_list[i].nodecnt):
-                            if(graph.graph_list[i].matrix[merge_node][j] == 1):
-                                node_min_width = max(node_min_width, floorplan_data['nodes'][j]['min_width'])
-                                node_min_height = max(node_min_height,floorplan_data['nodes'][j]['min_height'])
-                        floorplan_data['nodes'][merge_node]['min_width'] = node_min_width/2
-                        floorplan_data['nodes'][merge_node]['min_height'] = node_min_height/2
+                        # Storing the dummy merge nodes, and the irregular room they will be adjacent to
+                        dummy_node_data = {'mergednodes': graph.graph_list[i].mergednodes, 'irreg_nodes1': graph.graph_list[i].irreg_nodes1,
+                                        'irreg_nodes2': graph.graph_list[i].irreg_nodes2,
+                                        'dummy_node_adj': graph.graph_list[i].dummy_node_adjacencies}
+                        floorplan_data.update(dummy_node_data)
+                        for merge_node in graph.graph_list[i].mergednodes:
+                            node_min_width = 1
+                            node_min_height = 1
+                            for j in range(0,graph.graph_list[i].nodecnt):
+                                if(graph.graph_list[i].matrix[merge_node][j] == 1):
+                                    node_min_width = max(node_min_width, floorplan_data['nodes'][j]['min_width'])
+                                    node_min_height = max(node_min_height,floorplan_data['nodes'][j]['min_height'])
+                            floorplan_data['nodes'][merge_node]['min_width'] = node_min_width/2
+                            floorplan_data['nodes'][merge_node]['min_height'] = node_min_height/2
 
-                    # If floorplan satisfying the given constraints is satisfied
-                    [status, out_data] = min_dim.main(floorplan_data, 0, 0)
-                    if status == True:
-                        room_x = []
-                        room_y = []
-                        room_width = []
-                        room_height = []
-                        room_area = []
-                        room_name = []
-                        for room_detail in out_data["nodes"]:
-                            room_x.append(room_detail["room_x"])
-                            room_y.append(room_detail["room_y"])
-                            room_width.append(room_detail["width"])
-                            room_height.append(room_detail["height"])
-                            room_area.append(room_detail["width"] * room_detail["height"])
+                        # If floorplan satisfying the given constraints is satisfied
+                        [status, out_data] = min_dim.main(floorplan_data, 0, 0)
+                        if status == True:
+                            bdy_fplans += 1
+                            room_x = []
+                            room_y = []
+                            room_width = []
+                            room_height = []
+                            room_area = []
+                            room_name = []
+                            for room_detail in out_data["nodes"]:
+                                room_x.append(room_detail["room_x"])
+                                room_y.append(room_detail["room_y"])
+                                room_width.append(room_detail["width"])
+                                room_height.append(room_detail["height"])
+                                room_area.append(room_detail["width"] * room_detail["height"])
 
-                        # Store the room labels if they have been entered
-                        for room_id in range(len(out_data["nodes"])):
-                            if "label" not in out_data["nodes"][room_id]:
-                                room_name.append(str(room_id))
-                            else:
-                                room_name.append(out_data["nodes"][room_id]["label"])
-
-
-                        graph.graph_list[i].room_x = room_x
-                        graph.graph_list[i].room_y = room_y
-                        graph.graph_list[i].room_width = room_width
-                        graph.graph_list[i].room_height = room_height
-                        graph.graph_list[i].area = room_area
+                            # Store the room labels if they have been entered
+                            for room_id in range(len(out_data["nodes"])):
+                                if "label" not in out_data["nodes"][room_id]:
+                                    room_name.append(str(room_id))
+                                else:
+                                    room_name.append(out_data["nodes"][room_id]["label"])
 
 
-                        area_sum = sum(room_area)
-                        areas.append(area_sum)
-                        
-                        graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(graph.graph_list[i])
-                        valid.append(i)
-                        # ui._append_output_data(graph.graph_list[i]) 
+                            graph.graph_list[i].room_x = room_x
+                            graph.graph_list[i].room_y = room_y
+                            graph.graph_list[i].room_width = room_width
+                            graph.graph_list[i].room_height = room_height
+                            graph.graph_list[i].area = room_area
 
-                        if min_area < 0 or area_sum < min_area:
-                            min_graph = i
-                            min_area = area_sum
-                        '''
-                        Adds the graph data to output_data for downloading the catalogue and
-                        multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
-                        '''
+
+                            area_sum = sum(room_area)
+                            areas.append(area_sum)
+                            
+                            graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(graph.graph_list[i])
+                            valid.append(i)
+                            # ui._append_output_data(graph.graph_list[i]) 
+
+                            if min_area < 0 or area_sum < min_area:
+                                min_graph = i
+                                min_area = area_sum
+                            '''
+                            Adds the graph data to output_data for downloading the catalogue and
+                            multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
+                            '''
+                        else:
+                            i = i-1
+                            graph.graph_list.pop()
 
                 print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
                 graph.scale_plot_dimension(plot_width, plot_height,valid)
@@ -2475,6 +2537,166 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
         
     end = time.time()
     ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
+
+def handle_space_optimization(ui, regions, rooms, fixed_rooms, adjacency, non_adjacency, entrance_coords=None, 
+                               max_attempts=100, enable_expansion=True, enable_compaction=True):
+    """
+    Handler for space optimization using the negNew FloorPlan engine.
+    
+    Args:
+        ui: GuiParameters object for storing output
+        regions: List of region dicts with x, y, width, height
+        rooms: List of room dicts with name, width, height, max_expansion
+        fixed_rooms: List of fixed room dicts with name, x, y, width, height, is_fixed, max_expansion
+        adjacency: List of [room1_name, room2_name] pairs
+        non_adjacency: List of [room1_name, room2_name] pairs
+        entrance_coords: List of [x, y] coordinate pairs for entrance line
+        max_attempts: Maximum placement attempts
+        enable_expansion: Whether to enable room expansion
+        enable_compaction: Whether to enable room compaction
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        # Import the FloorPlan class from Space_Optimization
+        import sys
+        import os
+        space_opt_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'Space_Optimization')
+        if space_opt_path not in sys.path:
+            sys.path.insert(0, space_opt_path)
+        
+        from negNew import FloorPlan
+        
+        # Create FloorPlan instance
+        floor_plan = FloorPlan(region_specs=regions, fixed_rooms=fixed_rooms)
+        
+        # Set entrance location if provided
+        if entrance_coords:
+            floor_plan.set_entrance_location(entrance_coords)
+        
+        # Add regular rooms
+        for room in rooms:
+            floor_plan.add_room(
+                name=room['name'],
+                width=room['width'],
+                height=room['height'],
+                max_expansion=room.get('max_expansion', 20)
+            )
+        
+        # Add fixed rooms
+        for fixed_room in fixed_rooms:
+            floor_plan.add_room(
+                name=fixed_room['name'],
+                width=fixed_room['width'],
+                height=fixed_room['height'],
+                max_expansion=fixed_room.get('max_expansion', 0),
+                fixed_x=fixed_room['x'],
+                fixed_y=fixed_room['y']
+            )
+        
+        # Add adjacency constraints
+        for adj_pair in adjacency:
+            floor_plan.add_adjacency(adj_pair[0], adj_pair[1])
+        
+        # Add non-adjacency constraints
+        for non_adj_pair in non_adjacency:
+            floor_plan.add_non_adjacency(non_adj_pair[0], non_adj_pair[1])
+        
+        # Generate layout
+        success = floor_plan.generate_layout(
+            max_attempts=max_attempts,
+            enable_expansion=enable_expansion,
+            enable_space_optimization=enable_compaction
+        )
+        
+        if not success:
+            ui.set_message("Failed to generate space-optimized layout")
+            return False
+        
+        # Compact rooms if enabled
+        if enable_compaction:
+            floor_plan.compact_rooms()
+        
+        # Calculate adjacency score and metrics
+        score, satisfied_pairs, violations = floor_plan.evaluate_adjacency_score()
+        
+        # Check entrance adjacency if entrance_coords provided
+        entrance_adjacent_rooms = []
+        if entrance_coords:
+            for room in floor_plan.rooms:
+                if room.is_adjacent_to_entrance(entrance_coords):
+                    entrance_adjacent_rooms.append(room.name)
+        
+        # Prepare output data
+        output_data = {
+            'rooms': [],
+            'floor_regions': regions,
+            'entrance_coords': entrance_coords,
+            'metrics': {
+                'adjacency_score': score,
+                'satisfied_pairs': satisfied_pairs,
+                'non_adjacency_violations': violations,
+                'entrance_adjacent_rooms': entrance_adjacent_rooms
+            }
+        }
+        
+        # Extract room data
+        total_region_area = 0
+        for region in floor_plan.floor_regions:
+            total_region_area += region['width'] * region['height']
+        
+        occupied_room_area = 0
+        occupied_fixed_area = 0
+        
+        for room in floor_plan.rooms:
+            room_dict = {
+                'name': room.name,
+                'x': room.x,
+                'y': room.y,
+                'width': room.width,
+                'height': room.height,
+                'rotated': room.rotated,
+                'is_fixed': getattr(room, 'is_fixed', False),
+                'original_width': room.original_width,
+                'original_height': room.original_height,
+                'area': room.get_area()
+            }
+            output_data['rooms'].append(room_dict)
+            
+            if getattr(room, 'is_fixed', False):
+                occupied_fixed_area += room.get_area()
+            else:
+                occupied_room_area += room.get_area()
+        
+        # Calculate area utilization
+        occupied_total_area = occupied_room_area + occupied_fixed_area
+        remaining_area = max(0, total_region_area - occupied_total_area)
+        remaining_percent = (remaining_area / total_region_area * 100.0) if total_region_area > 0 else 0.0
+        utilization_ratio = occupied_total_area / total_region_area if total_region_area > 0 else 0.0
+        
+        output_data['metrics']['area_utilization'] = {
+            'total_region_area': total_region_area,
+            'occupied_room_area': occupied_room_area,
+            'occupied_fixed_area': occupied_fixed_area,
+            'occupied_total_area': occupied_total_area,
+            'remaining_area': remaining_area,
+            'remaining_percent': remaining_percent,
+            'utilization_ratio': utilization_ratio
+        }
+        
+        # Store output in UI
+        ui._set_output_data([output_data])
+        ui.set_message(f"Space optimization successful. Adjacency score: {score}/{len(adjacency)}")
+        
+        return True
+        
+    except Exception as e:
+        ui.set_message(f"Space optimization error: {str(e)}")
+        print(f"Error in handle_space_optimization: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 def show_warning(str):
     messagebox.showinfo("Warning", str)
