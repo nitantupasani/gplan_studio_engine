@@ -2718,6 +2718,7 @@ class FloorPlanGUI:
 
         self.show_screen("rooms")
 
+
     def safe_draw_canvas(self):
         """
         Draw the matplotlib canvas if present, otherwise try to refresh a tkinter.Canvas.
@@ -2931,7 +2932,8 @@ class FloorPlanGUI:
                     # create lightweight room-like object for UI functions
                     room_obj = SimpleNamespace(
                         name=name,
-                        max_expansion=int(fr.get('max_expansion', 0) or 0),
+                        # default max_expansion to 3 if missing
+                        max_expansion=int(fr.get('max_expansion', 3) or 3),
                         width=w,
                         height=h,
                         is_fixed=True
@@ -2950,6 +2952,7 @@ class FloorPlanGUI:
                                     self.rooms_tree.set(item, "Max Expansion", int(room_obj.max_expansion))
                                     spacing = float(getattr(self, "unit_spacing", 1.0) or 1.0)
                                     self.rooms_tree.set(item, "Area", int(round((w * h) * (spacing ** 2))))
+                                    self.rooms_tree.set(item, "Need Corridor", "Yes")
                                     # tag as fixed
                                     try:
                                         self.rooms_tree.item(item, tags=("fixed",))
@@ -3027,7 +3030,6 @@ class FloorPlanGUI:
 
         self.show_screen("rooms")
 
-
     def init_rooms_screen(self):
         frame = ttk.Frame(self.content_frame)
         self.screens["rooms"] = frame
@@ -3073,7 +3075,7 @@ class FloorPlanGUI:
         rooms_frame = ttk.LabelFrame(frame, text="Rooms", padding=10)
         rooms_frame.pack(fill=tk.BOTH, expand=True, pady=10)
 
-        columns = ("Width", "Height", "Max Expansion", "Area")
+        columns = ("Width", "Height", "Max Expansion", "Area", "Need Corridor")
         self.rooms_tree = ttk.Treeview(rooms_frame, columns=columns, show="tree headings", height=8)
         self.rooms_tree.bind("<Double-1>", lambda event: self.edit_room())
         self.rooms_tree.heading("#0", text="Room Name")
@@ -3104,10 +3106,15 @@ class FloorPlanGUI:
         ttk.Entry(single_input_frame, textvariable=self.room_height_var, width=10).grid(row=0, column=5, padx=5)
 
         ttk.Label(single_input_frame, text="Max Expansion:").grid(row=0, column=6, padx=5, sticky=tk.W)
-        self.room_max_exp_var = tk.StringVar()
+        # Default max expansion should be 3
+        self.room_max_exp_var = tk.StringVar(value="3")
         ttk.Entry(single_input_frame, textvariable=self.room_max_exp_var, width=10).grid(row=0, column=7, padx=5)
 
-        ttk.Button(single_input_frame, text="Add Room", command=self.add_room).grid(row=0, column=8, padx=10)
+        # NEW: Need Corridor toggle for single room (default Yes)
+        self.room_need_corr_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(single_input_frame, text="Need Corridor", variable=self.room_need_corr_var).grid(row=0, column=8, padx=5)
+
+        ttk.Button(single_input_frame, text="Add Room", command=self.add_room).grid(row=0, column=9, padx=10)
 
         bulk_input_frame = ttk.LabelFrame(frame, text="Add Multiple Rooms", padding=10)
         bulk_input_frame.pack(fill=tk.X, pady=5)
@@ -3129,11 +3136,15 @@ class FloorPlanGUI:
         ttk.Entry(bulk_input_frame, textvariable=self.bulk_room_height_var, width=10).grid(row=0, column=7, padx=5)
 
         ttk.Label(bulk_input_frame, text="Max Expansion:").grid(row=0, column=8, padx=5, sticky=tk.W)
-        self.bulk_room_max_exp_var = tk.StringVar()
+        # Default max expansion should be 3
+        self.bulk_room_max_exp_var = tk.StringVar(value="3")
         ttk.Entry(bulk_input_frame, textvariable=self.bulk_room_max_exp_var, width=10).grid(row=0, column=9, padx=5)
 
-        ttk.Button(bulk_input_frame, text="Add Multiple Rooms", command=self.add_bulk_rooms).grid(row=0, column=10,
-                                                                                                  padx=10)
+        # NEW: Need Corridor toggle for bulk rooms (default Yes)
+        self.bulk_room_need_corr_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(bulk_input_frame, text="Need Corridor", variable=self.bulk_room_need_corr_var).grid(row=0, column=10, padx=5)
+
+        ttk.Button(bulk_input_frame, text="Add Multiple Rooms", command=self.add_bulk_rooms).grid(row=0, column=11, padx=10)
 
         management_frame = ttk.Frame(frame)
         management_frame.pack(fill=tk.X, pady=10)
@@ -3141,6 +3152,7 @@ class FloorPlanGUI:
         ttk.Button(management_frame, text="Remove Selected", command=self.remove_room).pack(side=tk.LEFT, padx=5)
         ttk.Button(management_frame, text="Edit Selected", command=self.edit_room).pack(side=tk.LEFT, padx=5)
         ttk.Button(management_frame, text="Clear All", command=self.clear_rooms).pack(side=tk.LEFT, padx=5)
+        ttk.Button(management_frame, text="Toggle Corridor", command=self.toggle_corridor).pack(side=tk.LEFT, padx=5)
 
     def init_adjacency_screen(self):
         frame = ttk.Frame(self.content_frame)
@@ -3332,48 +3344,48 @@ class FloorPlanGUI:
     #     except Exception as e:
     #         print("update_area_stats: unexpected error:", e)
 
-        # In FloorPlanGUI class
+    # In FloorPlanGUI class
     def update_area_stats(self, total_area_override=None):
-            """
-            Unified area updater. Calculates total area from override or uses the stored value.
-            Used area is calculated from the rooms_tree to prevent double-counting.
-            """
-            try:
-                # Logic to persist the total area correctly
-                total_region_area = 0.0
-                if total_area_override is not None:
-                    # If an override is given (from the CAD tool), use it and store it permanently.
-                    total_region_area = float(total_area_override)
-                    self.total_area.set(int(round(total_region_area)))
+        """
+        Unified area updater. Calculates total area from override or uses the stored value.
+        Used area is calculated from the rooms_tree to prevent double-counting.
+        """
+        try:
+            # Logic to persist the total area correctly
+            total_region_area = 0.0
+            if total_area_override is not None:
+                # If an override is given (from the CAD tool), use it and store it permanently.
+                total_region_area = float(total_area_override)
+                self.total_area.set(int(round(total_region_area)))
 
-                    print(f"DEBUG 3 (update_area_stats): SETTING self.total_area to {self.total_area.get()}")
-                else:
-                    # On all subsequent calls (add/edit room), get the stored total area.
-                    total_region_area = float(self.total_area.get())
+                print(f"DEBUG 3 (update_area_stats): SETTING self.total_area to {self.total_area.get()}")
+            else:
+                # On all subsequent calls (add/edit room), get the stored total area.
+                total_region_area = float(self.total_area.get())
 
-                # Determine Used Area (from the rooms_tree)
-                used_area = 0.0
-                for item in self.rooms_tree.get_children():
-                    try:
-                        area_val = self.rooms_tree.set(item, "Area")
-                        used_area += float(area_val or 0)
-                    except (ValueError, TypeError):
-                        continue
+            # Determine Used Area (from the rooms_tree)
+            used_area = 0.0
+            for item in self.rooms_tree.get_children():
+                try:
+                    area_val = self.rooms_tree.set(item, "Area")
+                    used_area += float(area_val or 0)
+                except (ValueError, TypeError):
+                    continue
 
-                # Calculate final stats
-                remaining = max(0.0, total_region_area - used_area)
-                remaining_pct = (remaining / total_region_area * 100.0) if total_region_area > 0 else 0.0
+            # Calculate final stats
+            remaining = max(0.0, total_region_area - used_area)
+            remaining_pct = (remaining / total_region_area * 100.0) if total_region_area > 0 else 0.0
 
-                # Update the UI labels
-                self.only_rooms_area.set(int(round(used_area)))
-                self.remaining_area.set(int(round(remaining)))
-                self.remaining_percent.set(f"{remaining_pct:.1f}%")
+            # Update the UI labels
+            self.only_rooms_area.set(int(round(used_area)))
+            self.remaining_area.set(int(round(remaining)))
+            self.remaining_percent.set(f"{remaining_pct:.1f}%")
 
-                print(
-                    f"[AREA stats] total={total_region_area} used={used_area} remaining={remaining} ({remaining_pct:.2f}%)")
+            print(
+                f"[AREA stats] total={total_region_area} used={used_area} remaining={remaining} ({remaining_pct:.2f}%)")
 
-            except Exception as e:
-                print("update_area_stats: unexpected error:", e)
+        except Exception as e:
+            print("update_area_stats: unexpected error:", e)
 
     def update_output_display(self):
         """Update the output display with statistics and visualization"""
@@ -3387,7 +3399,8 @@ class FloorPlanGUI:
         total_area = self.total_area.get()
 
         # This is the debug print to confirm the fix is applied.
-        print(f"DEBUG 4 (update_output_display): At the moment of display, self.total_area.get() is {self.total_area.get()}")
+        print(
+            f"DEBUG 4 (update_output_display): At the moment of display, self.total_area.get() is {self.total_area.get()}")
 
         used_area = sum(room.width * room.height for room in self.floor_plan.rooms if room.x is not None)
 
@@ -3419,6 +3432,11 @@ class FloorPlanGUI:
         self.visualize_floor_plan()
         self.safe_draw_canvas()
 
+        # Enable GA button if floor plan exists
+        if hasattr(self, 'ga_button'):
+            self.ga_button.config(state=tk.NORMAL)
+
+        # Switch to the output screen
         self.show_screen("output")
 
     def init_non_adjacency_screen(self):
@@ -3504,6 +3522,17 @@ class FloorPlanGUI:
         ttk.Checkbutton(gen_controls_row, text="Enable Space Optimization",
                         variable=self.enable_space_optimization_var).grid(row=0, column=3, padx=20)
 
+        # Corridor width control
+        ttk.Label(gen_controls_row, text="Corridor Width:").grid(row=0, column=6, sticky=tk.W, padx=5)
+        self.corridor_width_var = tk.IntVar(value=4)
+        corridor_spinbox = tk.Spinbox(gen_controls_row, from_=1, to=10, textvariable=self.corridor_width_var, width=5)
+        corridor_spinbox.grid(row=0, column=7, padx=5)
+
+        # GA button
+        self.ga_button = ttk.Button(gen_controls_row, text="Generate Circulation", command=self.run_genetic_algorithm)
+        self.ga_button.grid(row=0, column=8, padx=5)
+        self.ga_button.config(state=tk.DISABLED)
+
         save_controls_row = ttk.Frame(controls_frame)
         save_controls_row.pack(fill=tk.X)
 
@@ -3533,8 +3562,18 @@ class FloorPlanGUI:
         non_adjacencies = []
         for i in range(self.non_adjacencies_listbox.size()):
             non_adjacency_text = self.non_adjacencies_listbox.get(i)
-            room1, room2 = non_adjacency_text.split(" ✗ ")  # Use ✗ instead of Ã¢ï¿½ï¿½
-            non_adjacencies.append({"room1": room1, "room2": room2})
+            if "✗" in non_adjacency_text:
+                room1, room2 = non_adjacency_text.split("✗", 1)
+            elif "â��" in non_adjacency_text:
+                room1, room2 = non_adjacency_text.split("â��", 1)
+            else:
+                parts = non_adjacency_text.split()
+                if len(parts) >= 2:
+                    room1, room2 = parts[0], parts[-1]
+                else:
+                    continue
+
+            non_adjacencies.append([room1.strip(), room2.strip()])
         return non_adjacencies
 
     def on_canvas_click(self, event):
@@ -3741,7 +3780,7 @@ class FloorPlanGUI:
 
             data = {
                 "metadata": {
-                    "version": "2.0", # Mark as new format
+                    "version": "2.0",  # Mark as new format
                     "created_at": self.get_current_timestamp(),
                     "description": "Floor plan configuration and results"
                 },
@@ -3773,95 +3812,168 @@ class FloorPlanGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save floor plan:\n{str(e)}")
 
+    # In FloorPlanGUI class in uinegNew.py
+    # Replace the ENTIRE load_floor_plan_json method with this:
+
+    # In FloorPlanGUI class in uinegNew.py
+    # Replace the ENTIRE load_floor_plan_json method with this:
+    def _set_total_area_from_boundary(self, boundary_coords):
+        """
+        Compute polygon area from boundary_coords using the shoelace formula,
+        scale by unit_spacing, and store it into self.total_area (Tk variable).
+        """
+        if not boundary_coords or len(boundary_coords) < 3:
+            area_units = 0.0
+        else:
+            area = 0.0
+            n = len(boundary_coords)
+            for i in range(n):
+                x1, y1 = boundary_coords[i]
+                x2, y2 = boundary_coords[(i + 1) % n]
+                area += x1 * y2 - x2 * y1
+            area_units = abs(area) * 0.5  # area in coordinate units
+
+        spacing = getattr(self, "unit_spacing", 1.0) or 1.0
+        total_area_real = area_units * (spacing ** 2)
+
+        # Make sure self.total_area is a tk.Variable and update it
+        try:
+            # if already a Tk variable (IntVar / DoubleVar)
+            if hasattr(self, "total_area") and isinstance(self.total_area, tk.Variable):
+                # cast to int; if you want decimals, use DoubleVar and skip int()
+                self.total_area.set(int(round(total_area_real)))
+            else:
+                # create it
+                self.total_area = tk.IntVar(value=int(round(total_area_real)))
+        except Exception:
+            # absolute fallback: at least store it somewhere
+            self.total_area = int(round(total_area_real))
+
+        print("DEBUG: loaded total_area =", total_area_real)
+
     def load_floor_plan_json(self):
         try:
             file_path = filedialog.askopenfilename(
                 filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
                 title="Load Floor Plan"
             )
-            if not file_path:
-                return
+            if not file_path: return
 
             with open(file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
-            # Start with a completely clean slate
             self.clear_all_data()
 
-            # Restore the CAD drawing state if it exists in the file
-            if "cad_state" in data:
-                print("Loading new format JSON with full CAD state.")
-                cad_state = data["cad_state"]
+            main_boundary_coords = []
+            cad_state = data.get("cad_state", {})
+
+            # Modern format: Try to load from cad_state first
+            if cad_state:
                 self.boundary_state = cad_state.get("boundary_state", [])
                 self.final_area = cad_state.get("final_area", [])
                 self.fixed_names = cad_state.get("fixed_names", [])
-                self.entrance_grid_coords = cad_state.get("entrance_grid_coords", [])
-            else:
-                # Fallback for old files
-                print("Loading old format JSON. Reconstructing CAD view.")
-                regions = data.get('regions', [])
-                if regions:
-                    min_x = min(r['x'] for r in regions)
-                    min_y = min(r['y'] for r in regions)
-                    max_x = max(r['x'] + r['width'] for r in regions)
-                    max_y = max(r['y'] + r['height'] for r in regions)
-                    boundary_coords = [(min_x, min_y), (max_x, min_y), (max_x, max_y), (min_x, max_y)]
-                    self.boundary_state.append({
-                        'type': 'polygon', 'coords': boundary_coords, 'id': 'loaded_boundary'
+                self.unit_spacing = data.get("generation_settings", {}).get("unit_spacing", 1.0)
+                main_boundary_coords = next(
+                    (item.get('coords', []) for item in self.boundary_state if item.get("type") == "polygon"), [])
+
+            # Fallback for OLD format: If no boundary found, reconstruct from "regions"
+            if not main_boundary_coords and "regions" in data:
+                print("Legacy JSON format detected. Reconstructing boundary from regions.")
+                legacy_regions = data.get("regions", [])
+                if legacy_regions:
+                    # These coordinates are already scaled, so unit_spacing is 1
+                    self.unit_spacing = 1.0
+                    min_x = min(r['x'] for r in legacy_regions)
+                    min_y = min(r['y'] for r in legacy_regions)
+                    max_x = max(r['x'] + r['width'] for r in legacy_regions)
+                    max_y = max(r['y'] + r['height'] for r in legacy_regions)
+                    main_boundary_coords = [[min_x, min_y], [max_x, min_y], [max_x, max_y], [min_x, max_y]]
+                    # Old files have no concept of fixed shapes
+                    self.final_area = []
+                    self.fixed_names = []
+
+            if not main_boundary_coords:
+                raise ValueError("File does not contain a valid boundary in 'cad_state' or a 'regions' list.")
+
+            self._set_total_area_from_boundary(main_boundary_coords)
+
+            # Normalize all coordinates to a (0,0) origin
+            offset_x = min(p[0] for p in main_boundary_coords)
+            offset_y = min(p[1] for p in main_boundary_coords)
+            boundary_width = (max(p[0] for p in main_boundary_coords) - offset_x)
+            boundary_height = (max(p[1] for p in main_boundary_coords) - offset_y)
+
+            solid_normalized_region = {'x': 0, 'y': 0, 'width': boundary_width, 'height': boundary_height}
+
+            for item in self.regions_tree.get_children(): self.regions_tree.delete(item)
+            item = self.regions_tree.insert("", "end", text="Main Region")
+            self.regions_tree.set(item, "X", int(solid_normalized_region['x']));
+            self.regions_tree.set(item, "Y", int(solid_normalized_region['y']))
+            self.regions_tree.set(item, "Width", int(solid_normalized_region['width']));
+            self.regions_tree.set(item, "Height", int(solid_normalized_region['height']))
+
+            # Reconstruct fixed rooms with normalized coordinates (will be empty for old files)
+            self.cad_fixed_rooms = []
+            for i, poly in enumerate(self.final_area):
+                if poly and i < len(self.fixed_names):
+                    poly_min_x = min(p[0] for p in poly)
+                    poly_min_y = min(p[1] for p in poly)
+                    self.cad_fixed_rooms.append({
+                        'name': self.fixed_names[i],
+                        'x': (poly_min_x - offset_x) * self.unit_spacing,
+                        'y': (poly_min_y - offset_y) * self.unit_spacing,
+                        'width': (max(p[0] for p in poly) - poly_min_x) * self.unit_spacing,
+                        'height': (max(p[1] for p in poly) - poly_min_y) * self.unit_spacing
                     })
 
-            # Populate UI regions tree
-            if "regions" in data:
-                for i, region in enumerate(data["regions"]):
-                    item = self.regions_tree.insert("", "end", text=f"Region {i + 1}")
-                    for key in ["X", "Y", "Width", "Height"]:
-                        self.regions_tree.set(item, key, region.get(key.lower(), 0))
+            # Set Total Area and populate UI
 
-            # ### FIX #1: Correctly calculate and set Room Area ###
-            if "rooms" in data:
-                for room in data["rooms"]:
-                    item = self.rooms_tree.insert("", "end", text=room['name'])
-                    width = int(room['width'])
-                    height = int(room['height'])
-                    area = width * height  # Calculate the area
-                    self.rooms_tree.set(item, "Width", width)
-                    self.rooms_tree.set(item, "Height", height)
-                    self.rooms_tree.set(item, "Max Expansion", room['max_expansion'])
-                    self.rooms_tree.set(item, "Area", area)  # Set the 'Area' column
+            fixed_room_names = {fr['name'] for fr in self.cad_fixed_rooms}
+            for room in data.get("rooms", []):
+                item = self.rooms_tree.insert("", "end", text=room['name'])
+                width, height = int(room['width']), int(room['height'])
+                self.rooms_tree.set(item, "Width", width);
+                self.rooms_tree.set(item, "Height", height)
+                self.rooms_tree.set(item, "Max Expansion", room.get('max_expansion', 0))
+                self.rooms_tree.set(item, "Area", int(round(width * height * self.unit_spacing ** 2)))
+                if room['name'] in fixed_room_names: self.rooms_tree.item(item, tags=('fixed',))
 
-            # Populate adjacencies and non-adjacencies
             if "adjacencies" in data:
                 for adj in data["adjacencies"]:
-                    self.adjacencies_listbox.insert(tk.END, f"{adj['room1']} ↔ {adj['room2']}")
+                    if isinstance(adj, dict):
+                        room1, room2 = adj.get('room1'), adj.get('room2')
+                    elif isinstance(adj, (list, tuple)) and len(adj) >= 2:
+                        room1, room2 = adj[0], adj[1]
+                    else:
+                        continue
+                    room1 = room1.strip() if isinstance(room1, str) else room1
+                    room2 = room2.strip() if isinstance(room2, str) else room2
+                    if room1 and room2:
+                        self.adjacencies_listbox.insert(tk.END, f"{room1} ↔ {room2}")
             if "non_adjacencies" in data:
                 for non_adj in data["non_adjacencies"]:
-                    self.non_adjacencies_listbox.insert(tk.END, f"{non_adj['room1']} ✗ {non_adj['room2']}")
+                    if isinstance(non_adj, dict):
+                        room1, room2 = non_adj.get('room1'), non_adj.get('room2')
+                    elif isinstance(non_adj, (list, tuple)) and len(non_adj) >= 2:
+                        room1, room2 = non_adj[0], non_adj[1]
+                    else:
+                        continue
+                    room1 = room1.strip() if isinstance(room1, str) else room1
+                    room2 = room2.strip() if isinstance(room2, str) else room2
+                    if room1 and room2:
+                        self.non_adjacencies_listbox.insert(tk.END, f"{room1} ✗ {room2}")
 
-            # Load settings
-            if "generation_settings" in data:
-                settings = data["generation_settings"]
+            settings = data.get("settings") or data.get("generation_settings") or {}
+            if settings:
                 self.max_attempts_var.set(str(settings.get("max_attempts", 1000)))
                 self.enable_expansion_var.set(settings.get("enable_expansion", True))
+                self.enable_space_optimization_var.set(settings.get("enable_space_optimization", True))
+                if hasattr(self, "corridor_width_var"):
+                    self.corridor_width_var.set(int(settings.get("corridor_width", self.corridor_width_var.get())))
 
-            # Update area stats now that the rooms tree is populated
-            total_area_from_json = data.get("results", {}).get("statistics", {}).get("total_floor_area", 0)
-            if total_area_from_json > 0:
-                self.total_area.set(total_area_from_json)
             self.update_area_stats()
-
-            # ### FIX #2: Automatically restore layout if results exist ###
-            has_results = "results" in data and data.get("results") and data["results"].get("room_placements")
-            if has_results:
-                print("Results found in JSON. Automatically restoring layout.")
-                self.restore_floor_plan_from_results(data["results"])
-                messagebox.showinfo("Success", f"Floor plan and saved layout restored from:\n{file_path}")
-                # Go directly to the output screen to show the result
-                self.show_screen('output')
-            else:
-                messagebox.showinfo("Success",
-                                    f"Floor plan configuration loaded from:\n{file_path}\nClick 'Generate Floor Plan' to create a layout.")
-                # Go to the rooms screen since there's no layout to show yet
-                self.show_screen('rooms')
+            messagebox.showinfo("Success", f"Floor plan configuration loaded from:\n{file_path}")
+            self.show_screen('rooms')
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load floor plan:\n{str(e)}")
@@ -3899,7 +4011,12 @@ class FloorPlanGUI:
                     width = int(self.rooms_tree.set(item, "Width"))
                     height = int(self.rooms_tree.set(item, "Height"))
                     max_exp = int(self.rooms_tree.set(item, "Max Expansion"))
-                    self.floor_plan.add_room(name, width, height, max_exp)
+                    room_obj = self.floor_plan.add_room(name, width, height, max_exp)
+                    try:
+                        need_corr = self.rooms_tree.set(item, "Need Corridor")
+                        room_obj.need_corridor = True if str(need_corr).lower().startswith("y") else False
+                    except Exception:
+                        pass
 
             # ### FIX: Use the correct separator '↔' when reading from the listbox ###
             for i in range(self.adjacencies_listbox.size()):
@@ -3928,6 +4045,45 @@ class FloorPlanGUI:
                         if not hasattr(room, 'original_height'):
                             room.original_height = placement.get("original_height", placement["height"])
 
+            # Persist fixed-room info so subsequent Generate calls will re-anchor them.
+            try:
+                fixed_rooms_from_results = []
+                # compute floor_height in the same way generate_floor_plan expects for CAD-fixed entries
+                floor_height = max(r['y'] + r['height'] for r in regions) if regions else 0
+                for placement in results_data.get("room_placements", []):
+                    if placement.get("is_fixed"):
+                        # convert placement coords into CAD-style fixed-room entries so the CAD path
+                        # in generate_floor_plan will re-add them correctly on later runs
+                        px = int(placement.get('x', 0))
+                        py = int(placement.get('y', 0))
+                        w = int(placement.get('width', 0))
+                        h = int(placement.get('height', 0))
+                        # reverse the flip used by the CAD path: fr_y such that
+                        # floor_height - (fr_y + h) == py  =>  fr_y = floor_height - (py + h)
+                        fr_y = int(floor_height - (py + h)) if floor_height else int(placement.get('y', 0))
+                        fr = {
+                            'name': placement.get('name'),
+                            'width': w,
+                            'height': h,
+                            'x': int(px),
+                            'y': int(fr_y),
+                            # default to 3 when missing so UI/backend keep a sensible value
+                            'max_expansion': int(placement.get('max_expansion', 3))
+                        }
+                        fixed_rooms_from_results.append(fr)
+
+                if fixed_rooms_from_results:
+                    # store so generate_floor_plan (CAD path) will pick them up on subsequent runs
+                    self.cad_fixed_rooms = fixed_rooms_from_results
+                    self.last_fixed_rooms = list(fixed_rooms_from_results)
+                    # refresh the UI list for fixed rooms
+                    try:
+                        self.load_cad_fixed_rooms_into_ui()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
             self.update_output_display()
 
         except Exception as e:
@@ -3951,11 +4107,39 @@ class FloorPlanGUI:
     def get_rooms_data(self):
         rooms = []
         for item in self.rooms_tree.get_children():
+            # Determine need_corridor (default Yes)
+            need_corr_val = self.rooms_tree.set(item, "Need Corridor") if "Need Corridor" in self.rooms_tree['columns'] else "Yes"
+
+            # Determine is_fixed: prefer an explicit tag, otherwise check any 'Fixed'/'Is Fixed' column if present
+            try:
+                is_fixed_tag = 'fixed' in self.rooms_tree.item(item).get('tags', [])
+            except Exception:
+                is_fixed_tag = False
+
+            fixed_col_val = None
+            for colcand in ("Is Fixed", "Fixed", "is_fixed"):
+                try:
+                    if colcand in self.rooms_tree['columns']:
+                        fixed_col_val = self.rooms_tree.set(item, colcand)
+                        break
+                except Exception:
+                    continue
+
+            if fixed_col_val is not None:
+                try:
+                    is_fixed = True if str(fixed_col_val).lower().startswith('y') or str(fixed_col_val) in ('1', 'true', 'True') else False
+                except Exception:
+                    is_fixed = bool(fixed_col_val)
+            else:
+                is_fixed = bool(is_fixed_tag)
+
             room = {
                 "name": self.rooms_tree.item(item)['text'],
                 "width": int(self.rooms_tree.set(item, "Width")),
                 "height": int(self.rooms_tree.set(item, "Height")),
-                "max_expansion": int(self.rooms_tree.set(item, "Max Expansion"))
+                "max_expansion": int(self.rooms_tree.set(item, "Max Expansion")),
+                "need_corridor": True if str(need_corr_val).lower().startswith("y") else False,
+                "is_fixed": bool(is_fixed)
             }
             rooms.append(room)
         return rooms
@@ -3964,8 +4148,18 @@ class FloorPlanGUI:
         adjacencies = []
         for i in range(self.adjacencies_listbox.size()):
             adjacency_text = self.adjacencies_listbox.get(i)
-            room1, room2 = adjacency_text.split(" â�� ")
-            adjacencies.append({"room1": room1, "room2": room2})
+            if "↔" in adjacency_text:
+                room1, room2 = adjacency_text.split("↔", 1)
+            elif "â��" in adjacency_text:
+                room1, room2 = adjacency_text.split("â��", 1)
+            else:
+                parts = adjacency_text.split()
+                if len(parts) >= 2:
+                    room1, room2 = parts[0], parts[-1]
+                else:
+                    continue
+
+            adjacencies.append([room1.strip(), room2.strip()])
         return adjacencies
 
     def get_floor_plan_results(self):
@@ -3990,6 +4184,16 @@ class FloorPlanGUI:
                     "rotated": room.rotated,
                     "max_expansion": room.max_expansion
                 }
+                # include is_fixed flag so exported placements know which rooms are fixed
+                try:
+                    placement["is_fixed"] = bool(getattr(room, "is_fixed", False))
+                except Exception:
+                    placement["is_fixed"] = False
+                # include need_corridor flag so downstream consumers know if a corridor is required
+                try:
+                    placement["need_corridor"] = bool(getattr(room, "need_corridor", False))
+                except Exception:
+                    placement["need_corridor"] = False
                 room_placements.append(placement)
 
         return {
@@ -4119,6 +4323,7 @@ class FloorPlanGUI:
             self.rooms_tree.set(item, "Height", height)
             self.rooms_tree.set(item, "Max Expansion", max_exp)
             self.rooms_tree.set(item, "Area", width * height)
+            self.rooms_tree.set(item, "Need Corridor", "Yes")
             # self.rooms_tree.set(item, "Area", area)
 
         self.only_rooms_area.set(self.only_room_area)
@@ -4131,7 +4336,6 @@ class FloorPlanGUI:
             self.non_adjacencies_listbox.insert(tk.END, f"{room1} ✗ {room2}")
 
     def clear_all_data(self):
-        # Clears UI elements
         for item in self.regions_tree.get_children():
             self.regions_tree.delete(item)
         for item in self.rooms_tree.get_children():
@@ -4251,6 +4455,28 @@ class FloorPlanGUI:
             self.rooms_tree.set(selected_item, "Height", new_height)
             self.rooms_tree.set(selected_item, "Max Expansion", new_max_exp)
             self.rooms_tree.set(selected_item, "Area", new_area)
+            # Update Need Corridor value from edit dialog checkbox
+            try:
+                need_corr_val = bool(getattr(self, 'edit_need_corr_var', tk.BooleanVar(value=True)).get())
+                self.rooms_tree.set(selected_item, "Need Corridor", "Yes" if need_corr_val else "No")
+                # Also update underlying FloorPlan room object if present
+                floor = getattr(self, "floorplan", None) or getattr(self, "floor_plan", None)
+                if floor is not None and hasattr(floor, 'rooms'):
+                    for r in floor.rooms:
+                        try:
+                            if getattr(r, 'name', None) == new_name or (isinstance(r, dict) and r.get('name') == new_name):
+                                try:
+                                    setattr(r, 'need_corridor', need_corr_val)
+                                except Exception:
+                                    # if it's a dict
+                                    try:
+                                        r['need_corridor'] = need_corr_val
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            continue
+            except Exception:
+                pass
 
             # Recalculate and display the updated area statistics
             self.update_area_stats()
@@ -4300,6 +4526,8 @@ class FloorPlanGUI:
             'current_height': self.rooms_tree.set(selected[0], "Height"),
             'current_max_exp': self.rooms_tree.set(selected[0], "Max Expansion"),
             'current_area': self.rooms_tree.set(selected[0], "Area"),
+            'need_corridor': self.rooms_tree.set(selected[0], "Need Corridor")
+
         }
 
         self.edit_window = tk.Toplevel(self.root)
@@ -4343,6 +4571,15 @@ class FloorPlanGUI:
         max_exp_entry = ttk.Entry(fields_frame, textvariable=self.edit_max_exp_var, width=20)
         max_exp_entry.grid(row=3, column=1, padx=(10, 0), pady=5, sticky=tk.W)
 
+        # Need Corridor checkbox for editing
+        try:
+            init_need = bool(str(self.edit_context.get('need_corridor', 'Yes')).lower().startswith('y'))
+        except Exception:
+            init_need = True
+        self.edit_need_corr_var = tk.BooleanVar(value=init_need)
+        need_corr_chk = ttk.Checkbutton(fields_frame, text="Need Corridor", variable=self.edit_need_corr_var)
+        need_corr_chk.grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=5)
+
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(pady=(15, 10))
 
@@ -4361,7 +4598,8 @@ class FloorPlanGUI:
             quantity = int(self.bulk_room_quantity_var.get())
             width = float(self.bulk_room_width_var.get())
             height = float(self.bulk_room_height_var.get())
-            max_exp = int(self.bulk_room_max_exp_var.get())
+            bulk_max_exp_str = self.bulk_room_max_exp_var.get().strip()
+            max_exp = int(bulk_max_exp_str) if bulk_max_exp_str != "" else 3
 
             if not base_name:
                 messagebox.showerror("Error", "Please enter a base room name")
@@ -4393,13 +4631,41 @@ class FloorPlanGUI:
             real_area = raw_area * (spacing ** 2)
             added_count = 0
 
+            # NEW: read need_corr value for bulk rooms
+            try:
+                bulk_need_corr = bool(getattr(self, "bulk_room_need_corr_var", tk.BooleanVar(value=True)).get())
+            except Exception:
+                bulk_need_corr = True
+
             for room_name in new_room_names:
                 try:
                     item = self.rooms_tree.insert("", "end", text=room_name)
-                    self.rooms_tree.set(item, "Width", int(width))
-                    self.rooms_tree.set(item, "Height", int(height))
-                    self.rooms_tree.set(item, "Max Expansion", max_exp)
-                    self.rooms_tree.set(item, "Area", int(round(real_area)))
+                    # Store as strings to avoid Treeview display quirks and force an immediate UI refresh
+                    self.rooms_tree.set(item, "Width", str(int(width)))
+                    self.rooms_tree.set(item, "Height", str(int(height)))
+                    self.rooms_tree.set(item, "Max Expansion", str(int(max_exp)))
+                    self.rooms_tree.set(item, "Area", str(int(round(real_area))))
+                    try:
+                        # Force the widget to process pending redraws so values appear immediately
+                        self.rooms_tree.update_idletasks()
+                    except Exception:
+                        pass
+                    # Set Need Corridor column using bulk toggle
+                    self.rooms_tree.set(item, "Need Corridor", "Yes" if bulk_need_corr else "No")
+
+                    # If a FloorPlan model exists, add the room there too (avoid duplicates)
+                    try:
+                        floor = getattr(self, "floorplan", None) or getattr(self, "floor_plan", None)
+                        if floor is not None:
+                            if getattr(floor, 'get_room_by_name', None) and floor.get_room_by_name(room_name) is None:
+                                room_obj = floor.add_room(room_name, int(width), int(height), max_exp)
+                                try:
+                                    room_obj.need_corridor = bool(bulk_need_corr)
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+
                     self.rooms_area_list.append(real_area)
                     added_count += 1
                 except Exception as e:
@@ -4426,7 +4692,8 @@ class FloorPlanGUI:
                 self.bulk_room_quantity_var.set("")
                 self.bulk_room_width_var.set("")
                 self.bulk_room_height_var.set("")
-                self.bulk_room_max_exp_var.set("")
+                # keep default visible as 3 so subsequent adds show the default
+                self.bulk_room_max_exp_var.set("3")
                 self.refresh_room_combos()
                 messagebox.showinfo("Success", f"Successfully added {added_count} rooms")
 
@@ -4443,7 +4710,8 @@ class FloorPlanGUI:
             name = self.room_name_var.get().strip()
             width = float(self.room_width_var.get())
             height = float(self.room_height_var.get())
-            max_exp = int(self.room_max_exp_var.get())
+            room_max_exp_str = self.room_max_exp_var.get().strip()
+            max_exp = int(room_max_exp_str) if room_max_exp_str != "" else 3
 
             if not name:
                 messagebox.showerror("Error", "Please enter a room name")
@@ -4463,19 +4731,42 @@ class FloorPlanGUI:
             # Add to UI tree
             real_area = width * height
             item = self.rooms_tree.insert("", "end", text=name)
-            self.rooms_tree.set(item, "Width", int(width))
-            self.rooms_tree.set(item, "Height", int(height))
-            self.rooms_tree.set(item, "Max Expansion", max_exp)
-            self.rooms_tree.set(item, "Area", int(round(real_area)))
+            # Store numeric values as strings to ensure Treeview displays consistently
+            self.rooms_tree.set(item, "Width", str(int(width)))
+            self.rooms_tree.set(item, "Height", str(int(height)))
+            self.rooms_tree.set(item, "Max Expansion", str(int(max_exp)))
+            self.rooms_tree.set(item, "Area", str(int(round(real_area))))
+            try:
+                self.rooms_tree.update_idletasks()
+            except Exception:
+                pass
+            # NEW: set Need Corridor according to the toggle (default Yes)
+            try:
+                need_corr = bool(getattr(self, "room_need_corr_var", tk.BooleanVar(value=True)).get())
+            except Exception:
+                need_corr = True
+            self.rooms_tree.set(item, "Need Corridor", "Yes" if need_corr else "No")
+            # If a FloorPlan model exists, also add the room to it so backend knows the flag (avoid duplicates)
+            try:
+                floor = getattr(self, "floorplan", None) or getattr(self, "floor_plan", None)
+                if floor is not None:
+                    if getattr(floor, 'get_room_by_name', None) and floor.get_room_by_name(name) is None:
+                        room_obj = floor.add_room(name, int(width), int(height), max_exp)
+                        try:
+                            room_obj.need_corridor = bool(need_corr)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
 
             # --- Update stats from the single source of truth: the rooms_tree ---
             self.update_area_stats()
 
-            # Clear inputs
+            # Clear inputs (reset max expansion back to default 3 so it's visible for the next add)
             self.room_name_var.set("")
             self.room_width_var.set("")
             self.room_height_var.set("")
-            self.room_max_exp_var.set("")
+            self.room_max_exp_var.set("3")
             self.refresh_room_combos()
             messagebox.showinfo("Success", f"Room '{name}' added successfully")
 
@@ -4805,10 +5096,34 @@ class FloorPlanGUI:
             except Exception:
                 pass  # Ignore tagging errors
 
-            # --- FIX: The incorrect call to update_area_stats has been removed from here. ---
+            # NEW: set Need Corridor column from room property (default True)
+            try:
+                need_corr = bool(getattr(room, "need_corridor", True))
+                self.rooms_tree.set(item, "Need Corridor", "Yes" if need_corr else "No")
+            except Exception:
+                pass
 
         except Exception as e:
             print("add_fixed_room_to_rooms_tree error:", e)
+
+    def _log_need_corr_flags(self, context=""):
+        """Debug helper: print need_corridor flags for rooms in the current FloorPlan."""
+        try:
+            floor = getattr(self, "floorplan", None) or getattr(self, "floor_plan", None)
+            if not floor:
+                print(f"[need_corr] {context}: no floor_plan present")
+                return
+            print(f"[need_corr] {context}: FloorPlan rooms: ")
+            for r in getattr(floor, 'rooms', []) + getattr(floor, 'fixed_rooms', []):
+                try:
+                    print(f"   - {getattr(r,'name',None)}: need_corridor={getattr(r,'need_corridor',None)} is_fixed={getattr(r,'is_fixed',False)}")
+                except Exception:
+                    continue
+        except Exception as e:
+            try:
+                print("[need_corr] logging error:", e)
+            except Exception:
+                pass
 
     def add_all_fixed_rooms_to_rooms_tree(self):
         """
@@ -5217,9 +5532,10 @@ class FloorPlanGUI:
 
                 # 2. Intelligently identify which rooms from the file should be FIXED.
                 fixed_names = []
-                if "cad_state" in data and data["cad_state"].get("fixed_names"):
+                cad_blob = data.get("cad_state") or data.get("cad") or {}
+                if cad_blob and cad_blob.get("fixed_names"):
                     # New, non-lossy format: We know exactly which rooms are fixed.
-                    fixed_names = data["cad_state"]["fixed_names"]
+                    fixed_names = cad_blob["fixed_names"]
                 else:
                     # Old format: Use a heuristic (a good guess) to find fixed rooms.
                     # Rooms with no expansion capability are considered fixed.
@@ -5241,11 +5557,16 @@ class FloorPlanGUI:
                         # This is a fixed room. Add it with its saved position and size.
                         p = placement_dict[name]
                         print(f"  -> Adding '{name}' as a FIXED room at its saved position.")
+                        # Prefer the original room's max_expansion when available (default to 3)
+                        try:
+                            orig_max = int(original_room_data.get('max_expansion', 3)) if original_room_data else 3
+                        except Exception:
+                            orig_max = 3
                         room = self.floor_plan.add_fixed_room(width=p['width'], height=p['height'], fixed_x=p['x'],
-                                                              fixed_y=p['y'], name=name)
+                                                              fixed_y=p['y'], name=name, max_expansion=orig_max)
                         room.is_fixed = True
                     else:
-                        # This is a movable room. Add it with its original (unexpanded) dimensions.
+                        # This is a movable room. Add it with its original (unfed) dimensions.
                         print(f"  -> Adding '{name}' as a MOVABLE room.")
                         self.floor_plan.add_room(name, original_room_data['width'], original_room_data['height'],
                                                  original_room_data['max_expansion'])
@@ -5281,9 +5602,20 @@ class FloorPlanGUI:
                     width = int(self.rooms_tree.set(item, "Width"))
                     height = int(self.rooms_tree.set(item, "Height"))
                     max_exp = int(self.rooms_tree.set(item, "Max Expansion"))
-                    self.floor_plan.add_room(name, width, height, max_exp)
+                    room_obj = self.floor_plan.add_room(name, width, height, max_exp)
+                    try:
+                        need_corr_val = self.rooms_tree.set(item, "Need Corridor")
+                        room_obj.need_corridor = True if str(need_corr_val).lower().startswith("y") else False
+                    except Exception:
+                        pass
 
             # --- The rest of the logic is now common for both paths ---
+            # Debug: log need_corr flags before generation
+            try:
+                if hasattr(self, '_log_need_corr_flags') and callable(self._log_need_corr_flags):
+                    self._log_need_corr_flags(context='before_generate')
+            except Exception:
+                pass
             if not self.floor_plan.rooms:
                 messagebox.showerror("Error", "No rooms to place.")
                 return
@@ -6006,6 +6338,130 @@ class FloorPlanGUI:
                      verticalalignment='top',
                      bbox=dict(boxstyle="round,pad=0.3", facecolor=bg_color, alpha=0.8),
                      fontsize=max(8, font_size), fontweight='bold')
+
+        # REPLACE your existing 'create_rooms_tab' function with this:
+
+    def create_rooms_tab(self, parent):
+        """
+        Creates the tab for adding, removing, and managing rooms.
+        Includes a 'Need Corridor' column and a Toggle button.
+        """
+        room_tab = ttk.Frame(parent)
+        parent.add(room_tab, text='Rooms')
+
+        # ---- List frame ----
+        room_list_frame = ttk.Frame(room_tab)
+        room_list_frame.pack(pady=10, padx=10, fill='both', expand=True)
+
+        ttk.Label(room_list_frame, text="Rooms:", font=('Arial', 12, 'bold')).pack(anchor='w')
+
+        # Tree with 3 columns: Name / Size / Need Corridor
+        self.room_list_tree = ttk.Treeview(
+            room_list_frame,
+            columns=("name", "size", "corridor"),
+            show="headings",
+            selectmode="browse",
+            height=12
+        )
+        self.room_list_tree.heading("name", text="Name")
+        self.room_list_tree.heading("size", text="Size (w×h)")
+        self.room_list_tree.heading("corridor", text="Need Corridor")
+
+        self.room_list_tree.column("name", width=180, anchor="w")
+        self.room_list_tree.column("size", width=120, anchor="center")
+        self.room_list_tree.column("corridor", width=120, anchor="center")
+
+        self.room_list_tree.pack(fill='both', expand=True)
+
+        # ---- Controls frame ----
+        room_controls_frame = ttk.Frame(room_tab)
+        room_controls_frame.pack(pady=8, padx=10, fill='x')
+
+        # Existing buttons you already have (example; keep your own)
+        ttk.Button(room_controls_frame, text="Add Room", command=self.add_room).pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Button(room_controls_frame, text="Remove Room", command=self.remove_room).pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Button(room_controls_frame, text="Rotate Room", command=self.rotate_room_from_list).pack(side=tk.LEFT,
+                                                                                                     padx=5, pady=5)
+
+        # NEW: toggle corridor button
+        ttk.Button(room_controls_frame, text="Toggle Corridor", command=self.toggle_corridor).pack(side=tk.LEFT, padx=5,
+                                                                                                   pady=5)
+
+        # Initial fill
+        self.update_room_list()
+
+        # REPLACE your existing 'update_room_list' function with this:
+
+    def update_room_list(self):
+        """
+        Refresh the room list Treeview with current rooms and their corridor status.
+        """
+        if not hasattr(self, "room_list_tree"):
+            return
+
+        # Clear
+        for iid in self.room_list_tree.get_children():
+            self.room_list_tree.delete(iid)
+
+        # Nothing to show if floor_plan not ready
+        if not getattr(self, "floor_plan", None):
+            return
+
+        # Fill
+        for room in getattr(self.floor_plan, "rooms", []):
+            size_str = f"{room.width}x{room.height}" + (" (R)" if getattr(room, "rotated", False) else "")
+            corridor_str = "Yes" if getattr(room, "need_corridor", False) else "No"
+            self.room_list_tree.insert("", "end", values=(room.name, size_str, corridor_str))
+
+    def toggle_corridor(self):
+        """
+        Toggle the 'need_corridor' flag for the selected room and refresh the row.
+        """
+        if not getattr(self, "floor_plan", None):
+            messagebox.showerror("Error", "Floor plan not initialized.")
+            return
+
+        sel = self.rooms_tree.selection()
+        if not sel:
+            messagebox.showwarning("Select a room", "Please select a room in the list.")
+            return
+
+        item = sel[0]
+        room_name = self.rooms_tree.item(item, "text")
+        if not room_name:
+            messagebox.showerror("Error", "Could not read the selected room name.")
+            return
+
+        room = self.floor_plan.get_room_by_name(room_name)
+        if not room:
+            messagebox.showerror("Error", f"Could not find room '{room_name}'.")
+            return
+
+        # Flip the flag
+        room.need_corridor = not bool(getattr(room, "need_corridor", False))
+
+        # Update the one row in the tree
+        self.rooms_tree.set(item, "Need Corridor", "Yes" if room.need_corridor else "No")
+
+    def run_genetic_algorithm(self):
+        if not self.floor_plan:
+            messagebox.showwarning("No Floor Plan", "Please generate a floor plan first.")
+            return
+
+        try:
+            initial_grid, region_matrix, room_names, room_dimensions, fixed_room_ids = self.floor_plan.floorplan_to_ga_input()
+            corridor_width = self.corridor_width_var.get()
+
+            messagebox.showinfo("GA Start",
+                                f"Starting Genetic Algorithm optimization with corridor width {corridor_width}. The Genetic Algorithm will now run. This may take a few moments. Please check the console for progress and the final plot window.")
+
+            FloorPlan.ga_runner(initial_grid, region_matrix, room_names, room_dimensions, corridor_width,
+                                fixed_room_ids)
+
+        except Exception as e:
+            messagebox.showerror("GA Error", f"An error occurred while running the genetic algorithm: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 def main():
