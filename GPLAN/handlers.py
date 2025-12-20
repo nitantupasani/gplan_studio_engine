@@ -2568,8 +2568,9 @@ def handle_space_optimization(ui, regions, rooms, fixed_rooms, adjacency, non_ad
         
         from negNew import FloorPlan
         
-        # Create FloorPlan instance
-        floor_plan = FloorPlan(region_specs=regions, fixed_rooms=fixed_rooms)
+        # Create FloorPlan instance - DO NOT pass fixed_rooms to constructor
+        # We'll add them via add_room() instead
+        floor_plan = FloorPlan(region_specs=regions, fixed_rooms=None)
         
         # Set entrance location if provided
         if entrance_coords:
