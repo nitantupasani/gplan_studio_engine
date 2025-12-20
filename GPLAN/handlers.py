@@ -2698,5 +2698,178 @@ def handle_space_optimization(ui, regions, rooms, fixed_rooms, adjacency, non_ad
         traceback.print_exc()
         return False
 
+def handle_ga_optimization(ui, floorplan_data, corridor_width=3, ga_config=None):
+    """
+    Handler for GA-based floor plan optimization using ga_current.py.
+    
+    Args:
+        ui: GuiParameters object for storing output
+        floorplan_data: Dict with plot_width, plot_height, rooms (with walls)
+        corridor_width: Width of corridors (default: 3)
+        ga_config: Dict with population_size, num_generations, mutation_rate (optional)
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        import sys
+        import os
+        
+        # Add Space_Optimization to path if needed
+        ga_path = os.path.join(os.path.dirname(__file__), '..', 'Space_Optimization')
+        if ga_path not in sys.path:
+            sys.path.insert(0, ga_path)
+        
+        # Import GA functions
+        from ga_current import parse_json_floorplan, run_ga, apply_chromosome, corridor_creator
+        
+        print(f"\n=== Starting GA Optimization ===")
+        print(f"Corridor width: {corridor_width}")
+        
+        # Build complete walls list from all rooms
+        # This ensures all walls referenced by rooms are in the master walls list
+        all_walls_dict = {}
+        
+        # First add any walls from the master list
+        for wall in floorplan_data.get('walls', []):
+            all_walls_dict[wall['id']] = wall
+        
+        # Then add all walls from rooms (this will overwrite/add missing ones)
+        for room in floorplan_data.get('rooms', []):
+            for wall in room.get('walls', []):
+                all_walls_dict[wall['id']] = wall
+        
+        # Update floorplan_data with complete walls list
+        floorplan_data['walls'] = list(all_walls_dict.values())
+        
+        print(f"Built complete walls list: {len(floorplan_data['walls'])} walls")
+        
+        # Parse input floorplan
+        rooms, initial_grid, region_matrix, room_names = parse_json_floorplan(floorplan_data)
+        
+        print(f"Parsed {len(rooms)} rooms from input")
+        print(f"Grid size: {initial_grid.shape}")
+        
+        # Suppress matplotlib visualization when using API
+        # Monkey-patch visualize_layout to do nothing
+        import ga_current
+        original_visualize = ga_current.visualize_layout
+        
+        def null_visualize(*args, **kwargs):
+            pass  # Do nothing - suppress visualization
+        
+        ga_current.visualize_layout = null_visualize
+        
+        try:
+            # Run GA optimization
+            print("\n--- Running Genetic Algorithm (this may take 2-3 minutes) ---")
+            best_solution = run_ga(
+                initial_grid, 
+                region_matrix, 
+                corridor_width=corridor_width,
+                room_names=room_names
+            )
+        finally:
+            # Restore original function
+            ga_current.visualize_layout = original_visualize
+        
+        if not best_solution:
+            ui.set_message("GA optimization failed to find a solution")
+            return False
+        
+        print(f"\n--- GA completed successfully! Best solution: {best_solution} ---")
+        
+        # Apply chromosome to get displaced coordinates
+        displaced_coords = apply_chromosome(rooms, best_solution)
+        
+        # Create layout matrix for corridors
+        region_height, region_width = region_matrix.shape
+        layout_matrix = [[0 for _ in range(region_width)] for _ in range(region_height)]
+        
+        # Mark unusable areas
+        for r in range(region_height):
+            for c in range(region_width):
+                if region_matrix[r, c] == '#':
+                    layout_matrix[r][c] = -1
+        
+        # Place rooms in layout matrix
+        for room_id, coords in displaced_coords.items():
+            for r, c in coords:
+                if 0 <= r < region_height and 0 <= c < region_width:
+                    if region_matrix[r, c] != '#':
+                        layout_matrix[r][c] = room_id
+        
+        # Generate corridors
+        layout_matrix = corridor_creator(layout_matrix, corridor_width)
+        
+        # Build output data structure
+        sorted_room_ids = sorted(rooms.keys())
+        room_id_to_chromosome_idx = {room_id: idx for idx, room_id in enumerate(sorted_room_ids)}
+        
+        optimized_rooms = []
+        for room_idx, coords in displaced_coords.items():
+            if room_idx in rooms:
+                room = rooms[room_idx]
+                chromosome_idx = room_id_to_chromosome_idx[room_idx]
+                dr, dc = best_solution[chromosome_idx]
+                
+                # Transform wall coordinates by applying displacement
+                transformed_walls = []
+                for wall_data in room.original_data["walls"]:
+                    wall = wall_data.copy()
+                    wall["x1"] += dc
+                    wall["x2"] += dc
+                    wall["y1"] += dr
+                    wall["y2"] += dr
+                    transformed_walls.append(wall)
+                
+                # Get optimized bounds
+                min_r = min(r for r, c in coords)
+                max_r = max(r for r, c in coords)
+                min_c = min(c for r, c in coords)
+                max_c = max(c for r, c in coords)
+                
+                optimized_rooms.append({
+                    "id": room.original_data["id"],
+                    "name": room.name,
+                    "color": room.original_data["color"],
+                    "walls": transformed_walls,
+                    "optimized_bounds": {
+                        "min_r": int(min_r),
+                        "max_r": int(max_r),
+                        "min_c": int(min_c),
+                        "max_c": int(max_c)
+                    }
+                })
+        
+        # Create output matching temp2.json format
+        output_data = {
+            "plot_width": floorplan_data["plot_width"],
+            "plot_height": floorplan_data["plot_height"],
+            "rooms": optimized_rooms,
+            "walls": floorplan_data["walls"],
+            "labels": floorplan_data.get("labels", []),
+            "windows": floorplan_data.get("windows", []),
+            "doors": floorplan_data.get("doors", []),
+            "ga_solution": best_solution,
+            "layout_matrix": layout_matrix
+        }
+        
+        # Store output in UI
+        ui._set_output_data([output_data])
+        ui.set_message(f"GA optimization successful. {len(optimized_rooms)} rooms optimized.")
+        
+        print(f"\n=== GA Optimization Complete ===")
+        print(f"Optimized {len(optimized_rooms)} rooms")
+        
+        return True
+        
+    except Exception as e:
+        ui.set_message(f"GA optimization error: {str(e)}")
+        print(f"Error in handle_ga_optimization: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 def show_warning(str):
     messagebox.showinfo("Warning", str)

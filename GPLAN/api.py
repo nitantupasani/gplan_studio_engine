@@ -394,3 +394,127 @@ class Documents:
                 'data': {},
                 'error': {'message': str(e)}
             }
+
+    @staticmethod
+    def get_ga_optimized_floorplan(request_data):
+        """
+        Generate a GA-optimized floorplan using genetic algorithm with corridor generation.
+        
+        Args:
+            request_data: Dictionary containing:
+                - request_id: Unique request identifier
+                - engine: Should be "GA_FloorPlan"
+                - params: Dictionary with:
+                    - plot_width: Width of the plot
+                    - plot_height: Height of the plot
+                    - corridor_width: Width of corridors (default: 3)
+                    - rooms: List of room objects with walls
+                    - walls: List of all walls
+                    - labels: List of labels (optional)
+                    - ga_config: GA configuration (optional)
+        
+        Returns:
+            Dictionary with response data matching temp2.json format
+        """
+        original_print = builtins.print
+
+        def null_print(*args, **kwargs):
+            pass
+
+        builtins.print = null_print
+
+        try:
+            request_id = request_data.get('request_id', str(uuid.uuid4()))
+            params = request_data.get('params', {})
+            
+            # Build floorplan_data in the format ga_current expects
+            floorplan_data = {
+                'plot_width': params.get('plot_width', 40),
+                'plot_height': params.get('plot_height', 30),
+                'rooms': params.get('rooms', []),
+                'walls': params.get('walls', []),
+                'labels': params.get('labels', []),
+                'windows': params.get('windows', []),
+                'doors': params.get('doors', [])
+            }
+            
+            corridor_width = params.get('corridor_width', 3)
+            ga_config = params.get('ga_config', None)
+            
+            # Create UI object for output storage
+            from GPLAN.pythongui.GuiParameters import GuiParameters
+            ui = GuiParameters(graph=None)
+            
+            # Call the GA handler
+            success = handle_ga_optimization(
+                ui=ui,
+                floorplan_data=floorplan_data,
+                corridor_width=corridor_width,
+                ga_config=ga_config
+            )
+            
+            if not success:
+                builtins.print = original_print
+                return {
+                    'request_id': request_id,
+                    'status': 'error',
+                    'engine': 'GA_FloorPlan',
+                    'data': {},
+                    'error': {'message': ui.get_message()}
+                }
+            
+            # Extract output data
+            outputData = ui.get_output_data() if hasattr(ui, 'get_output_data') else []
+            if not outputData:
+                outputData = []
+            
+            if not outputData or len(outputData) == 0:
+                builtins.print = original_print
+                return {
+                    'request_id': request_id,
+                    'status': 'error',
+                    'engine': 'GA_FloorPlan',
+                    'data': {},
+                    'error': {'message': 'No output data generated'}
+                }
+            
+            result = outputData[0]
+            
+            # Format response matching temp2.json structure
+            response = {
+                'request_id': request_id,
+                'status': 'success',
+                'engine': 'GA_FloorPlan',
+                'data': {
+                    'floor': {
+                        'plot_width': result['plot_width'],
+                        'plot_height': result['plot_height']
+                    },
+                    'ga_optimization': {
+                        'status': 'converged',
+                        'solution_chromosome': result['ga_solution']
+                    },
+                    'rooms': result['rooms'],
+                    'walls': result['walls'],
+                    'labels': result['labels'],
+                    'windows': result.get('windows', []),
+                    'doors': result.get('doors', []),
+                    'layout_matrix': result['layout_matrix']
+                },
+                'error': {}
+            }
+            
+            builtins.print = original_print
+            return response
+            
+        except Exception as e:
+            builtins.print = original_print
+            import traceback
+            traceback.print_exc()
+            return {
+                'request_id': request_data.get('request_id', 'unknown'),
+                'status': 'error',
+                'engine': 'GA_FloorPlan',
+                'data': {},
+                'error': {'message': str(e)}
+            }
