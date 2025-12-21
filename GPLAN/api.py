@@ -13,16 +13,21 @@ from GPLAN.handlers import *
 from GPLAN.pythongui.GuiParameters import GuiParameters, DimParameters
 import builtins
 
+# Import boundary utilities from Space_Optimization folder
+import sys
+import os
+space_opt_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'Space_Optimization')
+if space_opt_path not in sys.path:
+    sys.path.insert(0, space_opt_path)
+from boundary_utils import boundary_to_regions as convert_boundary_to_regions
+
 
 def boundary_to_regions(boundary):
     """
     Convert a polygonal boundary to a list of rectangular regions.
     
-    This is a simple rectangular decomposition that creates a minimal set of 
-    non-overlapping rectangles that cover the polygon's bounding box area.
-    
-    For complex polygons, this creates a grid-based decomposition.
-    For L-shapes and simple rectilinear polygons, it generates appropriate rectangles.
+    Uses the same algorithm as the UI's CAD tool (decompose_into_rectangles).
+    Creates a grid-based decomposition with cell merging for optimal region count.
     
     Args:
         boundary: List of [x, y] coordinate pairs defining the polygon vertices
@@ -33,85 +38,13 @@ def boundary_to_regions(boundary):
     Example:
         boundary = [[0, 0], [10, 0], [10, 5], [5, 5], [5, 10], [0, 10]]
         regions = boundary_to_regions(boundary)
-        # Returns L-shape as two rectangles
+        # Returns L-shape as merged rectangles
     """
     if not boundary or len(boundary) < 3:
         raise ValueError("Boundary must have at least 3 points")
     
-    # Extract x and y coordinates
-    x_coords = [point[0] for point in boundary]
-    y_coords = [point[1] for point in boundary]
-    
-    # Get bounding box
-    min_x, max_x = min(x_coords), max(x_coords)
-    min_y, max_y = min(y_coords), max(y_coords)
-    
-    # Check if it's a simple rectangle (4 corners)
-    if len(boundary) == 4:
-        return [{
-            'x': min_x,
-            'y': min_y,
-            'width': max_x - min_x,
-            'height': max_y - min_y
-        }]
-    
-    # For non-rectangular polygons, create a rectilinear decomposition
-    # This is a simplified approach - collects unique x and y coordinates
-    # and creates a grid-based decomposition
-    
-    unique_x = sorted(set(x_coords))
-    unique_y = sorted(set(y_coords))
-    
-    regions = []
-    
-    # Helper function to check if a point is inside the polygon
-    def point_in_polygon(x, y, polygon):
-        """Ray casting algorithm to check if point is inside polygon"""
-        n = len(polygon)
-        inside = False
-        p1x, p1y = polygon[0]
-        for i in range(1, n + 1):
-            p2x, p2y = polygon[i % n]
-            if y > min(p1y, p2y):
-                if y <= max(p1y, p2y):
-                    if x <= max(p1x, p2x):
-                        if p1y != p2y:
-                            xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
-                        if p1x == p2x or x <= xinters:
-                            inside = not inside
-            p1x, p1y = p2x, p2y
-        return inside
-    
-    # Create grid cells and check which ones are inside the polygon
-    for i in range(len(unique_x) - 1):
-        for j in range(len(unique_y) - 1):
-            x_start = unique_x[i]
-            y_start = unique_y[j]
-            x_end = unique_x[i + 1]
-            y_end = unique_y[j + 1]
-            
-            # Check center point of the cell
-            center_x = (x_start + x_end) / 2
-            center_y = (y_start + y_end) / 2
-            
-            if point_in_polygon(center_x, center_y, boundary):
-                regions.append({
-                    'x': x_start,
-                    'y': y_start,
-                    'width': x_end - x_start,
-                    'height': y_end - y_start
-                })
-    
-    # If no regions were created (shouldn't happen), fall back to bounding box
-    if not regions:
-        regions = [{
-            'x': min_x,
-            'y': min_y,
-            'width': max_x - min_x,
-            'height': max_y - min_y
-        }]
-    
-    return regions
+    # Use the shared utility function (same as UI)
+    return convert_boundary_to_regions(boundary)
 
 
 class Asset:
