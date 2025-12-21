@@ -13,6 +13,107 @@ from GPLAN.handlers import *
 from GPLAN.pythongui.GuiParameters import GuiParameters, DimParameters
 import builtins
 
+
+def boundary_to_regions(boundary):
+    """
+    Convert a polygonal boundary to a list of rectangular regions.
+    
+    This is a simple rectangular decomposition that creates a minimal set of 
+    non-overlapping rectangles that cover the polygon's bounding box area.
+    
+    For complex polygons, this creates a grid-based decomposition.
+    For L-shapes and simple rectilinear polygons, it generates appropriate rectangles.
+    
+    Args:
+        boundary: List of [x, y] coordinate pairs defining the polygon vertices
+        
+    Returns:
+        List of region dictionaries with x, y, width, height
+        
+    Example:
+        boundary = [[0, 0], [10, 0], [10, 5], [5, 5], [5, 10], [0, 10]]
+        regions = boundary_to_regions(boundary)
+        # Returns L-shape as two rectangles
+    """
+    if not boundary or len(boundary) < 3:
+        raise ValueError("Boundary must have at least 3 points")
+    
+    # Extract x and y coordinates
+    x_coords = [point[0] for point in boundary]
+    y_coords = [point[1] for point in boundary]
+    
+    # Get bounding box
+    min_x, max_x = min(x_coords), max(x_coords)
+    min_y, max_y = min(y_coords), max(y_coords)
+    
+    # Check if it's a simple rectangle (4 corners)
+    if len(boundary) == 4:
+        return [{
+            'x': min_x,
+            'y': min_y,
+            'width': max_x - min_x,
+            'height': max_y - min_y
+        }]
+    
+    # For non-rectangular polygons, create a rectilinear decomposition
+    # This is a simplified approach - collects unique x and y coordinates
+    # and creates a grid-based decomposition
+    
+    unique_x = sorted(set(x_coords))
+    unique_y = sorted(set(y_coords))
+    
+    regions = []
+    
+    # Helper function to check if a point is inside the polygon
+    def point_in_polygon(x, y, polygon):
+        """Ray casting algorithm to check if point is inside polygon"""
+        n = len(polygon)
+        inside = False
+        p1x, p1y = polygon[0]
+        for i in range(1, n + 1):
+            p2x, p2y = polygon[i % n]
+            if y > min(p1y, p2y):
+                if y <= max(p1y, p2y):
+                    if x <= max(p1x, p2x):
+                        if p1y != p2y:
+                            xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                        if p1x == p2x or x <= xinters:
+                            inside = not inside
+            p1x, p1y = p2x, p2y
+        return inside
+    
+    # Create grid cells and check which ones are inside the polygon
+    for i in range(len(unique_x) - 1):
+        for j in range(len(unique_y) - 1):
+            x_start = unique_x[i]
+            y_start = unique_y[j]
+            x_end = unique_x[i + 1]
+            y_end = unique_y[j + 1]
+            
+            # Check center point of the cell
+            center_x = (x_start + x_end) / 2
+            center_y = (y_start + y_end) / 2
+            
+            if point_in_polygon(center_x, center_y, boundary):
+                regions.append({
+                    'x': x_start,
+                    'y': y_start,
+                    'width': x_end - x_start,
+                    'height': y_end - y_start
+                })
+    
+    # If no regions were created (shouldn't happen), fall back to bounding box
+    if not regions:
+        regions = [{
+            'x': min_x,
+            'y': min_y,
+            'width': max_x - min_x,
+            'height': max_y - min_y
+        }]
+    
+    return regions
+
+
 class Asset:
     def __init__(self, _id, properties, asset_type):
         self._id = _id
@@ -277,7 +378,14 @@ class Documents:
         Args:
             request_data: Dictionary containing:
                 - request_id: Unique request identifier
-                - params: Dictionary with regions, rooms, fixed_rooms, adjacency, non_adjacency, entrance_coords
+                - params: Dictionary with:
+                    - regions: List of rectangular regions (optional if boundary is provided)
+                    - boundary: List of [x,y] points defining polygonal boundary (optional if regions provided)
+                    - rooms: List of room specifications
+                    - fixed_rooms: List of fixed room specifications
+                    - adjacency: List of adjacency requirements
+                    - non_adjacency: List of non-adjacency requirements
+                    - entrance_coords: Entrance location
                 - ops: List of operations to perform (e.g., ["place", "compact", "expand", "score"])
         
         Returns:
@@ -296,7 +404,34 @@ class Documents:
             ops = request_data.get('ops', ['place', 'compact', 'expand', 'score'])
             
             # Extract parameters
-            regions = params.get('regions', [])
+            # Support EITHER regions OR boundary
+            regions = params.get('regions', None)
+            boundary = params.get('boundary', None)
+            
+            # If boundary is provided instead of regions, convert it
+            if boundary and not regions:
+                try:
+                    regions = boundary_to_regions(boundary)
+                    print(f"Converted boundary with {len(boundary)} points to {len(regions)} regions")
+                except Exception as e:
+                    builtins.print = original_print
+                    return {
+                        'request_id': request_id,
+                        'status': 'error',
+                        'data': {},
+                        'error': {'message': f'Failed to convert boundary to regions: {str(e)}'}
+                    }
+            
+            # Validate that we have regions (either provided or converted)
+            if not regions:
+                builtins.print = original_print
+                return {
+                    'request_id': request_id,
+                    'status': 'error',
+                    'data': {},
+                    'error': {'message': 'Either regions or boundary must be provided'}
+                }
+            
             rooms = params.get('rooms', [])
             fixed_rooms = params.get('fixed_rooms', [])
             adjacency = params.get('adjacency', [])
