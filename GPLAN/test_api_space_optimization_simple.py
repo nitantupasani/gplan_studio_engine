@@ -1,6 +1,21 @@
 """
 Simple Test API for Space Optimization
 Just paste your request data and run to get output.
+
+NEW FEATURE: BOUNDARY SUPPORT
+------------------------------
+You can now provide either:
+1. 'regions' - Direct list of rectangles (traditional way)
+2. 'boundary' - Polygon vertices that auto-convert to regions (NEW!)
+
+Example with BOUNDARY (L-shape):
+    "boundary": [
+        [0, 0], [40, 0], [40, 24],  # Right side
+        [20, 24], [20, 32], [0, 32]  # Left side (extension)
+    ]
+
+The API automatically converts your boundary to regions!
+See more examples at the bottom of this file.
 """
 
 import sys
@@ -22,53 +37,86 @@ from GPLAN.api import Documents
 # ============================================================================
 
 request_data = {
-  "request_id": "req_big_001",
+  "request_id": "req_lshape_apartment_001",
   "engine": "FloorPlan",
   "params": {
-    "regions": [
-      { "x": 0,  "y": 0,  "width": 40, "height": 24 },
-      { "x": 40, "y": 0,  "width": 12, "height": 12 },
-      { "x": 0,  "y": 24, "width": 20, "height": 8 }
+    "boundary": [
+      [0, 0],
+      [40, 0],
+      [40, 24],
+      [20, 24],
+      [20, 32],
+      [0, 32]
     ],
 
     "fixed_rooms": [
-      { "name": "Staircase", "x": 44, "y": 0,  "width": 8, "height": 12, "is_fixed": True, "max_expansion": 0 },
-      { "name": "Lift",      "x": 32, "y": 0,  "width": 4, "height": 6,  "is_fixed": True, "max_expansion": 0 },
-      { "name": "Duct",      "x": 0,  "y": 24, "width": 4, "height": 8,  "is_fixed": True, "max_expansion": 0 }
+      {
+        "name": "Staircase",
+        "x": 32,
+        "y": 0,
+        "width": 8,
+        "height": 12,
+        "is_fixed": True,
+        "max_expansion": 0
+      },
+      {
+        "name": "Lift",
+        "x": 28,
+        "y": 0,
+        "width": 4,
+        "height": 6,
+        "is_fixed": True,
+        "max_expansion": 0
+      },
+      {
+        "name": "Duct",
+        "x": 0,
+        "y": 24,
+        "width": 4,
+        "height": 8,
+        "is_fixed": True,
+        "max_expansion": 0
+      }
     ],
 
     "rooms": [
-      { "name": "Living",    "width": 16, "height": 10, "max_expansion": 6 },
-      { "name": "Dining",    "width": 10, "height": 8,  "max_expansion": 4 },
-      { "name": "Kitchen",   "width": 8,  "height": 7,  "max_expansion": 3 },
-      { "name": "Bedroom1",  "width": 12, "height": 10, "max_expansion": 5 },
-      { "name": "Bedroom2",  "width": 12, "height": 10, "max_expansion": 5 },
-      { "name": "Bathroom1", "width": 6,  "height": 6,  "max_expansion": 2 },
-      { "name": "Bathroom2", "width": 6,  "height": 6,  "max_expansion": 2 },
-      { "name": "Utility",   "width": 6,  "height": 6,  "max_expansion": 2 },
-      { "name": "Balcony",   "width": 8,  "height": 4,  "max_expansion": 2 }
+      { "name": "Living", "width": 16, "height": 10, "max_expansion": 6 },
+      { "name": "Dining", "width": 10, "height": 8, "max_expansion": 4 },
+      { "name": "Kitchen", "width": 8, "height": 7, "max_expansion": 3 },
+      { "name": "Bedroom1", "width": 12, "height": 10, "max_expansion": 5 },
+      { "name": "Bedroom2", "width": 12, "height": 10, "max_expansion": 5 },
+      { "name": "Bathroom1", "width": 6, "height": 6, "max_expansion": 2 },
+      { "name": "Bathroom2", "width": 6, "height": 6, "max_expansion": 2 },
+      { "name": "Utility", "width": 6, "height": 6, "max_expansion": 2 },
+      { "name": "Balcony", "width": 8, "height": 4, "max_expansion": 2 }
     ],
 
     "adjacency": [
       ["Living", "Dining"],
       ["Dining", "Kitchen"],
       ["Bedroom1", "Bathroom1"],
-      ["Bedroom2", "Bathroom2"]
+      ["Bedroom2", "Bathroom2"],
+      ["Kitchen", "Utility"]
     ],
 
     "non_adjacency": [
       ["Bedroom1", "Lift"],
       ["Bedroom2", "Lift"],
-      ["Kitchen", "Bathroom2"]
+      ["Kitchen", "Bathroom2"],
+      ["Living", "Bathroom1"]
     ],
 
     "entrance_coords": [
-      [0, 10], [0, 14]
-    ]
+      [0, 10],
+      [0, 14]
+    ],
+
+    "max_attempts": 1000
   },
 
   "ops": ["place", "compact", "expand", "score"]
 }
+
 
 
 # ============================================================================
@@ -109,6 +157,8 @@ def run_test():
         floor = result['data']['floor']
         print(f"\n🏢 Floor: {floor['width']} × {floor['height']}")
         print(f"   Regions: {len(floor['regions'])}")
+        if 'boundary' in request_data['params']:
+            print(f"   🔷 Boundary vertices: {len(request_data['params']['boundary'])}")
         
         # Placements
         placements = result['data']['placements']
@@ -177,18 +227,34 @@ def validate_request(req):
     
     params = req['params']
     
-    if 'regions' not in params or not params['regions']:
-        errors.append("Missing or empty 'regions' field")
+    # Check for regions OR boundary (NEW: boundary support)
+    has_regions = 'regions' in params and params['regions']
+    has_boundary = 'boundary' in params and params['boundary']
+    
+    if not has_regions and not has_boundary:
+        errors.append("Missing 'regions' or 'boundary' field - at least one is required")
     
     if 'rooms' not in params or not params['rooms']:
         errors.append("Missing or empty 'rooms' field")
     
-    # Check region format
+    # Check region format (if provided)
     for i, region in enumerate(params.get('regions', [])):
         required = ['x', 'y', 'width', 'height']
         for field in required:
             if field not in region:
                 errors.append(f"Region {i}: missing '{field}'")
+    
+    # Check boundary format (if provided)
+    if has_boundary:
+        boundary = params['boundary']
+        if not isinstance(boundary, list):
+            errors.append("Boundary must be a list of coordinate pairs")
+        elif len(boundary) < 3:
+            errors.append("Boundary must have at least 3 points")
+        else:
+            for i, point in enumerate(boundary):
+                if not isinstance(point, (list, tuple)) or len(point) != 2:
+                    errors.append(f"Boundary point {i}: must be [x, y] coordinate pair")
     
     # Check room format
     for i, room in enumerate(params.get('rooms', [])):
@@ -265,13 +331,39 @@ request_data = {
         "entrance_coords": None
     },
     "ops": ["place", "compact", "expand", "score"]
-}
-
-# EXAMPLE 2: L-shaped floor
+} using REGIONS (old way)
 request_data = {
     "request_id": "lshape_001",
     "params": {
         "regions": [
+            {"x": 0, "y": 0, "width": 25, "height": 20},
+            {"x": 0, "y": 20, "width": 15, "height": 10}
+        ],
+        "rooms": [
+            {"name": "Living", "width": 10, "height": 8, "max_expansion": 5},
+            {"name": "Kitchen", "width": 7, "height": 6, "max_expansion": 3},
+            {"name": "Bedroom", "width": 8, "height": 7, "max_expansion": 4},
+            {"name": "Bathroom", "width": 5, "height": 5, "max_expansion": 2}
+        ],
+        "fixed_rooms": [],
+        "adjacency": [["Living", "Kitchen"], ["Bedroom", "Bathroom"]],
+        "non_adjacency": [["Kitchen", "Bedroom"]],
+        "entrance_coords": [[0, 8], [0, 12]]
+    },
+    "ops": ["place", "compact", "expand", "score"]
+}
+
+# EXAMPLE 2B: L-shaped floor using BOUNDARY (new way - auto-converts to regions)
+request_data = {
+    "request_id": "lshape_boundary_001",
+    "params": {
+        "boundary": [
+            [0, 0],    # Bottom-left
+            [25, 0],   # Bottom-right of horizontal part
+            [25, 20],  # Inner corner
+            [15, 20],  # Top-right of vertical part
+            [15, 30],  # Top-right corner
+            [0, 30]    # Top-left
             {"x": 0, "y": 0, "width": 25, "height": 20},
             {"x": 0, "y": 20, "width": 15, "height": 10}
         ],
@@ -356,6 +448,62 @@ request_data = {
             {"name": "Lift", "x": 32, "y": 0, "width": 4, "height": 6, "is_fixed": True, "max_expansion": 0},
             {"name": "Duct", "x": 0, "y": 24, "width": 4, "height": 8, "is_fixed": True, "max_expansion": 0}
         ],
+
+# EXAMPLE 6: Simple rectangle with BOUNDARY (easiest way)
+request_data = {
+    "request_id": "rect_boundary_001",
+    "params": {
+        "boundary": [
+            [0, 0],
+            [50, 0],
+            [50, 30],
+            [0, 30]
+        ],
+        "rooms": [
+            {"name": "Living", "width": 18, "height": 12, "max_expansion": 8},
+            {"name": "Kitchen", "width": 12, "height": 10, "max_expansion": 5},
+            {"name": "Bedroom", "width": 14, "height": 11, "max_expansion": 6},
+            {"name": "Bathroom", "width": 8, "height": 7, "max_expansion": 3}
+        ],
+        "fixed_rooms": [],
+        "adjacency": [["Living", "Kitchen"], ["Bedroom", "Bathroom"]],
+        "non_adjacency": [["Kitchen", "Bathroom"]],
+        "entrance_coords": [[0, 12], [0, 18]]
+    },
+    "ops": ["place", "compact", "expand", "score"]
+}
+
+# EXAMPLE 7: T-Shape with BOUNDARY
+request_data = {
+    "request_id": "tshape_boundary_001",
+    "params": {
+        "boundary": [
+            [0, 0],
+            [15, 0],
+            [15, 15],
+            [30, 15],
+            [30, 25],
+            [15, 25],
+            [15, 40],
+            [0, 40]
+        ],
+        "fixed_rooms": [
+            {"name": "Elevator", "x": 16, "y": 16, "width": 6, "height": 8, "is_fixed": True, "max_expansion": 0}
+        ],
+        "rooms": [
+            {"name": "Reception", "width": 10, "height": 8, "max_expansion": 4},
+            {"name": "Office1", "width": 12, "height": 10, "max_expansion": 5},
+            {"name": "Office2", "width": 12, "height": 10, "max_expansion": 5},
+            {"name": "Conference", "width": 14, "height": 12, "max_expansion": 6},
+            {"name": "Restroom", "width": 6, "height": 6, "max_expansion": 2}
+        ],
+        "adjacency": [["Reception", "Conference"], ["Office1", "Office2"]],
+        "non_adjacency": [["Restroom", "Conference"]],
+        "entrance_coords": [[0, 18], [0, 22]],
+        "max_attempts": 1500
+    },
+    "ops": ["place", "compact", "expand", "score"]
+}
         "rooms": [
             {"name": "Living", "width": 16, "height": 10, "max_expansion": 6},
             {"name": "Dining", "width": 10, "height": 8, "max_expansion": 4},

@@ -1,4 +1,4 @@
-Metadata-Version: 2.1
+Metadata-Version: 2.4
 Name: GPLAN
 Version: 1.0
 Home-page: https://gplan.in
@@ -16,5 +16,8 @@ Requires-Dist: Pillow==10.0.1
 Requires-Dist: pyparsing==3.1.1
 Requires-Dist: python-dateutil==2.8.2
 Requires-Dist: scipy==1.11.3
-Requires-Dist: shapely==2.0.1
+Requires-Dist: shapely==2.0.5
 Requires-Dist: six==1.16.0
+Dynamic: home-page
+Dynamic: requires-dist
+Dynamic: requires-python

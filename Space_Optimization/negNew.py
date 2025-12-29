@@ -5,103 +5,112 @@ import numpy as np
 import random
 import heapq
 from collections import defaultdict, deque
+import ga_current as ga
 
 
 class Room:
-        def __init__(self, name, width, height, max_expansion=20):
-            self.name = name
-            self.original_width = width
-            self.original_height = height
-            self.width = width
-            self.height = height
-            self.x = None
-            self.y = None
-            self.rotated = False
+    def __init__(self, name, width, height, max_expansion=3):
+        self.name = name
+        self.original_width = width
+        self.original_height = height
+        self.width = width
+        self.height = height
+        self.x = None
+        self.y = None
+        self.rotated = False
+        # Ensure max_expansion is an int (defensive against UI passing strings)
+        try:
+            self.max_expansion = int(max_expansion)
+        except Exception:
             self.max_expansion = max_expansion
+        self.is_fixed = False
+        self.need_corridor = True
 
-        def rotate(self):
-            self.width, self.height = self.height, self.width
-            self.rotated = not self.rotated
+    # Default to True, can be toggled in UI
 
-        def reset_to_original_size(self):
-            if self.rotated:
-                self.width = self.original_height
-                self.height = self.original_width
+    def rotate(self):
+        self.width, self.height = self.height, self.width
+        self.rotated = not self.rotated
+
+    def reset_to_original_size(self):
+        if self.rotated:
+            self.width = self.original_height
+            self.height = self.original_width
+        else:
+            self.width = self.original_width
+            self.height = self.original_height
+
+    def get_area(self):
+        return self.width * self.height
+
+    def __repr__(self):
+        position = f"at ({self.x}, {self.y})" if self.x is not None else "unplaced"
+        size_info = f"[{self.width}x{self.height}]"
+        if self.width != self.original_width or self.height != self.original_height:
+            if not self.rotated:
+                size_info += f" (expanded from {self.original_width}x{self.original_height})"
             else:
-                self.width = self.original_width
-                self.height = self.original_height
+                size_info += f" (expanded from {self.original_height}x{self.original_width} and rotated)"
+        elif self.rotated:
+            size_info += f" (rotated from {self.original_height}x{self.original_width})"
+        return f"Room {self.name} {size_info} {position} (max expansion: {self.max_expansion})"
 
-        def get_area(self):
-            return self.width * self.height
+    def get_boundaries(self):
+        if self.x is None or self.y is None:
+            return None
+        return (self.x, self.x + self.width, self.y, self.y + self.height)
 
-        def __repr__(self):
-            position = f"at ({self.x}, {self.y})" if self.x is not None else "unplaced"
-            size_info = f"[{self.width}x{self.height}]"
-            if self.width != self.original_width or self.height != self.original_height:
-                if not self.rotated:
-                    size_info += f" (expanded from {self.original_width}x{self.original_height})"
-                else:
-                    size_info += f" (expanded from {self.original_height}x{self.original_width} and rotated)"
-            elif self.rotated:
-                size_info += f" (rotated from {self.original_height}x{self.original_width})"
-            return f"Room {self.name} {size_info} {position} (max expansion: {self.max_expansion})"
+    def has_shared_wall_with(self, other_room):
+        if self.x is None or self.y is None or other_room.x is None or other_room.y is None:
+            return False
+        left1, right1, bottom1, top1 = self.get_boundaries()
+        left2, right2, bottom2, top2 = other_room.get_boundaries()
+        if right1 == left2:
+            return max(bottom1, bottom2) < min(top1, top2)
+        if right2 == left1:
+            return max(bottom1, bottom2) < min(top1, top2)
+        if top1 == bottom2:
+            return max(left1, left2) < min(right1, right2)
+        if top2 == bottom1:
+            return max(left1, left2) < min(right1, right2)
+        return False
 
-        def get_boundaries(self):
-            if self.x is None or self.y is None:
-                return None
-            return (self.x, self.x + self.width, self.y, self.y + self.height)
-
-        def has_shared_wall_with(self, other_room):
-            if self.x is None or self.y is None or other_room.x is None or other_room.y is None:
-                return False
-            left1, right1, bottom1, top1 = self.get_boundaries()
-            left2, right2, bottom2, top2 = other_room.get_boundaries()
-            if right1 == left2:
-                return max(bottom1, bottom2) < min(top1, top2)
-            if right2 == left1:
-                return max(bottom1, bottom2) < min(top1, top2)
-            if top1 == bottom2:
-                return max(left1, left2) < min(right1, right2)
-            if top2 == bottom1:
-                return max(left1, left2) < min(right1, right2)
+    def is_adjacent_to_entrance(self, entrance_coords):
+        """Check if any wall of the room touches any segment of the entrance line."""
+        if self.x is None or self.y is None or not entrance_coords:
             return False
 
-        def is_adjacent_to_entrance(self, entrance_coords):
-            """Check if any wall of the room touches any segment of the entrance line."""
-            if self.x is None or self.y is None or not entrance_coords:
-                return False
+        room_left, room_right, room_bottom, room_top = self.x, self.x + self.width, self.y, self.y + self.height
+        epsilon = 1e-5
 
-            room_left, room_right, room_bottom, room_top = self.x, self.x + self.width, self.y, self.y + self.height
-            epsilon = 1e-5
+        for i in range(len(entrance_coords) - 1):
+            p1, p2 = entrance_coords[i], entrance_coords[i + 1]
+            ex1, ey1 = p1
+            ex2, ey2 = p2
 
-            for i in range(len(entrance_coords) - 1):
-                p1, p2 = entrance_coords[i], entrance_coords[i + 1]
-                ex1, ey1 = p1
-                ex2, ey2 = p2
+            # ### FIX IS HERE: Changed < to <= in all four checks below ###
 
-                # ### FIX IS HERE: Changed < to <= in all four checks below ###
+            # Check for adjacency with the room's LEFT wall
+            if abs(room_left - ex1) < epsilon and abs(room_left - ex2) < epsilon:
+                if max(room_bottom, min(ey1, ey2)) <= min(room_top, max(ey1, ey2)):
+                    return True
 
-                # Check for adjacency with the room's LEFT wall
-                if abs(room_left - ex1) < epsilon and abs(room_left - ex2) < epsilon:
-                    if max(room_bottom, min(ey1, ey2)) <= min(room_top, max(ey1, ey2)):
-                        return True
+            # Check for adjacency with the room's RIGHT wall
+            if abs(room_right - ex1) < epsilon and abs(room_right - ex2) < epsilon:
+                if max(room_bottom, min(ey1, ey2)) <= min(room_top, max(ey1, ey2)):
+                    return True
 
-                # Check for adjacency with the room's RIGHT wall
-                if abs(room_right - ex1) < epsilon and abs(room_right - ex2) < epsilon:
-                    if max(room_bottom, min(ey1, ey2)) <= min(room_top, max(ey1, ey2)):
-                        return True
+            # Check for adjacency with the room's BOTTOM wall
+            if abs(room_bottom - ey1) < epsilon and abs(room_bottom - ey2) < epsilon:
+                if max(room_left, min(ex1, ex2)) <= min(room_right, max(ex1, ex2)):
+                    return True
 
-                # Check for adjacency with the room's BOTTOM wall
-                if abs(room_bottom - ey1) < epsilon and abs(room_bottom - ey2) < epsilon:
-                    if max(room_left, min(ex1, ex2)) <= min(room_right, max(ex1, ex2)):
-                        return True
+            # Check for adjacency with the room's TOP wall
+            if abs(room_top - ey1) < epsilon and abs(room_top - ey2) < epsilon:
+                if max(room_left, min(ex1, ex2)) <= min(room_right, max(ex1, ex2)):
+                    return True
 
-                # Check for adjacency with the room's TOP wall
-                if abs(room_top - ey1) < epsilon and abs(room_top - ey2) < epsilon:
-                    if max(room_left, min(ex1, ex2)) <= min(room_right, max(ex1, ex2)):
-                        return True
-
-            return False
+        return False
 
 
 class FloorPlan:
@@ -110,7 +119,8 @@ class FloorPlan:
         self.fixed_rooms = fixed_rooms or []
         self.adjacency_graph = nx.Graph()
         self.non_adjacency_graph = nx.Graph()
-        self.entrance_coords = None # For entrance adjacency
+
+        self.entrance_coords = None  # For entrance adjacency
 
         self.floor_regions = []
         if isinstance(region_specs[0], tuple):
@@ -173,6 +183,211 @@ class FloorPlan:
                     moved = True
 
     # In the FloorPlan class
+
+    def _check_overlap_at(self, room_to_move, new_x, new_y, ignore_room=None):
+        """
+        Checks if 'room_to_move' would overlap with ANY other room if moved to (new_x, new_y).
+        'ignore_room' is used to avoid self-checking.
+        """
+        for other_room in self.rooms:
+            if other_room == room_to_move or other_room == ignore_room:
+                continue
+
+            # Check if other_room is placed
+            if other_room.x is None or other_room.y is None:
+                continue
+
+            # Standard Bounding Box check
+            x_overlap = (new_x < other_room.x + other_room.width and
+                         new_x + room_to_move.width > other_room.x)
+            y_overlap = (new_y < other_room.y + other_room.height and
+                         new_y + room_to_move.height > other_room.y)
+
+            if x_overlap and y_overlap:
+                return True  # Found an overlap
+        return False  # No overlap
+
+    def get_room_by_name(self, name):
+        """Helper function to find a room object by its name."""
+        for room in self.rooms:
+            if room.name == name:
+                return room
+        for room in self.fixed_rooms:
+            if room.name == name:
+                return room
+        return None
+
+    def _check_non_adjacency_violation_at(self, room_to_move, new_x, new_y):
+        """
+        Checks if moving 'room_to_move' to (new_x, new_y) would make it
+        touch a room it's not supposed to.
+        """
+        if room_to_move.name not in self.non_adjacency_graph:
+            return False  # This room has no non-adjacency rules
+
+        temp_room = Room(room_to_move.name, room_to_move.width, room_to_move.height)
+        temp_room.x = new_x
+        temp_room.y = new_y
+
+        for other_name in self.non_adjacency_graph.neighbors(room_to_move.name):
+            other_room = self.get_room_by_name(other_name)
+
+            if not other_room or other_room.x is None:
+                continue
+
+            if temp_room.has_shared_wall_with(other_room):
+                return True  # This move would violate a non-adjacency rule
+        return False
+
+    @staticmethod
+    def _total_expansion_used(room):
+        """Return combined expansion (width delta + height delta) respecting rotation."""
+        if room is None:
+            return 0
+
+        if not room.rotated:
+            extra_w = room.width - room.original_width
+            extra_h = room.height - room.original_height
+        else:
+            extra_w = room.width - room.original_height
+            extra_h = room.height - room.original_width
+
+        return max(0, extra_w) + max(0, extra_h)
+
+    def compact_rooms_up_conditional(self):
+        """
+        Shifts rooms UP to close horizontal gaps, but only if they have
+        an X-overlapping neighbor above them, and the move is safe.
+        Uses 'all-or-nothing' move logic.
+        """
+        print("--- Starting conditional up-compaction (ALL-OR-NOTHING logic) ---")
+
+        moved_a_room_in_pass = True
+        while moved_a_room_in_pass:
+            moved_a_room_in_pass = False
+
+            # Sort rooms from bottom to top
+            sorted_rooms = sorted([r for r in self.rooms if not r.is_fixed and r.y is not None], key=lambda r: r.y)
+
+            for room in sorted_rooms:
+
+                # --- 1. Find the *closest* "target" room *above* ---
+                target_room = None
+                min_target_y = float('inf')
+
+                all_placed_rooms = [r for r in self.rooms if r.x is not None] + self.fixed_rooms
+
+                for other_room in all_placed_rooms:
+                    if other_room == room:
+                        continue
+
+                    # Is 'other_room' *above* 'room'?
+                    is_above = other_room.y >= room.y + room.height
+
+                    # Do they overlap horizontally (on the X-axis)?
+                    x_overlap = (room.x < other_room.x + other_room.width and
+                                 room.x + room.width > other_room.x)
+
+                    if is_above and x_overlap:
+                        # This is a potential target. Is it the *closest* one?
+                        if other_room.y < min_target_y:
+                            min_target_y = other_room.y
+                            target_room = other_room
+
+                # --- 2. If we found no target, skip this room ---
+                if not target_room:
+                    continue
+
+                # --- 3. Calculate the *final* target position ---
+                # We want the room's top edge (y + height) to touch
+                # the target's bottom edge (target_room.y).
+                target_y_position = target_room.y - room.height
+
+                if target_y_position <= room.y:
+                    continue
+
+                # --- 4. Check if this move is valid (all-or-nothing) ---
+
+                # Use the optimized checker we fixed before
+                is_safe_overlap = not self.check_overlap(room.x, target_y_position, room.width, room.height,
+                                                                   ignore_room=room)
+
+                is_safe_boundary = self.is_within_floor(room.x, target_y_position, room.width, room.height)
+
+                # Use the non-adjacency checker we added before
+                is_safe_non_adj = not self._check_non_adjacency_violation_at(room, room.x, target_y_position)
+
+                # --- 5. If all checks pass, make the move ---
+                if is_safe_overlap and is_safe_boundary and is_safe_non_adj:
+                    print(
+                        f"Moving {room.name} from y={room.y} to y={target_y_position} (aligning with {target_room.name})")
+                    self._remove_from_spatial_grid(room)
+                    room.y = target_y_position
+                    self._add_to_spatial_grid(room)
+
+                    moved_a_room_in_pass = True
+                    # Since we moved a room, break and restart the outer loop
+                    break
+
+        print("--- Finished conditional up-compaction ---")
+
+
+    def compact_rooms_right_conditional(self):
+        """
+        CORRECTED: Calls self.check_overlap with the correct (x, y, w, h) arguments
+        and the 'ignore_room' argument.
+        """
+        print("--- Starting conditional right-compaction (ALL-OR-NOTHING logic) ---")
+
+        moved_a_room_in_pass = True
+        while moved_a_room_in_pass:
+            moved_a_room_in_pass = False
+
+            sorted_rooms = sorted([r for r in self.rooms if not r.is_fixed and r.x is not None], key=lambda r: r.x)
+
+            for room in sorted_rooms:
+                target_room = None
+                min_target_x = float('inf')
+                all_placed_rooms = [r for r in self.rooms if r.x is not None] + self.fixed_rooms
+
+                for other_room in all_placed_rooms:
+                    if other_room == room:
+                        continue
+
+                    is_to_right = other_room.x >= room.x + room.width
+                    y_overlap = (room.y < other_room.y + other_room.height and
+                                 room.y + room.height > other_room.y)
+
+                    if is_to_right and y_overlap:
+                        if other_room.x < min_target_x:
+                            min_target_x = other_room.x
+                            target_room = other_room
+
+                if not target_room:
+                    continue
+
+                target_x_position = target_room.x - room.width
+
+                if target_x_position <= room.x:
+                    continue
+
+                # *** THIS IS THE FIX ***
+                is_safe_overlap = not self.check_overlap(target_x_position, room.y, room.width, room.height,
+                                                         ignore_room=room)
+                # *** END OF FIX ***
+
+                is_safe_boundary = self.is_within_floor(target_x_position, room.y, room.width, room.height)
+                is_safe_non_adj = not self._check_non_adjacency_violation_at(room, target_x_position, room.y)
+
+                if is_safe_overlap and is_safe_boundary and is_safe_non_adj:
+                    print(
+                        f"Moving {room.name} from x={room.x} to x={target_x_position} (aligning with {target_room.name})")
+                    room.x = target_x_position
+                    moved_a_room_in_pass = True
+                    break
+
+        print("--- Finished conditional right-compaction ---")
+
     def set_entrance_location(self, coords):
         self.entrance_coords = coords
 
@@ -243,6 +458,10 @@ class FloorPlan:
                         not self.check_non_adjacency_violation(room, x, y, room.width, room.height) and
                         (x, y) not in valid_positions):
                     valid_positions.append((x, y))
+
+        # print(room.name)
+        # print(valid_positions)
+        # print( )
         return valid_positions
 
     def add_non_adjacency(self, room1_name, room2_name):
@@ -259,13 +478,35 @@ class FloorPlan:
                 if temp_room.has_shared_wall_with(neighbor_room): return True
         return False
 
-    def add_room(self, name, width, height, max_expansion=20, fixed_x=None, fixed_y=None):
+    def add_room(self, name, width, height, max_expansion=3, fixed_x=None, fixed_y=None, need_corridor=True):
+        """Create and register a room. If fixed_x/fixed_y are provided the room is treated as fixed.
+
+        need_corridor: boolean flag stored on the Room instance (default True).
+        """
+        # Create Room (ensure max_expansion is passed through)
         room = Room(name, width, height, max_expansion)
+
+        # Set need_corridor from caller (defensive)
+        try:
+            room.need_corridor = bool(need_corridor)
+        except Exception:
+            room.need_corridor = True
+
+        # If fixed coordinates were provided, set fixed properties consistently
         if fixed_x is not None and fixed_y is not None:
-            room.x, room.y = fixed_x, fixed_y
+            try:
+                room.x, room.y = int(fixed_x), int(fixed_y)
+            except Exception:
+                room.x, room.y = fixed_x, fixed_y
             room.is_fixed = True
-            room.max_expansion = 0
+            # Preserve the passed max_expansion for fixed rooms (coerce to int if possible)
+            try:
+                room.max_expansion = int(max_expansion)
+            except Exception:
+                room.max_expansion = max_expansion
             room.rotated = False
+
+        # Register room in lists/graphs
         self.rooms.append(room)
         self.adjacency_graph.add_node(name)
         self.non_adjacency_graph.add_node(name)
@@ -284,7 +525,7 @@ class FloorPlan:
             if all(r.name != candidate for r in self.rooms): return candidate
             i += 1
 
-    def add_fixed_room(self, width, height, fixed_x, fixed_y, name=None, max_expansion=0, ui=None):
+    def add_fixed_room(self, width, height, fixed_x, fixed_y, name=None, max_expansion=3, ui=None, need_corridor=True):
         chosen_name = None
         if name and str(name).strip():
             chosen_name = str(name).strip()
@@ -300,7 +541,7 @@ class FloorPlan:
         while any(r.name == chosen_name for r in self.rooms):
             chosen_name = f"{base}_{counter}"
             counter += 1
-        return self.add_room(chosen_name, width, height, max_expansion=max_expansion, fixed_x=fixed_x, fixed_y=fixed_y)
+        return self.add_room(chosen_name, width, height, max_expansion=max_expansion, fixed_x=fixed_x, fixed_y=fixed_y, need_corridor=need_corridor)
 
     def add_adjacency(self, room1_name, room2_name):
         if room1_name in self.adjacency_graph.nodes and room2_name in self.adjacency_graph.nodes:
@@ -319,15 +560,31 @@ class FloorPlan:
                 return True
         return False
 
-    def check_overlap(self, room, x, y, width, height):
-        for existing_room in self.rooms:
-            if existing_room.x is not None and existing_room != room:
-                if (x < existing_room.x + existing_room.width and
-                        x + width > existing_room.x and
-                        y < existing_room.y + existing_room.height and
-                        y + height > existing_room.y):
-                    return True
-        return False
+    def check_overlap(self, x, y, width, height, ignore_room=None):
+        """
+        Checks if a given rectangle (x, y, width, height) overlaps
+        with any *other* room.
+
+        *** THIS IS THE CORRECTED FUNCTION ***
+        Now accepts 'ignore_room' and uses a correct loop.
+        """
+        # Iterate over all placed rooms (non-fixed and fixed)
+        all_placed_rooms = [r for r in self.rooms if r.x is not None] + self.fixed_rooms
+
+        for room in all_placed_rooms:
+            # *** THIS IS THE FIX ***
+            # Skip the room we are explicitly ignoring
+            if room == ignore_room:
+                continue
+            # *** END OF FIX ***
+
+            # Standard bounding box check
+            if not (x + width <= room.x or
+                    x >= room.x + room.width or
+                    y + height <= room.y or
+                    y >= room.y + room.height):
+                return True  # Overlap detected
+        return False  # No overlap
 
     def evaluate_adjacency_score(self):
         score, adjacent_pairs, violations = 0, [], []
@@ -352,70 +609,85 @@ class FloorPlan:
                     violations.append((room1_name, room2_name))
         return score, adjacent_pairs, violations
 
-
     def enforce_minimum_adjacency(self):
         """
-        Ensure every room is adjacent to at least one other room.
-        If a room has no adjacencies, try to move it next to another room.
+        CORRECTED: Calls self.check_overlap with the correct (x, y, w, h) arguments
+        and the 'ignore_room' argument.
         """
-        for room in self.rooms:
-            if getattr(room, "is_fixed", False):
-                continue
-            if room.x is None or room.y is None:
-                continue
+        print("Enforcing adjacency constraints...")
 
-            # Check if this room shares a wall with any other room
-            has_adjacency = any(
-                room.has_shared_wall_with(other)
-                for other in self.rooms
-                if other != room and other.x is not None and other.y is not None
-            )
-            if not has_adjacency:
-                # Try to move the room next to another room
-                found = False
-                for candidate in self.rooms:
-                    if candidate == room or candidate.x is None or candidate.y is None:
+        moved_room_in_pass = True
+        loops = 0
+        max_loops = len(self.rooms) * 2
+
+        while moved_room_in_pass and loops < max_loops:
+            moved_room_in_pass = False
+            loops += 1
+
+            for room1_name, room2_name in self.adjacency_graph.edges():
+                room1 = self.get_room_by_name(room1_name)
+                room2 = self.get_room_by_name(room2_name)
+
+                if not room1 or not room2 or room1.x is None or room2.x is None:
+                    continue
+
+                if room1.has_shared_wall_with(room2):
+                    continue
+
+                room_to_move, stationary_room = None, None
+                if not getattr(room1, 'is_fixed', False):
+                    room_to_move = room1
+                    stationary_room = room2
+                elif not getattr(room2, 'is_fixed', False):
+                    room_to_move = room2
+                    stationary_room = room1
+                else:
+                    continue
+
+                possible_moves = [
+                    (stationary_room.x - room_to_move.width, stationary_room.y),  # Left
+                    (stationary_room.x + stationary_room.width, stationary_room.y),  # Right
+                    (stationary_room.x, stationary_room.y - room_to_move.height),  # Bottom
+                    (stationary_room.x, stationary_room.y + stationary_room.height)  # Top
+                ]
+
+                for new_x, new_y in possible_moves:
+                    touches_x = (new_x == stationary_room.x + stationary_room.width or
+                                 new_x + room_to_move.width == stationary_room.x)
+                    y_range_overlap = (new_y < stationary_room.y + stationary_room.height and
+                                       new_y + room_to_move.height > stationary_room.y)
+
+                    touches_y = (new_y == stationary_room.y + stationary_room.height or
+                                 new_y + room_to_move.height == stationary_room.y)
+                    x_range_overlap = (new_x < stationary_room.x + stationary_room.width and
+                                       new_x + room_to_move.width > stationary_room.x)
+
+                    is_adjacent = (touches_x and y_range_overlap) or (touches_y and x_range_overlap)
+
+                    if not is_adjacent:
                         continue
 
-                    # Try all four sides of the candidate room
-                    possible_positions = [
-                        (candidate.x - room.width, candidate.y),  # left
-                        (candidate.x + candidate.width, candidate.y),  # right
-                        (candidate.x, candidate.y + candidate.height),  # above
-                        (candidate.x, candidate.y - room.height),  # below
-                    ]
-                for new_x, new_y in possible_positions:
-                    # Check if the new position would create a non-adjacency violation
-                    is_non_adjacent_violation = False
-                    for existing_room in self.rooms:
-                        if existing_room != room and existing_room.x is not None and existing_room.y is not None:
-                            if self.non_adjacency_graph.has_edge(room.name, existing_room.name):
-                                # Temporarily set room's position to check for wall sharing
-                                original_x, original_y = room.x, room.y
-                                room.x, room.y = new_x, new_y
-                                if room.has_shared_wall_with(existing_room):
-                                    is_non_adjacent_violation = True
-                                room.x, room.y = original_x, original_y  # Restore original position
-                                if is_non_adjacent_violation:
-                                    break
-                    if is_non_adjacent_violation:
-                        continue
+                    is_safe_boundary = self.is_within_floor(new_x, new_y, room_to_move.width, room_to_move.height)
 
-                    if self.is_within_floor(new_x, new_y, room.width, room.height) and \
-                            not self.check_overlap(room, new_x, new_y, room.width, room.height):
-                        # Move room here
-                        room.x = new_x
-                        room.y = new_y
-                        # Double-check if this now shares a wall with any room
-                        if any(
-                                room.has_shared_wall_with(other)
-                                for other in self.rooms
-                                if other != room and other.x is not None and other.y is not None
-                        ):
-                            found = True
-                            break
-                if found:
+                    # *** THIS IS THE FIX ***
+                    is_safe_overlap = not self.check_overlap(new_x, new_y, room_to_move.width, room_to_move.height,
+                                                             ignore_room=stationary_room)
+                    # *** END OF FIX ***
+
+                    is_safe_non_adj = not self._check_non_adjacency_violation_at(room_to_move, new_x, new_y)
+
+                    if is_safe_boundary and is_safe_overlap and is_safe_non_adj:
+                        print(
+                            f"Enforcing adjacency: Moving {room_to_move.name} to ({new_x}, {new_y}) to be adjacent to {stationary_room.name}")
+                        room_to_move.x = new_x
+                        room_to_move.y = new_y
+                        moved_room_in_pass = True
+                        break
+
+                if moved_room_in_pass:
                     break
+
+        print("Finished enforcing adjacency.")
 
     def can_expand_room(self, room, direction, amount):
         """Check if a room can be expanded in the given direction by the specified amount"""
@@ -456,7 +728,7 @@ class FloorPlan:
         if not self.is_within_floor(new_x, new_y, new_width, new_height):
             return False
 
-        if self.check_overlap(room, new_x, new_y, new_width, new_height):
+        if self.check_overlap(new_x, new_y, new_width, new_height, ignore_room=room):
             return False
 
         return True
@@ -506,12 +778,14 @@ class FloorPlan:
         self.spatial_grid = {}
 
         # Reset only unfixed rooms
+        i =0
         for room in self.rooms:
             if getattr(room, "is_fixed", False):
                 continue
-            room.x = None
-            room.y = None
-            room.reset_to_original_size()
+            if room.x is None or room.y is None:  # Leave fixed ones as-is
+                room.x = None
+                room.y = None
+                room.reset_to_original_size()
 
         # Sort rooms by constraint priority
         room_constraints = {r.name: len(list(self.adjacency_graph.neighbors(r.name))) for r in self.rooms}
@@ -525,12 +799,14 @@ class FloorPlan:
         for attempt in range(max_attempts):
             self.spatial_grid = {}
             for room in self.rooms:
-                if not getattr(room, "is_fixed", False):
-                    room.x = None
-                    room.y = None
-                    room.reset_to_original_size()
-                    if random.random() > 0.5:
-                        room.rotate()
+                if getattr(room, "is_fixed", False):
+                    continue
+
+                room.x = None
+                room.y = None
+                room.reset_to_original_size()
+                if random.random() > 0.5:
+                    room.rotate()
 
             # Add fixed rooms to spatial grid first
             for room in self.rooms:
@@ -539,16 +815,26 @@ class FloorPlan:
 
             placement_successful = True
             for room in sorted_rooms:
+                # Skip fixed rooms
+                if getattr(room, "is_fixed", False):
+                    continue
                 if room.x is not None and room.y is not None:
                     continue
 
                 placed = False
-                valid_positions = self.get_valid_positions(room, max_positions=30)
+
+                valid_positions = self.get_valid_positions(room, max_positions=100)
+                # print("Hi1")
                 if valid_positions:
-                    x, y = random.choice(valid_positions)
+                    # Very nice alternative can be used if ever a issue comes where repeated floor plans are not satisfying non adj. const. :)
+                    #x, y = random.choice(valid_positions)
+                    x,y = valid_positions[0]
                     room.x, room.y = x, y
                     self._add_to_spatial_grid(room)
                     placed = True
+                    print(valid_positions[0])
+                    print(room)
+                    print("Hi")
 
                 if not placed:
                     room.rotate()
@@ -561,6 +847,9 @@ class FloorPlan:
 
                 if not placed:
                     placement_successful = False
+                    print(i)
+                    i += 1 
+                    print(room)
                     break
 
             if placement_successful:
@@ -587,47 +876,84 @@ class FloorPlan:
             # *** CHANGE IS HERE ***
             # After the best layout is restored, we now check if expansion is enabled
             # and only run the expansion logic if the checkbox was ticked.
+            print("best_placement ", best_placement)
             if enable_expansion:
                 self.expand_rooms_optimized()
 
             return True
 
+        print("\n--- After placement (fixed rooms only) ---")
+        for r in self.rooms:
+            if getattr(r, "is_fixed", False):
+                print(f"{r.name}: ({r.x}, {r.y}), size={r.width}x{r.height}")
+
         return False
 
-    def expand_rooms_optimized(self):
-        """Optimized room expansion using spatial grid"""
-        for room in self.rooms:
-            if getattr(room, "is_fixed", False):
-                continue
+    def expand_rooms_optimized(self, directions=None):
+        """
+        CORRECTED: Calls self.check_overlap with the correct (x, y, w, h) arguments
+        and the 'ignore_room' argument.
+        """
+        if directions is None:
+            directions = ['right', 'up', 'left', 'down']
 
-            if room.x is None or room.y is None:
-                continue
+        rooms_to_expand = self.rooms.copy()
+        random.shuffle(rooms_to_expand)
 
-            # Remove from spatial grid temporarily
-            self._remove_from_spatial_grid(room)
+        can_expand_any = True
+        while can_expand_any:
+            can_expand_any = False
+            for room in rooms_to_expand:
+                if room.is_fixed or room.x is None:
+                    continue
 
-            # Try expansion in each direction
-            directions = ['right', 'down', 'left', 'up']
-            random.shuffle(directions)
+                max_allowed = getattr(room, "max_expansion", 0)
+                try:
+                    max_allowed = int(max_allowed)
+                except Exception:
+                    max_allowed = 0
+                if max_allowed <= 0:
+                    continue
 
-            for direction in directions:
-                # Try expanding in larger increments first, then smaller
-                for increment in [5,4,3,2,1]:
-                    while self.can_expand_room_optimized(room, direction, increment):
-                        # Apply expansion
-                        if direction == 'right':
-                            room.width += increment
-                        elif direction == 'left':
-                            room.x -= increment
-                            room.width += increment
-                        elif direction == 'up':
-                            room.height += increment
-                        elif direction == 'down':
-                            room.y -= increment
-                            room.height += increment
+                for direction in directions:
+                    if self._total_expansion_used(room) >= max_allowed:
+                        break
 
-            # Add back to spatial grid
-            self._add_to_spatial_grid(room)
+                    new_x, new_y, new_width, new_height = room.x, room.y, room.width, room.height
+
+                    if direction == 'right':
+                        new_width += 1
+                    elif direction == 'left':
+                        new_x -= 1
+                        new_width += 1
+                    elif direction == 'up':
+                        new_height += 1
+                    elif direction == 'down':
+                        new_y -= 1
+                        new_height += 1
+
+                    if self._total_expansion_used(room) + 1 > max_allowed:
+                        continue
+
+                    # Check 1: Boundaries
+                    if not self.is_within_floor(new_x, new_y, new_width, new_height):
+                        continue
+
+                    # *** THIS IS THE FIX ***
+                    is_safe_overlap = not self.check_overlap(new_x, new_y, new_width, new_height, ignore_room=room)
+                    # *** END OF FIX ***
+
+                    # Check 3: Non-adjacency
+                    is_safe_non_adj = not self._check_non_adjacency_violation_at(room, new_x,
+                                                                                 new_y)  # This helper is from Part 1
+
+                    if is_safe_overlap and is_safe_non_adj:
+                        # If safe, apply the expansion
+                        room.x, room.y, room.width, room.height = new_x, new_y, new_width, new_height
+                        can_expand_any = True  # We successfully expanded, so loop again
+
+            # After each full pass, shuffle again to change expansion priority
+            random.shuffle(rooms_to_expand)
 
     def can_expand_room_optimized(self, room, direction, amount):
         """Optimized room expansion check"""
@@ -893,34 +1219,224 @@ class FloorPlan:
                 print(f"{room.name}: {room.original_width}x{room.original_height} → {room.width}x{room.height} " +
                       f"({expansion_pct:.1f}% increase, expansion used: {expansion_usage})")
 
+    def to_matrix(self, grid_resolution=1):
+
+        matrix_width = int(self.floor_width / grid_resolution)
+        matrix_height = int(self.floor_height / grid_resolution)
+
+        matrix = [['#' for _ in range(matrix_width)] for _ in range(matrix_height)]
+
+        for region in self.floor_regions:
+            start_x = int(region['x'] / grid_resolution)
+            start_y = int(region['y'] / grid_resolution)
+            end_x = int((region['x'] + region['width']) / grid_resolution)
+            end_y = int((region['y'] + region['height']) / grid_resolution)
+
+            for y in range(start_y, min(end_y, matrix_height)):
+                for x in range(start_x, min(end_x, matrix_width)):
+                    matrix[y][x] = '.'
+
+        room_symbols = []
+        for i in range(10):
+            room_symbols.append(str(i))
+        for i in range(26):
+            room_symbols.append(chr(ord('A') + i))  # Append letters A-Z
+
+        room_legend = {}
+        placed_rooms = [room for room in self.rooms if room.x is not None and room.y is not None]
+
+        for i, room in enumerate(placed_rooms):
+            if i < len(room_symbols):
+                room_legend[room.name] = room_symbols[i]
+            else:
+                room_legend[room.name] = f"R{i}"
+
+        for room in placed_rooms:
+            if room.name in room_legend:
+                symbol = room_legend[room.name]
+
+                start_x = int(room.x / grid_resolution)
+                start_y = int(room.y / grid_resolution)
+                end_x = int((room.x + room.width) / grid_resolution)
+                end_y = int((room.y + room.height) / grid_resolution)
+
+                for y in range(start_y, min(end_y, matrix_height)):
+                    for x in range(start_x, min(end_x, matrix_width)):
+                        if 0 <= y < matrix_height and 0 <= x < matrix_width:
+                            matrix[y][x] = symbol
+
+        return matrix, room_legend
+
+    def floorplan_to_ga_input(self):
+        """Convert FloorPlan's placed rooms to GA's expected input formats"""
+
+        # Separate movable and fixed rooms
+        movable_rooms = [room for room in self.rooms if not getattr(room, "is_fixed", False)]
+        fixed_rooms = [room for room in self.rooms if getattr(room, "is_fixed", False)]
+
+        # Get matrix size from floor dimensions
+        matrix_width = int(self.floor_width)
+        matrix_height = int(self.floor_height)
+
+        # Create initial_grid with BOTH movable AND fixed rooms
+        initial_grid = np.zeros((matrix_height, matrix_width), dtype=int)
+
+        # Create room_legend for ALL rooms (movable + fixed)
+        room_symbols = []
+        for i in range(10):
+            room_symbols.append(str(i))
+        for i in range(26):
+            room_symbols.append(chr(ord('A') + i))
+
+        room_legend = {}
+        room_id_counter = 1
+
+        # Process FIXED rooms FIRST (they get lower IDs and won't be moved)
+        for i, room in enumerate(fixed_rooms):
+            if room.x is not None and room.y is not None:
+                if i < len(room_symbols):
+                    symbol = room_symbols[i]
+                else:
+                    symbol = f"F{i}"
+
+                room_legend[room.name] = {'symbol': symbol, 'id': room_id_counter, 'is_fixed': True}
+
+                # Place fixed room in initial_grid
+                start_x = int(room.x)
+                start_y = int(room.y)
+                end_x = int(room.x + room.width)
+                end_y = int(room.y + room.height)
+
+                for y in range(start_y, min(end_y, matrix_height)):
+                    for x in range(start_x, min(end_x, matrix_width)):
+                        if 0 <= y < matrix_height and 0 <= x < matrix_width:
+                            initial_grid[y, x] = room_id_counter
+
+                room_id_counter += 1
+
+        # Process MOVABLE rooms AFTER fixed rooms
+        for i, room in enumerate(movable_rooms):
+            if room.x is not None and room.y is not None:
+                idx = i + len(fixed_rooms)
+                if idx < len(room_symbols):
+                    symbol = room_symbols[idx]
+                else:
+                    symbol = f"M{i}"
+
+                room_legend[room.name] = {'symbol': symbol, 'id': room_id_counter, 'is_fixed': False}
+
+                # Place movable room in initial_grid
+                start_x = int(room.x)
+                start_y = int(room.y)
+                end_x = int(room.x + room.width)
+                end_y = int(room.y + room.height)
+
+                for y in range(start_y, min(end_y, matrix_height)):
+                    for x in range(start_x, min(end_x, matrix_width)):
+                        if 0 <= y < matrix_height and 0 <= x < matrix_width:
+                            initial_grid[y, x] = room_id_counter
+
+                room_id_counter += 1
+
+        # Create region_matrix from FloorPlan's floor_regions
+        region_matrix = np.full((matrix_height, matrix_width), '#', dtype=object)
+
+        for region in self.floor_regions:
+            start_x, start_y = int(region['x']), int(region['y'])
+            end_x = int(region['x'] + region['width'])
+            end_y = int(region['y'] + region['height'])
+
+            for y in range(start_y, min(end_y, matrix_height)):
+                for x in range(start_x, min(end_x, matrix_width)):
+                    region_matrix[y, x] = '0'  # Valid region
+
+        # DON'T mark fixed rooms as '#' in region_matrix - keep them as '0' so corridors can reach them
+
+        # Create room names mapping (ID -> name) for ALL rooms
+        room_names = {info['id']: name for name, info in room_legend.items()}
+
+        # Create room dimensions mapping (ID -> (width, height)) for ALL rooms
+        room_dimensions = {}
+        for name, info in room_legend.items():
+            room_id = info['id']
+            # Find the room object in either list
+            for room in self.rooms:
+                if room.name == name:
+                    room_dimensions[room_id] = (room.width, room.height)
+                    break
+
+        # Create a list of fixed room IDs to pass to GA
+        fixed_room_ids = [info['id'] for name, info in room_legend.items() if info.get('is_fixed', False)]
+
+        return initial_grid, region_matrix, room_names, room_dimensions, fixed_room_ids
+
+    @staticmethod
+    def ga_runner(init_grid, region_matrix, room_names=None, room_dimensions=None, corridor_width=2,
+                  fixed_room_ids=None):
+        ga.run_ga(init_grid, region_matrix, room_names, room_dimensions, corridor_width, fixed_room_ids)
+
     def generate_layout(self, max_attempts=1000, enable_expansion=True, enable_space_optimization=True):
-        # """
-        # Generate a floor plan layout by placing rooms within the boundary.
+        """
+        CORRECTED: Removes the final compact_rooms() call that undoes the right-shift.
+        All functions called by this are now safe.
+        """
+        print("--- Starting layout generation ---")
 
-        # Parameters:
-        # - max_attempts (int): Maximum number of attempts to place rooms.
-        # - enable_expansion (bool): Allow rooms to expand up to their max_expansion limit.
-        # - enable_space_optimization (bool): Optimize space usage by minimizing unused areas.
+        for room in self.rooms:
+            if not getattr(room, "is_fixed", False):
+                room.reset_to_original_size()
+                room.x = None
+                room.y = None
 
-        # Returns:
-        # - bool: True if layout generation is successful, False otherwise.
-        # """
+        for room in self.fixed_rooms:
+            room.reset_to_original_size()
+
+        # STEP 1: Place rooms (original size)
         success = self.place_rooms_with_constraints_optimized(
             max_attempts=max_attempts,
-            enable_expansion=enable_expansion,
+            enable_expansion=False,
             use_compact_mode=enable_space_optimization
         )
-        print("After placement:", [(r.name, r.x, r.y) for r in self.rooms if getattr(r, "is_fixed", False)])
+
         if success:
-            # Enforce minimum adjacency and compact rooms, as in the example usage
-            self.compact_rooms()
+            print("Initial placement successful.")
 
-            print("After compact:",[(r.name, r.x, r.y) for r in self.rooms if getattr(r, "is_fixed", False)])
-            self.enforce_minimum_adjacency()
-            self.compact_rooms()
+            for i in range(5):
+                # STEP 2: "Down-and-Left" shift
+                self.compact_rooms()
+                print("After down-left compact:", [(r.name, r.x, r.y) for r in self.rooms if r.x is not None])
 
-            print("After enforce+final compact:",
-                  [(r.name, r.x, r.y) for r in self.rooms if getattr(r, "is_fixed", False)])
+                # STEP 3: "Conditional Right-Shift" (Now safe)
+                self.compact_rooms_right_conditional()
+                print("After conditional-right compact:", [(r.name, r.x, r.y) for r in self.rooms if r.x is not None])
+
+                self.compact_rooms_up_conditional()
+                # self.compact_rooms()
+
+                # STEP 4: Fix adjacencies (Now safe)
+                self.enforce_minimum_adjacency()
+                print("After enforcing adjacency.")
+
+                # *** THIS IS THE LOGIC FIX ***
+                # The final compact_rooms() is removed. Your logs show it was
+                # undoing the right-shift from Step 3, creating the vertical stack.
+                # self.compact_rooms() # <-- THIS LINE IS GONE.
+                # *** END OF LOGIC FIX ***
+
+                print("After enforce (no final compact):",
+                      [(r.name, r.x, r.y) for r in self.rooms if r.x is not None])
+
+                # STEP 5: Expand rooms to fill gaps (Now safe)
+                if enable_expansion:
+                    print("--- Starting final expansion to fill gaps ---")
+                    self.expand_rooms_optimized()
+                    print("--- Finished final expansion ---")
+
+                print("--- Layout generation complete ---")
+
+        else:
+            print("--- Layout generation FAILED ---")
+
         return success
 
 
@@ -972,6 +1488,9 @@ if __name__ == "__main__":
 
         print("Successfully placed all rooms!")
         floor_plan.print_statistics()
+        init_grid, reg_matrix, room_names, room_dimensions, fixed_rooms_ids = floor_plan.floorplan_to_ga_input()
+        print(init_grid)
+        print(reg_matrix)
     else:
         print("Failed to place all rooms. You may need to adjust room or floor dimensions.")
 
@@ -981,3 +1500,5 @@ if __name__ == "__main__":
 
     # Visualize the floor plan
     floor_plan.visualize()
+    FloorPlan.ga_runner(init_grid, reg_matrix, room_names=room_names, room_dimensions=room_dimensions,
+                        fixed_room_ids=fixed_rooms_ids)

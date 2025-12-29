@@ -21,3 +21,4 @@ profile_output.prof
 dist/
 build/
 *.egg
+/GPLAN.egg-info

@@ -13,6 +13,40 @@ from GPLAN.handlers import *
 from GPLAN.pythongui.GuiParameters import GuiParameters, DimParameters
 import builtins
 
+# Import boundary utilities from Space_Optimization folder
+import sys
+import os
+space_opt_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'Space_Optimization')
+if space_opt_path not in sys.path:
+    sys.path.insert(0, space_opt_path)
+from boundary_utils import boundary_to_regions as convert_boundary_to_regions
+
+
+def boundary_to_regions(boundary):
+    """
+    Convert a polygonal boundary to a list of rectangular regions.
+    
+    Uses the same algorithm as the UI's CAD tool (decompose_into_rectangles).
+    Creates a grid-based decomposition with cell merging for optimal region count.
+    
+    Args:
+        boundary: List of [x, y] coordinate pairs defining the polygon vertices
+        
+    Returns:
+        List of region dictionaries with x, y, width, height
+        
+    Example:
+        boundary = [[0, 0], [10, 0], [10, 5], [5, 5], [5, 10], [0, 10]]
+        regions = boundary_to_regions(boundary)
+        # Returns L-shape as merged rectangles
+    """
+    if not boundary or len(boundary) < 3:
+        raise ValueError("Boundary must have at least 3 points")
+    
+    # Use the shared utility function (same as UI)
+    return convert_boundary_to_regions(boundary)
+
+
 class Asset:
     def __init__(self, _id, properties, asset_type):
         self._id = _id
@@ -277,7 +311,14 @@ class Documents:
         Args:
             request_data: Dictionary containing:
                 - request_id: Unique request identifier
-                - params: Dictionary with regions, rooms, fixed_rooms, adjacency, non_adjacency, entrance_coords
+                - params: Dictionary with:
+                    - regions: List of rectangular regions (optional if boundary is provided)
+                    - boundary: List of [x,y] points defining polygonal boundary (optional if regions provided)
+                    - rooms: List of room specifications
+                    - fixed_rooms: List of fixed room specifications
+                    - adjacency: List of adjacency requirements
+                    - non_adjacency: List of non-adjacency requirements
+                    - entrance_coords: Entrance location
                 - ops: List of operations to perform (e.g., ["place", "compact", "expand", "score"])
         
         Returns:
@@ -296,7 +337,34 @@ class Documents:
             ops = request_data.get('ops', ['place', 'compact', 'expand', 'score'])
             
             # Extract parameters
-            regions = params.get('regions', [])
+            # Support EITHER regions OR boundary
+            regions = params.get('regions', None)
+            boundary = params.get('boundary', None)
+            
+            # If boundary is provided instead of regions, convert it
+            if boundary and not regions:
+                try:
+                    regions = boundary_to_regions(boundary)
+                    print(f"Converted boundary with {len(boundary)} points to {len(regions)} regions")
+                except Exception as e:
+                    builtins.print = original_print
+                    return {
+                        'request_id': request_id,
+                        'status': 'error',
+                        'data': {},
+                        'error': {'message': f'Failed to convert boundary to regions: {str(e)}'}
+                    }
+            
+            # Validate that we have regions (either provided or converted)
+            if not regions:
+                builtins.print = original_print
+                return {
+                    'request_id': request_id,
+                    'status': 'error',
+                    'data': {},
+                    'error': {'message': 'Either regions or boundary must be provided'}
+                }
+            
             rooms = params.get('rooms', [])
             fixed_rooms = params.get('fixed_rooms', [])
             adjacency = params.get('adjacency', [])
@@ -391,6 +459,130 @@ class Documents:
             return {
                 'request_id': request_data.get('request_id', 'unknown'),
                 'status': 'error',
+                'data': {},
+                'error': {'message': str(e)}
+            }
+
+    @staticmethod
+    def get_ga_optimized_floorplan(request_data):
+        """
+        Generate a GA-optimized floorplan using genetic algorithm with corridor generation.
+        
+        Args:
+            request_data: Dictionary containing:
+                - request_id: Unique request identifier
+                - engine: Should be "GA_FloorPlan"
+                - params: Dictionary with:
+                    - plot_width: Width of the plot
+                    - plot_height: Height of the plot
+                    - corridor_width: Width of corridors (default: 3)
+                    - rooms: List of room objects with walls
+                    - walls: List of all walls
+                    - labels: List of labels (optional)
+                    - ga_config: GA configuration (optional)
+        
+        Returns:
+            Dictionary with response data matching temp2.json format
+        """
+        original_print = builtins.print
+
+        def null_print(*args, **kwargs):
+            pass
+
+        builtins.print = null_print
+
+        try:
+            request_id = request_data.get('request_id', str(uuid.uuid4()))
+            params = request_data.get('params', {})
+            
+            # Build floorplan_data in the format ga_current expects
+            floorplan_data = {
+                'plot_width': params.get('plot_width', 40),
+                'plot_height': params.get('plot_height', 30),
+                'rooms': params.get('rooms', []),
+                'walls': params.get('walls', []),
+                'labels': params.get('labels', []),
+                'windows': params.get('windows', []),
+                'doors': params.get('doors', [])
+            }
+            
+            corridor_width = params.get('corridor_width', 3)
+            ga_config = params.get('ga_config', None)
+            
+            # Create UI object for output storage
+            from GPLAN.pythongui.GuiParameters import GuiParameters
+            ui = GuiParameters(graph=None)
+            
+            # Call the GA handler
+            success = handle_ga_optimization(
+                ui=ui,
+                floorplan_data=floorplan_data,
+                corridor_width=corridor_width,
+                ga_config=ga_config
+            )
+            
+            if not success:
+                builtins.print = original_print
+                return {
+                    'request_id': request_id,
+                    'status': 'error',
+                    'engine': 'GA_FloorPlan',
+                    'data': {},
+                    'error': {'message': ui.get_message()}
+                }
+            
+            # Extract output data
+            outputData = ui.get_output_data() if hasattr(ui, 'get_output_data') else []
+            if not outputData:
+                outputData = []
+            
+            if not outputData or len(outputData) == 0:
+                builtins.print = original_print
+                return {
+                    'request_id': request_id,
+                    'status': 'error',
+                    'engine': 'GA_FloorPlan',
+                    'data': {},
+                    'error': {'message': 'No output data generated'}
+                }
+            
+            result = outputData[0]
+            
+            # Format response matching temp2.json structure
+            response = {
+                'request_id': request_id,
+                'status': 'success',
+                'engine': 'GA_FloorPlan',
+                'data': {
+                    'floor': {
+                        'plot_width': result['plot_width'],
+                        'plot_height': result['plot_height']
+                    },
+                    'ga_optimization': {
+                        'status': 'converged',
+                        'solution_chromosome': result['ga_solution']
+                    },
+                    'rooms': result['rooms'],
+                    'walls': result['walls'],
+                    'labels': result['labels'],
+                    'windows': result.get('windows', []),
+                    'doors': result.get('doors', []),
+                    'layout_matrix': result['layout_matrix']
+                },
+                'error': {}
+            }
+            
+            builtins.print = original_print
+            return response
+            
+        except Exception as e:
+            builtins.print = original_print
+            import traceback
+            traceback.print_exc()
+            return {
+                'request_id': request_data.get('request_id', 'unknown'),
+                'status': 'error',
+                'engine': 'GA_FloorPlan',
                 'data': {},
                 'error': {'message': str(e)}
             }
