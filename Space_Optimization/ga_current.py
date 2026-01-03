@@ -61,15 +61,19 @@ def parse_floorplan_json(json_data: dict) -> Floorplan:
         plot_height=json_data['plot_height']
     )
 
-lib = ctypes.CDLL('./bfs.dll')
+# Get absolute path to DLL files
+script_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(script_dir)
+
+lib = ctypes.CDLL(os.path.join(parent_dir, 'bfs.dll'))
 lib.count_corridor_components.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int), ctypes.c_int, ctypes.c_int, ctypes.c_int]
 lib.count_corridor_components.restype = ctypes.c_int
 
-corridor_lib = ctypes.CDLL('./corridor_creator.dll')
+corridor_lib = ctypes.CDLL(os.path.join(parent_dir, 'corridor_creator.dll'))
 corridor_lib.corridor_creator.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
 corridor_lib.corridor_creator.restype = None
 
-boundary_lib = ctypes.CDLL('./boundary_accessible_corridors.dll')
+boundary_lib = ctypes.CDLL(os.path.join(parent_dir, 'boundary_accessible_corridors.dll'))
 boundary_lib.count_boundary_accessible_corridors.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int), ctypes.c_int, ctypes.c_int, ctypes.c_int]
 boundary_lib.count_boundary_accessible_corridors.restype = ctypes.c_int
 
