@@ -31,8 +31,8 @@ request_data = {
     "plot_height": 30,
     "corridor_width": 3,
     "ga_config": {
-      "population_size": 200,
-      "num_generations": 600,
+      "population_size": 2,
+      "num_generations": 5,
       "mutation_rate": 0.1
     },
     "rooms": [
@@ -266,17 +266,21 @@ request_data = {
   }
 }
 
-
 # ============================================================================
 # RUN THE TEST
 # ============================================================================
 
 def run_test():
     """Run the GA optimization test"""
+    # Get config values for display
+    ga_config = request_data['params'].get('ga_config', {})
+    num_gens = ga_config.get('num_generations', 600)
+    pop_size = ga_config.get('population_size', 200)
+    
     print("\n" + "="*80)
     print("GA OPTIMIZATION TEST")
     print("="*80)
-    print("\n⚠️  NOTE: This will take approximately 2-3 minutes to complete.")
+    print(f"\n⚠️  NOTE: Running {num_gens} generations with population size {pop_size}")
     print("="*80)
     
     print("\n📥 INPUT REQUEST:")
@@ -285,8 +289,8 @@ def run_test():
     
     print("\n⚙️  PROCESSING GA OPTIMIZATION...")
     print("-"*80)
-    print("Starting genetic algorithm with 600 generations...")
-    print("This may take a while. Please wait...\n")
+    print(f"Starting genetic algorithm with {num_gens} generations and {pop_size} population size...")
+    print("Please wait...\n")
     
     # Call the API
     result = Documents.get_ga_optimized_floorplan(request_data)
