@@ -1,6 +1,6 @@
 # Space Optimization API
 
-LINK: [https://api.gplan.in/api/generate/space_optimization](https://api.gplan.in/api/generate/space_optimization)
+LINK: [https://api.gplan.in/api/generate/space-optimized](https://api.gplan.in/api/generate/space-optimized)
 
 Generates an optimized floorplan by placing rooms within a given boundary or set of regions, while satisfying adjacency and non-adjacency requirements.
 
