@@ -2723,9 +2723,27 @@ def handle_ga_optimization(ui, floorplan_data, corridor_width=3, ga_config=None)
         
         # Import GA functions
         from ga_current import parse_json_floorplan, run_ga, apply_chromosome, corridor_creator
+        import ga_current
+        
+        # Apply GA configuration if provided
+        if ga_config:
+            if 'population_size' in ga_config:
+                ga_current.POPULATION_SIZE = ga_config['population_size']
+            if 'num_generations' in ga_config:
+                ga_current.NUM_GENERATIONS = ga_config['num_generations']
+            if 'mutation_rate' in ga_config:
+                ga_current.INITIAL_MUTATION_RATE = ga_config['mutation_rate']
+        
+        # Adjust TOURNAMENT_SIZE to be safe for small populations
+        # Must be less than population size for tournament selection to work
+        ga_current.TOURNAMENT_SIZE = min(8, max(2, ga_current.POPULATION_SIZE // 4))
         
         print(f"\n=== Starting GA Optimization ===")
         print(f"Corridor width: {corridor_width}")
+        print(f"Population size: {ga_current.POPULATION_SIZE}")
+        print(f"Generations: {ga_current.NUM_GENERATIONS}")
+        print(f"Mutation rate: {ga_current.INITIAL_MUTATION_RATE}")
+        print(f"Tournament size: {ga_current.TOURNAMENT_SIZE}")
         
         # Build complete walls list from all rooms
         # This ensures all walls referenced by rooms are in the master walls list
@@ -2753,7 +2771,6 @@ def handle_ga_optimization(ui, floorplan_data, corridor_width=3, ga_config=None)
         
         # Suppress matplotlib visualization when using API
         # Monkey-patch visualize_layout to do nothing
-        import ga_current
         original_visualize = ga_current.visualize_layout
         
         def null_visualize(*args, **kwargs):
@@ -2763,7 +2780,11 @@ def handle_ga_optimization(ui, floorplan_data, corridor_width=3, ga_config=None)
         
         try:
             # Run GA optimization
-            print("\n--- Running Genetic Algorithm (this may take 2-3 minutes) ---")
+            print(f"\n--- Running Genetic Algorithm ---")
+            print(f"Configuration: {ga_current.NUM_GENERATIONS} generations, "
+                  f"{ga_current.POPULATION_SIZE} population size, "
+                  f"{ga_current.INITIAL_MUTATION_RATE} mutation rate")
+            print("This may take some time depending on configuration...")
             best_solution = run_ga(
                 initial_grid, 
                 region_matrix, 
