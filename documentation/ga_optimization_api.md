@@ -1,6 +1,6 @@
 # GA Optimization API (Genetic Algorithm)
 
-LINK: [https://api.gplan.in/api/generate/ga_optimization](https://api.gplan.in/api/generate/ga_optimization)
+LINK: [https://api.gplan.in/api/generate/ga-optimized](https://api.gplan.in/api/generate/ga-optimized)
 
 Generates an optimized floorplan using a genetic algorithm (GA) that automatically creates corridors to connect rooms. This engine is ideal for complex floorplans where rooms need to maintain their adjacency relationships through a corridor system.
 
