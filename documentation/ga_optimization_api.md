@@ -172,7 +172,7 @@ Rooms sharing walls (e.g., Living-Kitchen wall "wall-003") will be connected via
 ```python
 import requests
 
-url = "https://api.gplan.in/api/generate/ga_optimization"
+url = "https://api.gplan.in/api/generate/ga-optimized"
 
 headers = {
     "accept": "application/json",
@@ -335,7 +335,7 @@ print(response.json())
 /// tab | cURL
 
 ```sh
-curl -X POST "https://api.gplan.in/api/generate/ga_optimization" \
+curl -X POST "https://api.gplan.in/api/generate/ga-optimized" \
      -H "accept: application/json" \
      -H "content-type: application/json" \
      -H "Authorization: Api-Key <YOUR_API_KEY>" \
