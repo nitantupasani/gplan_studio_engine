@@ -185,7 +185,7 @@ The boundary automatically converts to rectangular regions.
 ```python
 import requests
 
-url = "https://api.gplan.in/api/generate/space_optimization"
+url = "https://api.gplan.in/api/generate/space-optimization"
 
 headers = {
     "accept": "application/json",
@@ -276,7 +276,7 @@ print(response.json())
 /// tab | cURL
 
 ```sh
-curl -X POST "https://api.gplan.in/api/generate/space_optimization" \
+curl -X POST "https://api.gplan.in/api/generate/space-optimization" \
      -H "accept: application/json" \
      -H "content-type: application/json" \
      -H "Authorization: Api-Key <YOUR_API_KEY>" \
