@@ -165,7 +165,7 @@ ga_request = door_connectivity_to_ga_input(
 
 # Send to GA API
 ga_response = requests.post(
-    "https://api.gplan.in/api/generate/ga_optimization",
+    "https://api.gplan.in/api/generate/ga-optimized",
     headers=headers,
     json=ga_request
 ).json()
@@ -321,7 +321,7 @@ def space_optimization_to_ga_input(space_opt_response, corridor_width=3):
 """
 # Get space_optimization response
 space_opt_response = requests.post(
-    "https://api.gplan.in/api/generate/space_optimization",
+    "https://api.gplan.in/api/generate/space-optimized",
     headers=headers,
     json=space_opt_request
 ).json()
@@ -334,7 +334,7 @@ ga_request = space_optimization_to_ga_input(
 
 # Send to GA API
 ga_response = requests.post(
-    "https://api.gplan.in/api/generate/ga_optimization",
+    "https://api.gplan.in/api/generate/ga-optimized",
     headers=headers,
     json=ga_request
 ).json()
@@ -389,7 +389,7 @@ space_opt_request = {
 
 print("Step 1: Calling Space Optimization API...")
 space_response = requests.post(
-    f"{API_BASE}/space_optimization",
+    f"{API_BASE}/space-optimized",
     headers=headers,
     json=space_opt_request
 ).json()
@@ -415,7 +415,7 @@ print(f"✓ Converted to GA format with {len(ga_request['params']['rooms'])} roo
 
 print("\nStep 3: Calling GA Optimization API (this takes 2-3 minutes)...")
 ga_response = requests.post(
-    f"{API_BASE}/ga_optimization",
+    f"{API_BASE}/ga-optimized",
     headers=headers,
     json=ga_request
 ).json()
