@@ -2726,6 +2726,7 @@ def handle_ga_optimization(ui, floorplan_data, corridor_width=3, ga_config=None)
         import ga_current
         
         # Apply GA configuration if provided
+        max_workers = 1  # Default to single process
         if ga_config:
             if 'population_size' in ga_config:
                 ga_current.POPULATION_SIZE = ga_config['population_size']
@@ -2733,6 +2734,8 @@ def handle_ga_optimization(ui, floorplan_data, corridor_width=3, ga_config=None)
                 ga_current.NUM_GENERATIONS = ga_config['num_generations']
             if 'mutation_rate' in ga_config:
                 ga_current.INITIAL_MUTATION_RATE = ga_config['mutation_rate']
+            if 'max_workers' in ga_config:
+                max_workers = ga_config['max_workers']
         
         # Adjust TOURNAMENT_SIZE to be safe for small populations
         # Must be less than population size for tournament selection to work
@@ -2744,6 +2747,7 @@ def handle_ga_optimization(ui, floorplan_data, corridor_width=3, ga_config=None)
         print(f"Generations: {ga_current.NUM_GENERATIONS}")
         print(f"Mutation rate: {ga_current.INITIAL_MUTATION_RATE}")
         print(f"Tournament size: {ga_current.TOURNAMENT_SIZE}")
+        print(f"Max workers: {max_workers}")
         
         # Build complete walls list from all rooms
         # This ensures all walls referenced by rooms are in the master walls list
@@ -2789,7 +2793,8 @@ def handle_ga_optimization(ui, floorplan_data, corridor_width=3, ga_config=None)
                 initial_grid, 
                 region_matrix, 
                 corridor_width=corridor_width,
-                room_names=room_names
+                room_names=room_names,
+                max_workers=max_workers
             )
         finally:
             # Restore original function

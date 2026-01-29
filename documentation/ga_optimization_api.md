@@ -80,6 +80,7 @@ Generates an optimized floorplan using a genetic algorithm (GA) that automatical
   - `population_size : int` - Size of population per generation (default: 200)
   - `num_generations : int` - Number of generations to evolve (default: 600)
   - `mutation_rate : float` - Probability of mutation (default: 0.1)
+  - `max_workers : int` - Number of worker processes for parallel execution. Set to 1 for single-process mode (default: 1)
 
 ///
 
@@ -172,7 +173,7 @@ Rooms sharing walls (e.g., Living-Kitchen wall "wall-003") will be connected via
 ```python
 import requests
 
-url = "https://api.gplan.in/api/generate/ga_optimization"
+url = "https://api.gplan.in/api/generate/ga-optimized"
 
 headers = {
     "accept": "application/json",
@@ -335,7 +336,7 @@ print(response.json())
 /// tab | cURL
 
 ```sh
-curl -X POST "https://api.gplan.in/api/generate/ga_optimization" \
+curl -X POST "https://api.gplan.in/api/generate/ga-optimized" \
      -H "accept: application/json" \
      -H "content-type: application/json" \
      -H "Authorization: Api-Key <YOUR_API_KEY>" \
