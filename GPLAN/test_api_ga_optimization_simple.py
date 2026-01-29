@@ -33,7 +33,8 @@ request_data = {
     "ga_config": {
       "population_size": 2,
       "num_generations": 5,
-      "mutation_rate": 0.1
+      "mutation_rate": 0.1,
+      "max_workers": 1
     },
     "rooms": [
       {

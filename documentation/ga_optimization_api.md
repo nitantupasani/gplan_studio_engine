@@ -80,6 +80,7 @@ Generates an optimized floorplan using a genetic algorithm (GA) that automatical
   - `population_size : int` - Size of population per generation (default: 200)
   - `num_generations : int` - Number of generations to evolve (default: 600)
   - `mutation_rate : float` - Probability of mutation (default: 0.1)
+  - `max_workers : int` - Number of worker processes for parallel execution. Set to 1 for single-process mode (default: 1)
 
 ///
 

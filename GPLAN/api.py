@@ -480,6 +480,7 @@ class Documents:
                     - walls: List of all walls
                     - labels: List of labels (optional)
                     - ga_config: GA configuration (optional)
+                        - max_workers: Number of workers for parallel processing (default: 1)
         
         Returns:
             Dictionary with response data matching temp2.json format

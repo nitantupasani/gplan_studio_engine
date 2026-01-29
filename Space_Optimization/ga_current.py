@@ -5,6 +5,7 @@ import random
 import datetime
 import os
 import json
+import contextlib
 from concurrent.futures import ProcessPoolExecutor
 from collections import deque, defaultdict
 import numpy as np
@@ -1197,7 +1198,8 @@ def run_ga(initial_grid: np.ndarray,
            room_names: Optional[Dict[int, str]] = None, 
            room_dimensions: Optional[Dict[int, Tuple[int, int]]] = None, 
            corridor_width: int = 2, 
-           fixed_room_ids: Optional[List[int]] = None) -> Optional[List[Tuple[int, int]]]:
+           fixed_room_ids: Optional[List[int]] = None,
+           max_workers: int = 1) -> Optional[List[Tuple[int, int]]]:
     """
     Run genetic algorithm to optimize room layout with corridor generation.
     Optimized for larger grid sizes with adaptive parameters.
@@ -1244,9 +1246,19 @@ def run_ga(initial_grid: np.ndarray,
         halfway_point = NUM_GENERATIONS // 2
         should_restart = False
         
-        # Parallel processing
-        with ProcessPoolExecutor(initializer=_init_worker, 
-                                initargs=(initial_rooms, region_matrix, fixed_room_ids)) as executor:
+        # Execution context setup
+        if max_workers == 1:
+            _init_worker(initial_rooms, region_matrix, fixed_room_ids)
+            class DummyExecutor:
+                def map(self, func, items):
+                    return map(func, items)
+            executor_ctx = contextlib.nullcontext(DummyExecutor())
+        else:
+            executor_ctx = ProcessPoolExecutor(max_workers=max_workers, initializer=_init_worker, 
+                                            initargs=(initial_rooms, region_matrix, fixed_room_ids))
+
+        # Run optimization
+        with executor_ctx as executor:
             
             for generation in range(NUM_GENERATIONS):
                 # Evaluate fitness for all individuals
