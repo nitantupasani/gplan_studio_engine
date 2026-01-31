@@ -1667,6 +1667,10 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
         else:
             show_warning("Unexpected return value from door_connectivity")
             return
+        
+        # Set PTPG graph for output
+        ui.set_ptpg_graph(graph.matrix.tolist())
+        
         ui.set_edgeCount(graph.edgecnt)
         ui.set_edges(graph.update_gclass_with_edges(gclass))
         ui.set_nodeCoordinates(graph.coordinates)
@@ -1674,6 +1678,10 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
     else:
         start = time.time()
         graph, checkPTPG = graph.door_connectivity(show_graph=drawGUI)
+        
+        # Set PTPG graph for output
+        ui.set_ptpg_graph(graph.matrix.tolist())
+        
         ui.set_edgeCount(graph.edgecnt)
         ui.set_edges(graph.update_gclass_with_edges(gclass))
         ui.set_nodeCoordinates(graph.coordinates)

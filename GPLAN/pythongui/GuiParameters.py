@@ -123,6 +123,14 @@ class GuiParameters:
     output_data: list = []
     min_dim_inputs: DimParameters = None
     non_adj_list: list = []
+    __ptpg_graph: dict = None
+
+    def get_ptpg_graph(self) -> dict:
+        return self.__ptpg_graph
+
+    def set_ptpg_graph(self, ptpg_graph: dict):
+        self.__ptpg_graph = ptpg_graph
+        return self
 
     def get_min_dim_inputs(self) -> DimParameters:
         return self.min_dim_inputs

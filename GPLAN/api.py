@@ -125,21 +125,29 @@ class Documents:
         self.name = name
         self.count = count
         self.floorplans = []
+        self.ptpg_graph = None
 
     def append_floorplan(self,floorplan):
         if floorplan:
             self.floorplans.append([room.to_dict() for room in floorplan])
+    
+    def set_ptpg_graph(self, ptpg_graph):
+        self.ptpg_graph = ptpg_graph
 
     def to_dict(self):
+        doc_dict = {
+            "documentID": self.documentID,
+            "name": self.name,
+            "count":self.count,
+            # "hasMore": self.hasMore,
+            # "offset": self.offset,
+            "floorPlans": self.floorplans
+        }
+        if self.ptpg_graph is not None:
+            doc_dict["ptpg_graph"] = self.ptpg_graph
+            
         return {
-            "Documents": {
-                "documentID": self.documentID,
-                "name": self.name,
-                "count":self.count,
-                # "hasMore": self.hasMore,
-                # "offset": self.offset,
-                "floorPlans": self.floorplans
-            }
+            "Documents": doc_dict
         }
 
     @staticmethod
@@ -271,6 +279,12 @@ class Documents:
         hasMore = graph.fpcnt - offset - 1 > 0
         total_fp_count = min(min(len(outputData), limit),count)
         response = Documents(hasMore, offset, documentID, name, total_fp_count)
+        
+        # Add ptpg_graph if available
+        if caller == "door_connectivity":
+            ptpg_graph = ui.get_ptpg_graph() if hasattr(ui, 'get_ptpg_graph') else None
+            if ptpg_graph:
+                response.set_ptpg_graph(ptpg_graph)
 
         for index in range(min(min(len(outputData), limit),count)):
             rooms = []
