@@ -167,8 +167,244 @@ def post(request, shape):
 
 
 if __name__ == '__main__':
-    sample ={"rectangular":true,"corridor":false,"dimensioned":false,"non_adj":true,"dimensionedCirculation":false,"minDimEnabled":true,"removeAddCirculation":false,"publicEnabled":false,"normalizeConst":true,"limit":10,"starting_from":0,"count":10,"nodes":[{"id":0,"label":"1","height":{"min":5.0,"max":99999},"width":{"min":5.0,"max":99999},"color":"#1C4C82"},{"id":1,"label":"2","height":{"min":5.0,"max":99999},"width":{"min":5.0,"max":99999},"color":"#1C4C82"}],"edges":[{"source":0,"target":1,"color":"black"}],"corridorThickness":0.5,"plot_width":10,"plot_height":10}
-    
+    sample ={
+  "rectangular": true,
+  "corridor": false,
+  "dimensioned": false,
+  "non_adj": true,
+  "dimensionedCirculation": false,
+  "minDimEnabled": true,
+  "removeAddCirculation": false,
+  "publicEnabled": false,
+  "normalizeConst": true,
+  "limit": 10,
+  "corridorThickness": 0.5,
+  "starting_from": 0,
+  "count": 10,
+  "nodes": [
+    {
+      "id": 0,
+      "x": 680,
+      "y": 460,
+      "label": "1",
+      "color": "#1C4C82",
+      "width": {
+        "max": 99999,
+        "min": 3
+      },
+      "height": {
+        "max": 99999,
+        "min": 3
+      },
+      "ratio": {
+        "max": 99999,
+        "min": 3
+      }
+    },
+    {
+      "id": 1,
+      "x": 1080,
+      "y": 280,
+      "label": "2",
+      "color": "#1C4C82",
+      "width": {
+        "max": 99999,
+        "min": 3
+      },
+      "height": {
+        "max": 99999,
+        "min": 3
+      },
+      "ratio": {
+        "max": 99999,
+        "min": 3
+      }
+    },
+    {
+      "id": 2,
+      "x": 1040,
+      "y": 640,
+      "label": "3",
+      "color": "#1C4C82",
+      "width": {
+        "max": 99999,
+        "min": 3
+      },
+      "height": {
+        "max": 99999,
+        "min": 3
+      },
+      "ratio": {
+        "max": 99999,
+        "min": 3
+      }
+    },
+    {
+      "id": 3,
+      "x": 100,
+      "y": 360,
+      "label": "4",
+      "color": "#1C4C82",
+      "width": {
+        "max": 99999,
+        "min": 3
+      },
+      "height": {
+        "max": 99999,
+        "min": 3
+      },
+      "ratio": {
+        "max": 99999,
+        "min": 3
+      }
+    },
+    {
+      "id": 4,
+      "x": 700,
+      "y": 100,
+      "label": "5",
+      "color": "#1C4C82",
+      "width": {
+        "max": 99999,
+        "min": 3
+      },
+      "height": {
+        "max": 99999,
+        "min": 3
+      },
+      "ratio": {
+        "max": 99999,
+        "min": 3
+      }
+    },
+    {
+      "id": 5,
+      "x": 320,
+      "y": 680,
+      "label": "6",
+      "color": "#1C4C82",
+      "width": {
+        "max": 99999,
+        "min": 3
+      },
+      "height": {
+        "max": 99999,
+        "min": 3
+      },
+      "ratio": {
+        "max": 99999,
+        "min": 3
+      }
+    },
+    {
+      "id": 6,
+      "x": 160,
+      "y": 620,
+      "label": "7",
+      "color": "#1C4C82",
+      "width": {
+        "max": 99999,
+        "min": 3
+      },
+      "height": {
+        "max": 99999,
+        "min": 3
+      },
+      "ratio": {
+        "max": 99999,
+        "min": 3
+      }
+    },
+    {
+      "id": 7,
+      "x": 420,
+      "y": 100,
+      "label": "8",
+      "color": "#1C4C82",
+      "width": {
+        "max": 99999,
+        "min": 3
+      },
+      "height": {
+        "max": 99999,
+        "min": 3
+      },
+      "ratio": {
+        "max": 99999,
+        "min": 3
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": 6,
+      "target": 0,
+      "color": "black"
+    },
+    {
+      "source": 0,
+      "target": 7,
+      "color": "black"
+    },
+    {
+      "source": 7,
+      "target": 3,
+      "color": "black"
+    },
+    {
+      "source": 3,
+      "target": 6,
+      "color": "black"
+    },
+    {
+      "source": 0,
+      "target": 4,
+      "color": "black"
+    },
+    {
+      "source": 1,
+      "target": 2,
+      "color": "black"
+    },
+    {
+      "source": 2,
+      "target": 5,
+      "color": "black"
+    },
+    {
+      "source": 1,
+      "target": 4,
+      "color": "black"
+    },
+    {
+      "source": 0,
+      "target": 1,
+      "color": "red"
+    },
+    {
+      "source": 5,
+      "target": 0,
+      "color": "black"
+    },
+    {
+      "source": 0,
+      "target": 2,
+      "color": "red"
+    },
+    {
+      "source": 6,
+      "target": 5,
+      "color": "red"
+    },
+    {
+      "source": 6,
+      "target": 7,
+      "color": "black"
+    }
+  ],
+  "plot_width": 0,
+  "plot_height": 0
+}
 class Request:
   def __init__(self, data):
       self.data = data
