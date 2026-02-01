@@ -1,0 +1,970 @@
+# Door Connectivity API
+
+LINK: [https://api.gplan.in/api/generate/door_connectivity](https://api.gplan.in/api/generate/door_connectivity)
+
+Generates a floorplan based on adjacency and non adjacency of rooms represented by nodes.
+The property of adjacency and non adjacency of the rooms (nodes) are depicted using edges
+
+### Fields
+
+/// tab | Request
+
+`rectangular : bool (true|false)`
+
+: remove this
+
+`corridor : bool (true|false)`
+: Used to represent if there is a corridor present in the Floorplan (to be implemented in a future version) 
+
+`dimensioned : bool (true|false)`
+
+: DEPRECATED 
+
+`non_adj : bool (true|false)`
+
+: To be set to true if there are non adjacent edges in the graph 
+
+`dimensionedCirculation : bool (true|false)`
+
+: Used to provide dimensions to the corridor (if present)  (to remove)
+
+`minDimEnabled : bool (true|false)`
+
+: Used if dimensions are to be sent
+
+`removeAddCirculation : bool (true|false)`
+
+: to be implemented 
+
+`publicEnabled : bool (true|false)`
+
+: default false to be sent  
+
+`normalizeConst : bool (true|false)`
+
+: placeholder documentation
+
+`limit : int`
+
+: Number of floorplans to generate (same as count) 
+
+`corridorThickness : int`
+
+: Thickness of the corridor if present. Only considered if `corridor` is set to true
+
+`starting_from : int`
+
+: To be implemented with corridor 
+
+`count : int`
+
+: Number of floorplans to generate 
+
+`nodes : array[node]`
+
+: An array of node objects (structure below) representing each "node" in the graph
+
+- `id`
+    : The id of the node, used as an identifier for the edges
+- `x : int (optional)`
+    : The x coordinate of the node
+- `y : int (optional)`
+    : The y coordinate of the node
+- `label : string`
+    : Name of the room / area that the node represents
+- `color: Hex Code (optional) (default =  #1C4C82)`
+    : The HexCode of the color of the node to be used in the graph
+- `width : limit`
+    : The limits for the width of the room/area represented by the node
+- `height : limit`
+    : The limits for the height of the room/area represented by the node
+- `ratio : limit (optional) (default = {"max" : 9999, "min" : 3})`
+
+- `limit` 
+    - `max: int`
+    - `min: int`
+
+`edges : array[edge]`
+: An array of edge objects (structure below) representing each "edge" in the graph
+
+- `source : int`
+: The id of the node from which the edge originates
+
+- `target : int`
+: The id of the node at which the edge terminates
+
+- `color : string ("red" | "black")`
+: The color of the edge, a "black" edge represents an adjacent edge, a "red" edge represents a non adjacent edge
+
+`plot_width : int`
+
+: Limit for the width of the overallrectangular plot in the floorplan 
+
+`plot_height : int`
+
+: Limit for the height of the overall rectangular plot in the floorplan 
+
+///
+
+/// tab | Response
+
+`message : string`
+: Message from the server
+
+`response : object`
+
+- `Documents : object`
+
+    : A document object created on the server, can be saved for future retrival using the `documentID`
+
+- `documentID : uuid`
+
+    : An identifier for the floorplan document generated on the server
+
+- `name : string`
+
+    : Name of the document generated on the server
+
+- `count : int`
+
+    : Number of floorplans generated in each document
+
+- `ptpg_graph : array[array[int]]`
+
+    : Adjacency matrix representing the PTPG graph
+
+- `floorPlans : array[array[object]]`
+
+    : A nested array of objects with the structure below representing each floorplan generated. Each element in the outer array holds one floorplan, each element in the inner array holds information about each room/area in the floorplan
+
+    - `_id` : ID of the room/area in the generated floorplan
+    - `name`: Name/Label of the room/area in the generated floorplan (same as the label passed in the request)
+    - `label_coord` : [x, y] coordinates of the label in the floorplan
+    - `area` 
+    - `width`
+    - `height`
+    - `color`
+
+    - `walls : array[object]`
+        : An array of objects with the following structure representing each wall of the room in the floorplan
+
+        - `_id` : Identifier for the wall
+
+        - `x1` : x coordinate of the start of the wall
+
+        - `y1` : y coordinate of the start of the wall
+
+        - `x2` : x coordinate of the end of the wall
+
+        - `y2` : y coordinate of the end of the wall
+
+    - `circular_coordinates`
+        : Circular coordinates [x,y] of each room
+
+///
+
+## Examples
+/// tab | Request
+<figure markdown="span">
+  ![Graph Example](../assets/door_connectivity_graph.png){ width="600" }
+  <figcaption>Graph Example</figcaption>
+</figure>
+/// tab | Python
+
+```py
+import requests
+
+url = "https://api.gplan.in/api/generate/door_connectivity"
+
+headers = {
+    "accept" : "application/json",
+    "content-type" : "application/json",
+    "Authorization" : "Api-Key <YOUR_API_KEY>"
+}
+body ={
+    "rectangular": true,
+    "corridor": false,
+    "dimensioned": false,
+    "non_adj": true,
+    "dimensionedCirculation": false,
+    "minDimEnabled": true,
+    "removeAddCirculation": false,
+    "publicEnabled": false,
+    "normalizeConst": true,
+    "limit": 10,
+    "corridorThickness": 0.5,
+    "starting_from": 0,
+    "count": 10,
+    "nodes": [
+        {
+            "id": 0,
+            "label": "1",
+            "color": "#1C4C82",
+            "width": {
+                "max": 99999,
+                "min": 3
+            },
+            "height": {
+                "max": 99999,
+                "min": 3
+            }
+        },
+        {
+            "id": 1,
+            "label": "2",
+            "color": "#1C4C82",
+            "width": {
+                "max": 99999,
+                "min": 3
+            },
+            "height": {
+                "max": 99999,
+                "min": 3
+            }
+        },
+        {
+            "id": 2,
+            "label": "3",
+            "color": "#1C4C82",
+            "width": {
+                "max": 99999,
+                "min": 3
+            },
+            "height": {
+                "max": 99999,
+                "min": 3
+            }
+        }
+    ],
+    "edges": [
+        {
+            "source": 0,
+            "target": 1,
+            "color": "black"
+        },
+        {
+            "source": 2,
+            "target": 0,
+            "color": "black"
+        },
+        {
+            "source": 1,
+            "target": 2,
+            "color": "black"
+        }
+    ]
+} 
+
+response = requests.post(url, headers=headers, data=body)
+```
+
+///
+
+/// tab | cURL
+
+```sh
+curl -X POST "https://api.gplan.in/api/generate/door_connectivity" \
+     -H "accept: application/json" \
+     -H "content-type: application/json" \
+     -H "Authorization: Api-Key <YOUR_API_KEY>" \
+     -d '{
+    "rectangular": true,
+    "corridor": false,
+    "dimensioned": false,
+    "non_adj": true,
+    "dimensionedCirculation": false,
+    "minDimEnabled": true,
+    "removeAddCirculation": false,
+    "publicEnabled": false,
+    "normalizeConst": true,
+    "limit": 10,
+    "corridorThickness": 0.5,
+    "starting_from": 0,
+    "count": 10,
+    "nodes": [
+        {
+            "id": 0,
+            "label": "1",
+            "color": "#1C4C82",
+            "width": {
+                "max": 99999,
+                "min": 3
+            },
+            "height": {
+                "max": 99999,
+                "min": 3
+            }
+        },
+        {
+            "id": 1,
+            "label": "2",
+            "color": "#1C4C82",
+            "width": {
+                "max": 99999,
+                "min": 3
+            },
+            "height": {
+                "max": 99999,
+                "min": 3
+            }
+        },
+        {
+            "id": 2,
+            "label": "3",
+            "color": "#1C4C82",
+            "width": {
+                "max": 99999,
+                "min": 3
+            },
+            "height": {
+                "max": 99999,
+                "min": 3
+            }
+        }
+    ],
+    "edges": [
+        {
+            "source": 0,
+            "target": 1,
+            "color": "black"
+        },
+        {
+            "source": 2,
+            "target": 0,
+            "color": "black"
+        },
+        {
+            "source": 1,
+            "target": 2,
+            "color": "black"
+        }
+    ]
+}'
+
+```
+
+///
+
+
+
+///
+/// tab | Response
+
+<figure markdown="span">
+  ![Generated Floorplan](../assets/door_connectivity_floorplans.png){ width="600" }
+  <figcaption>Generated Floorplan</figcaption>
+</figure>
+
+```json
+{
+    "message": "Generated Multiple Door connectivity floorplan.Time taken: 15.793800354003906 msTime taken: 15.800952911376953 ms",
+    "response": {
+        "Documents": {
+            "documentID": "80a873da-aeef-4977-8d9b-c48da93f417d",
+            "name": "Untitled Document",
+            "count": 3,
+            "ptpg_graph": [
+                [0, 1, 1],
+                [1, 0, 1],
+                [1, 1, 0]
+            ],
+            "floorPlans": [
+                [
+                    {
+                        "_id": "0e72df45-b5d5-46d8-ad8e-3cd7fa25dbed",
+                        "name": "1",
+                        "label_coord": [
+                            1.1914907101908583,
+                            1.5
+                        ],
+                        "area": 12.0,
+                        "width": 4.0,
+                        "height": 3.0,
+                        "assets": [],
+                        "color": "#1C4C82",
+                        "walls": [
+                            {
+                                "_id": "8299651e-ff49-462b-a704-e6855f953626",
+                                "x1": 1.0,
+                                "y1": 0.0,
+                                "x2": 1.0,
+                                "y2": 3.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "34f808ee-eebb-4320-a470-8f17e28d7814",
+                                "x1": 1.0,
+                                "y1": 3.0,
+                                "x2": 5.0,
+                                "y2": 3.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "3768dc5a-ea54-42a0-a776-c71273fbf85d",
+                                "x1": 5.0,
+                                "y1": 3.0,
+                                "x2": 5.0,
+                                "y2": 0.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "f1c2343f-47ff-4c6b-a51f-a93a651e5cdd",
+                                "x1": 5.0,
+                                "y1": 0.0,
+                                "x2": 1.0,
+                                "y2": 0.0,
+                                "assets": []
+                            }
+                        ],
+                        "circular_coordinates": [
+                            [
+                                1.0,
+                                0.0
+                            ],
+                            [
+                                1.0,
+                                3.0
+                            ],
+                            [
+                                5.0,
+                                3.0
+                            ],
+                            [
+                                5.0,
+                                0.0
+                            ]
+                        ]
+                    },
+                    {
+                        "_id": "4c53e407-b745-491f-a5a8-797ccf6b7020",
+                        "name": "2",
+                        "label_coord": [
+                            3.191490710190858,
+                            4.5
+                        ],
+                        "area": 9.0,
+                        "width": 3.0,
+                        "height": 3.0,
+                        "assets": [],
+                        "color": "#1C4C82",
+                        "walls": [
+                            {
+                                "_id": "ea68812c-9540-4ecd-bf3e-12c8e93ec98a",
+                                "x1": 3.0,
+                                "y1": 3.0,
+                                "x2": 3.0,
+                                "y2": 6.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "d9bae276-0a0e-4392-8a2d-869ccdebd9b3",
+                                "x1": 3.0,
+                                "y1": 6.0,
+                                "x2": 6.0,
+                                "y2": 6.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "263413f1-681a-4528-bd99-a85bab362bc1",
+                                "x1": 6.0,
+                                "y1": 6.0,
+                                "x2": 6.0,
+                                "y2": 3.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "e932fe99-d838-4cfe-a50f-bc6e72dce953",
+                                "x1": 6.0,
+                                "y1": 3.0,
+                                "x2": 3.0,
+                                "y2": 3.0,
+                                "assets": []
+                            }
+                        ],
+                        "circular_coordinates": [
+                            [
+                                3.0,
+                                3.0
+                            ],
+                            [
+                                3.0,
+                                6.0
+                            ],
+                            [
+                                6.0,
+                                6.0
+                            ],
+                            [
+                                6.0,
+                                3.0
+                            ]
+                        ]
+                    },
+                    {
+                        "_id": "4e7635ef-aebd-49aa-a507-cf00c76056eb",
+                        "name": "3",
+                        "label_coord": [
+                            0.19149071019085823,
+                            4.5
+                        ],
+                        "area": 9.0,
+                        "width": 3.0,
+                        "height": 3.0,
+                        "assets": [],
+                        "color": "#1C4C82",
+                        "walls": [
+                            {
+                                "_id": "a78b83b7-5d13-482d-ac44-a7ad3e72c58a",
+                                "x1": 0.0,
+                                "y1": 3.0,
+                                "x2": 0.0,
+                                "y2": 6.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "1b94d27a-fe8e-4bef-a249-95edd582b111",
+                                "x1": 0.0,
+                                "y1": 6.0,
+                                "x2": 3.0,
+                                "y2": 6.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "9941c24b-a2e0-4dbc-89e2-59ddea191641",
+                                "x1": 3.0,
+                                "y1": 6.0,
+                                "x2": 3.0,
+                                "y2": 3.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "418843af-cc9c-43d2-91ca-eacbab8548fa",
+                                "x1": 3.0,
+                                "y1": 3.0,
+                                "x2": 0.0,
+                                "y2": 3.0,
+                                "assets": []
+                            }
+                        ],
+                        "circular_coordinates": [
+                            [
+                                0.0,
+                                3.0
+                            ],
+                            [
+                                0.0,
+                                6.0
+                            ],
+                            [
+                                3.0,
+                                6.0
+                            ],
+                            [
+                                3.0,
+                                3.0
+                            ]
+                        ]
+                    }
+                ],
+                [
+                    {
+                        "_id": "79726a85-311b-4d06-a54c-43a9f0742b27",
+                        "name": "1",
+                        "label_coord": [
+                            0.19149071019085823,
+                            1.5
+                        ],
+                        "area": 9.0,
+                        "width": 3.0,
+                        "height": 3.0,
+                        "assets": [],
+                        "color": "#1C4C82",
+                        "walls": [
+                            {
+                                "_id": "301fea91-4340-4f98-ba49-f50ad9bcb312",
+                                "x1": 0.0,
+                                "y1": 0.0,
+                                "x2": 0.0,
+                                "y2": 3.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "92bc6761-f9e2-4e9c-abd8-35e24a5ce2b9",
+                                "x1": 0.0,
+                                "y1": 3.0,
+                                "x2": 3.0,
+                                "y2": 3.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "b1f7b1ea-e489-4a87-9978-33dc0bc45885",
+                                "x1": 3.0,
+                                "y1": 3.0,
+                                "x2": 3.0,
+                                "y2": 0.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "5509918a-9ab7-4d5e-b3f4-dc0f117dd84c",
+                                "x1": 3.0,
+                                "y1": 0.0,
+                                "x2": 0.0,
+                                "y2": 0.0,
+                                "assets": []
+                            }
+                        ],
+                        "circular_coordinates": [
+                            [
+                                0.0,
+                                0.0
+                            ],
+                            [
+                                0.0,
+                                3.0
+                            ],
+                            [
+                                3.0,
+                                3.0
+                            ],
+                            [
+                                3.0,
+                                0.0
+                            ]
+                        ]
+                    },
+                    {
+                        "_id": "a3319031-7ad1-47d3-8463-8e0a71617069",
+                        "name": "2",
+                        "label_coord": [
+                            3.191490710190858,
+                            3.0
+                        ],
+                        "area": 12.0,
+                        "width": 3.0,
+                        "height": 4.0,
+                        "assets": [],
+                        "color": "#1C4C82",
+                        "walls": [
+                            {
+                                "_id": "2ea2aded-67a5-404a-afc0-ee7f4f6b6995",
+                                "x1": 3.0,
+                                "y1": 1.0,
+                                "x2": 3.0,
+                                "y2": 5.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "4765fdbd-200c-4556-aedb-e9370165c735",
+                                "x1": 3.0,
+                                "y1": 5.0,
+                                "x2": 6.0,
+                                "y2": 5.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "50befdfe-3d4b-4388-a101-f88185dd59e4",
+                                "x1": 6.0,
+                                "y1": 5.0,
+                                "x2": 6.0,
+                                "y2": 1.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "ade1a9ff-cdd5-4b41-9fff-a00e2e5f413a",
+                                "x1": 6.0,
+                                "y1": 1.0,
+                                "x2": 3.0,
+                                "y2": 1.0,
+                                "assets": []
+                            }
+                        ],
+                        "circular_coordinates": [
+                            [
+                                3.0,
+                                1.0
+                            ],
+                            [
+                                3.0,
+                                5.0
+                            ],
+                            [
+                                6.0,
+                                5.0
+                            ],
+                            [
+                                6.0,
+                                1.0
+                            ]
+                        ]
+                    },
+                    {
+                        "_id": "53794824-c28b-48a6-a694-891bdc4be2c5",
+                        "name": "3",
+                        "label_coord": [
+                            0.19149071019085823,
+                            4.5
+                        ],
+                        "area": 9.0,
+                        "width": 3.0,
+                        "height": 3.0,
+                        "assets": [],
+                        "color": "#1C4C82",
+                        "walls": [
+                            {
+                                "_id": "b439d7be-f0a6-484e-8eec-b82ddf49670c",
+                                "x1": 0.0,
+                                "y1": 3.0,
+                                "x2": 0.0,
+                                "y2": 6.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "a8285b46-96e6-435b-863a-d46ecb369f05",
+                                "x1": 0.0,
+                                "y1": 6.0,
+                                "x2": 3.0,
+                                "y2": 6.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "14bece9b-cacb-4318-8e35-98c4f7d40baf",
+                                "x1": 3.0,
+                                "y1": 6.0,
+                                "x2": 3.0,
+                                "y2": 3.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "37195b5f-ccb5-4207-90ea-85ea4ac6e88d",
+                                "x1": 3.0,
+                                "y1": 3.0,
+                                "x2": 0.0,
+                                "y2": 3.0,
+                                "assets": []
+                            }
+                        ],
+                        "circular_coordinates": [
+                            [
+                                0.0,
+                                3.0
+                            ],
+                            [
+                                0.0,
+                                6.0
+                            ],
+                            [
+                                3.0,
+                                6.0
+                            ],
+                            [
+                                3.0,
+                                3.0
+                            ]
+                        ]
+                    }
+                ],
+                [
+                    {
+                        "_id": "bccff5a0-4582-4432-b593-e5f65620d94f",
+                        "name": "1",
+                        "label_coord": [
+                            0.19149071019085823,
+                            1.5
+                        ],
+                        "area": 9.0,
+                        "width": 3.0,
+                        "height": 3.0,
+                        "assets": [],
+                        "color": "#1C4C82",
+                        "walls": [
+                            {
+                                "_id": "50e78366-b172-4df4-a31a-9306d68fc355",
+                                "x1": 0.0,
+                                "y1": 0.0,
+                                "x2": 0.0,
+                                "y2": 3.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "72db705b-8f47-4706-b6bc-30f597382185",
+                                "x1": 0.0,
+                                "y1": 3.0,
+                                "x2": 3.0,
+                                "y2": 3.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "48e0eed6-3b98-4fcc-8125-2b3338cb9f58",
+                                "x1": 3.0,
+                                "y1": 3.0,
+                                "x2": 3.0,
+                                "y2": 0.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "536b78e9-40b4-42c2-ac3b-74a62c940fa9",
+                                "x1": 3.0,
+                                "y1": 0.0,
+                                "x2": 0.0,
+                                "y2": 0.0,
+                                "assets": []
+                            }
+                        ],
+                        "circular_coordinates": [
+                            [
+                                0.0,
+                                0.0
+                            ],
+                            [
+                                0.0,
+                                3.0
+                            ],
+                            [
+                                3.0,
+                                3.0
+                            ],
+                            [
+                                3.0,
+                                0.0
+                            ]
+                        ]
+                    },
+                    {
+                        "_id": "feb9f23d-d22b-4efe-9542-bd05a428717c",
+                        "name": "2",
+                        "label_coord": [
+                            3.191490710190858,
+                            1.5
+                        ],
+                        "area": 9.0,
+                        "width": 3.0,
+                        "height": 3.0,
+                        "assets": [],
+                        "color": "#1C4C82",
+                        "walls": [
+                            {
+                                "_id": "eac6a290-4c42-4750-938c-9b6ff7c86fd5",
+                                "x1": 3.0,
+                                "y1": 0.0,
+                                "x2": 3.0,
+                                "y2": 3.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "49e27bdd-093f-4959-bc7d-796c48936684",
+                                "x1": 3.0,
+                                "y1": 3.0,
+                                "x2": 6.0,
+                                "y2": 3.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "8176e1b2-7b2f-45a3-b54d-4d75aeb2be41",
+                                "x1": 6.0,
+                                "y1": 3.0,
+                                "x2": 6.0,
+                                "y2": 0.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "8831ef9c-11d0-42fe-8050-8a19ed2cd71d",
+                                "x1": 6.0,
+                                "y1": 0.0,
+                                "x2": 3.0,
+                                "y2": 0.0,
+                                "assets": []
+                            }
+                        ],
+                        "circular_coordinates": [
+                            [
+                                3.0,
+                                0.0
+                            ],
+                            [
+                                3.0,
+                                3.0
+                            ],
+                            [
+                                6.0,
+                                3.0
+                            ],
+                            [
+                                6.0,
+                                0.0
+                            ]
+                        ]
+                    },
+                    {
+                        "_id": "b823a20f-a18b-4a71-ae21-1f35b990db0d",
+                        "name": "3",
+                        "label_coord": [
+                            1.1914907101908583,
+                            4.5
+                        ],
+                        "area": 12.0,
+                        "width": 4.0,
+                        "height": 3.0,
+                        "assets": [],
+                        "color": "#1C4C82",
+                        "walls": [
+                            {
+                                "_id": "4eefbcbd-c6ea-4107-9d66-7a0d14f6f5c5",
+                                "x1": 1.0,
+                                "y1": 3.0,
+                                "x2": 1.0,
+                                "y2": 6.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "175e55f3-0a22-4011-987b-e6fe70e0839a",
+                                "x1": 1.0,
+                                "y1": 6.0,
+                                "x2": 5.0,
+                                "y2": 6.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "bec8349a-6500-46f3-91f6-89274db28287",
+                                "x1": 5.0,
+                                "y1": 6.0,
+                                "x2": 5.0,
+                                "y2": 3.0,
+                                "assets": []
+                            },
+                            {
+                                "_id": "7a337fa4-14bf-4907-b38a-bb1065420584",
+                                "x1": 5.0,
+                                "y1": 3.0,
+                                "x2": 1.0,
+                                "y2": 3.0,
+                                "assets": []
+                            }
+                        ],
+                        "circular_coordinates": [
+                            [
+                                1.0,
+                                3.0
+                            ],
+                            [
+                                1.0,
+                                6.0
+                            ],
+                            [
+                                5.0,
+                                6.0
+                            ],
+                            [
+                                5.0,
+                                3.0
+                            ]
+                        ]
+                    }
+                ],
+            ]
+        }
+    }
+}
+```
+
+
+///
