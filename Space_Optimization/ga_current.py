@@ -6,7 +6,7 @@ import datetime
 import os
 import json
 import contextlib
-from concurrent.futures import ProcessPoolExecutor
+# ProcessPoolExecutor import moved to run_ga for conditional usage
 from collections import deque, defaultdict
 import numpy as np
 import matplotlib.pyplot as plt
@@ -1248,12 +1248,17 @@ def run_ga(initial_grid: np.ndarray,
         
         # Execution context setup
         if max_workers == 1:
-            _init_worker(initial_rooms, region_matrix, fixed_room_ids)
-            class DummyExecutor:
-                def map(self, func, items):
-                    return map(func, items)
-            executor_ctx = contextlib.nullcontext(DummyExecutor())
+            # Simple serial execution - no globals, no multitasking overhead
+            class SerialExecutor:
+                def map(self, _ignored_func, items):
+                    # We ignore the passed worker function (which uses globals)
+                    # and call the logic directly using local variables from closure
+                    return [calculate_fitness_cached(list(item), initial_rooms, region_matrix, fixed_room_ids) 
+                            for item in items]
+            
+            executor_ctx = contextlib.nullcontext(SerialExecutor())
         else:
+            from concurrent.futures import ProcessPoolExecutor
             executor_ctx = ProcessPoolExecutor(max_workers=max_workers, initializer=_init_worker, 
                                             initargs=(initial_rooms, region_matrix, fixed_room_ids))
 
