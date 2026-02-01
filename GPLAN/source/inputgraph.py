@@ -350,7 +350,7 @@ class InputGraph:
             self.room_y = np.array([0.0, 0.0])
             self.room_width = np.array([1.0, 1.0])
             self.room_height = np.array([1.0, 1.0])
-            return
+            return self, True
         original_one_connected = copy.deepcopy(self.matrix)
         one_connected=  copy.deepcopy(self.matrix)
         if(is_non_adj):
