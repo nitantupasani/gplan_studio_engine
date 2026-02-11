@@ -78,8 +78,8 @@ boundary_lib = ctypes.CDLL(os.path.join(parent_dir, 'boundary_accessible_corrido
 boundary_lib.count_boundary_accessible_corridors.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int), ctypes.c_int, ctypes.c_int, ctypes.c_int]
 boundary_lib.count_boundary_accessible_corridors.restype = ctypes.c_int
 
-POPULATION_SIZE = 200
-NUM_GENERATIONS = 600
+POPULATION_SIZE = 10
+NUM_GENERATIONS = 30
 INITIAL_MUTATION_RATE = 0.1
 MUTATION_STRENGTH = 6 
 TOURNAMENT_SIZE = 8
