@@ -418,11 +418,11 @@ class InputGraph:
 
         self.coordinates = positions
         self.coordinates = [v for v in self.coordinates.values()]
-        if(is_non_adj):
-            pass
-        else:
-            separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
-            print("Doing separating triangles lists test",separating_triangles1)
+        # if(is_non_adj):
+        #     pass
+        # else:
+        #     separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
+        #     print("Doing separating triangles lists test",separating_triangles1)
 
 
         # one_connected = copy.deepcopy(self.matrix)
@@ -472,7 +472,7 @@ class InputGraph:
                                                                     , self.coordinates, non_adj_list)
             else:
                 trng_edges, positions, tri_faces = trng.triangulate(self.matrix
-                                                                , True
+                                                                , bcn_edges_added
                                                                 , self.coordinates)
 
             for edge in trng_edges:
@@ -491,13 +491,12 @@ class InputGraph:
                 nx.draw_networkx(graphtemp,positions, label='After retriangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
                 plt.show()
         else:
-            self.coordinates = positions
-            self.coordinates = [v for v in self.coordinates.values()]
             separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
             print("Doing separating triangles lists test 2:",separating_triangles1)
             if show_graph:
                 plt.figure()
                 graphtemp = nx.from_numpy_array(self.matrix)
+                positions = {i: coord for i, coord in enumerate(self.coordinates)}
                 nx.draw_networkx(graphtemp,positions, label='After retriangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
                 plt.show()
             

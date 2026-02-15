@@ -589,7 +589,7 @@ def handle_non_trivial_ST_Door_connectivity(one_connected,adjacency,positions):
                         curr_edge = tuple(curr_edge)
                         edge_to_faces[curr_edge].remove(face)
                 #remove a separating triangle if it has one of the edges which was removed
-                for separating_triangle in separating_triangles:
+                for separating_triangle in list(separating_triangles):
                     if edge in get_edges(separating_triangle) or [edge[1],edge[0]] in get_edges(separating_triangle):
                         total_STs -= 1
                         separating_triangles.remove(separating_triangle) 
