@@ -22,3 +22,11 @@ dist/
 build/
 *.egg
 /GPLAN.egg-info
+
+# Compiled shared libraries (platform-specific)
+*.dll
+*.so
+*.dylib
+Space_Optimization/*.dll
+Space_Optimization/*.so
+Space_Optimization/*.dylib
