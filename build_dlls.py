@@ -1,5 +1,5 @@
 """
-"""Build script for compiling C files to shared libraries for GPLAN Space Optimization
+Build script for compiling C files to shared libraries for GPLAN Space Optimization
 Compiles 4 C files into shared libraries and places them in the parent directory
 """
 
@@ -154,7 +154,6 @@ def compile_dll(compiler, source_file, source_dir, target_dir):
         return False
 
 def verify_headers(source_dir):
-    """Verify that all required header files exist"""
     print_info("Verifying header files...")
     
     headers = [f.replace(".c", ".h") for f in C_FILES]
