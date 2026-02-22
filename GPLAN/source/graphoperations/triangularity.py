@@ -199,6 +199,9 @@ def get_tri_edges(non_tri_faces,positions):
         face_vertices = find_face_node(face)
         face_coordinates = np.array([positions[node]
                                  for node in face_vertices])
+        # Skip degenerate faces where all vertices share the same coordinates
+        if len(set(map(tuple, face_coordinates))) <= 1:
+            continue
         triangles = ec.triangulate(face_coordinates,0)
         for triangle in triangles:
             vertex1 = face_vertices[triangle[0]]
@@ -266,6 +269,10 @@ def triangulate(matrix,bcn_edges_added,pos):
     #print("Hello we're triangulating!")
     if(not bcn_edges_added):
         positions = {i:pos[i] for i in range(len(pos))}
+        # Fallback: if all positions are identical (degenerate/missing coords), use planar layout
+        unique_coords = set(tuple(v) for v in positions.values())
+        if len(unique_coords) <= 1:
+            positions = nx.planar_layout(nxgraph)
     else:
         positions = nx.planar_layout(nxgraph)
     # nx.draw_networkx(nxgraph,positions, label=None,node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
