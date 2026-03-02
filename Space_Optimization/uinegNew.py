@@ -64,6 +64,7 @@ class CADApp:
         self.hover_line = None
         self.distance_labels = []
         self.is_closed_shape = False
+        self.boundary_closed = False
         self.first_point = None
         self.scaled_coordinates = []
         self.scaled_area_coordinates = []
@@ -443,6 +444,7 @@ class CADApp:
         ttk.Button(control_frame, text="Corridor", command=self.draw_cooridors).pack(side=tk.LEFT, padx=5)
         ttk.Button(control_frame, text="Pillars", command=self.draw_pillars).pack(side=tk.LEFT, padx=5)
         ttk.Button(control_frame, text="Finalize", command=self.is_finalize2).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Load JSON", command=self.load_json_in_cad).pack(side=tk.LEFT, padx=5)
 
         self.setup_text_controls()
 
@@ -1827,7 +1829,7 @@ class CADApp:
         #     return grid_distance * self.unit_spacing
 
     def draw_ent(self):
-        if (not self.is_closed_shape):
+        if (not self.boundary_closed):
             messagebox.showerror("Error", "Draw Your Plot Boundary First.")
             return
 
@@ -1885,6 +1887,20 @@ class CADApp:
         """
         Finalizes the drawing and sends the data back to the main GUI.
         """
+        # --- Always scale the main boundary so Finalize works without Fixed shape ---
+        self.scaled_coordinates.clear()
+        for a, b in self.clicked_coordinates:
+            scaled_point = (a * self.unit_spacing, b * self.unit_spacing)
+            self.scaled_coordinates.append(scaled_point)
+
+        self.mini_x = min(p[0] for p in self.scaled_coordinates) if self.scaled_coordinates else 0
+        self.mini_y = min(p[1] for p in self.scaled_coordinates) if self.scaled_coordinates else 0
+
+        self.scaled_coordinates = [
+            (a - self.mini_x, b - self.mini_y) for a, b in self.scaled_coordinates
+        ]
+        # -------------------------------------------------------------------
+
         main_boundary_coords = getattr(self, 'clicked_coordinates', [])
         if main_boundary_coords:
             boundary_id = 'main_boundary_shape'
@@ -1945,6 +1961,32 @@ class CADApp:
 
         if callable(self.callback):
             self.callback(**payload_full)
+
+    def load_json_in_cad(self):
+        """
+        Load a JSON floor plan file directly from the CAD window,
+        bypassing the need to draw a boundary first.
+        """
+        file_path = filedialog.askopenfilename(
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            title="Load Floor Plan JSON"
+        )
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            # Send the raw JSON data through the callback so the main GUI
+            # can run its full load_floor_plan_json logic.
+            if callable(self.callback):
+                self.callback(json_load_data=data, json_file_path=file_path)
+                self.window.destroy()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to read JSON file:\n{str(e)}")
+            import traceback
+            traceback.print_exc()
 
     # ... (Keep all other CADApp methods as they are) ...
     # From line 150 (point_inside_polygon) to line 1860 (is_Finalize)
@@ -2184,6 +2226,7 @@ class CADApp:
     def close_shape(self, grid_x, grid_y, pixel_x, pixel_y):
         self.draw_line_with_distance(grid_x, grid_y, pixel_x, pixel_y)
         self.is_closed_shape = True
+        self.boundary_closed = True
         self.status_label.config(text="Shape closed! Right-click edges to delete them.")
         print("Shape closed!")
 
@@ -2854,6 +2897,13 @@ class FloorPlanGUI:
 
         def on_finalize_callback(**payload):
             print("[MAIN] on_finalize_callback invoked; payload keys:", list(payload.keys()))
+
+            # --- Handle JSON load from CAD window ---
+            if 'json_load_data' in payload:
+                self.root.deiconify()
+                self.load_floor_plan_json(preloaded_data=payload['json_load_data'],
+                                          preloaded_path=payload.get('json_file_path', ''))
+                return
 
             # Persist all relevant lists from the CAD tool
             if 'final_area' in payload:
@@ -3851,16 +3901,20 @@ class FloorPlanGUI:
 
         print("DEBUG: loaded total_area =", total_area_real)
 
-    def load_floor_plan_json(self):
+    def load_floor_plan_json(self, preloaded_data=None, preloaded_path=None):
         try:
-            file_path = filedialog.askopenfilename(
-                filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-                title="Load Floor Plan"
-            )
-            if not file_path: return
+            if preloaded_data is not None:
+                data = preloaded_data
+                file_path = preloaded_path or '(loaded from CAD)'
+            else:
+                file_path = filedialog.askopenfilename(
+                    filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+                    title="Load Floor Plan"
+                )
+                if not file_path: return
 
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
 
             self.clear_all_data()
 
@@ -3895,7 +3949,24 @@ class FloorPlanGUI:
             if not main_boundary_coords:
                 raise ValueError("File does not contain a valid boundary in 'cad_state' or a 'regions' list.")
 
-            self._set_total_area_from_boundary(main_boundary_coords)
+            # Calculate total area from regions if available, otherwise from boundary
+            regions_data = data.get("regions", [])
+            if regions_data:
+                # Sum the areas of all regions (most accurate for multi-region layouts)
+                total_area_from_regions = sum(r.get('width', 0) * r.get('height', 0) for r in regions_data)
+
+                fixed_rooms_area = 0
+                for room in data.get("rooms", []):
+                    if room.get('is_fixed', False):
+                        fixed_rooms_area += room.get('width', 0) * room.get('height', 0)
+                
+                total_area_from_regions = total_area_from_regions + fixed_rooms_area
+                
+                self.total_area.set(int(round(total_area_from_regions)))
+                print(f"DEBUG: loaded total_area from regions = {total_area_from_regions}")
+            else:
+                # Fallback to boundary calculation
+                self._set_total_area_from_boundary(main_boundary_coords)
 
             # Normalize all coordinates to a (0,0) origin
             offset_x = min(p[0] for p in main_boundary_coords)
@@ -3903,14 +3974,31 @@ class FloorPlanGUI:
             boundary_width = (max(p[0] for p in main_boundary_coords) - offset_x)
             boundary_height = (max(p[1] for p in main_boundary_coords) - offset_y)
 
-            solid_normalized_region = {'x': 0, 'y': 0, 'width': boundary_width, 'height': boundary_height}
+            # Clear the regions tree first
+            for item in self.regions_tree.get_children():
+                self.regions_tree.delete(item)
 
-            for item in self.regions_tree.get_children(): self.regions_tree.delete(item)
-            item = self.regions_tree.insert("", "end", text="Main Region")
-            self.regions_tree.set(item, "X", int(solid_normalized_region['x']));
-            self.regions_tree.set(item, "Y", int(solid_normalized_region['y']))
-            self.regions_tree.set(item, "Width", int(solid_normalized_region['width']));
-            self.regions_tree.set(item, "Height", int(solid_normalized_region['height']))
+            # FIX: Use saved regions from JSON if available (preserves L-shapes and other non-rectangular boundaries)
+            # Otherwise fall back to a single bounding-box region
+            if regions_data and len(regions_data) > 0:
+                # Use the saved decomposed regions (these preserve the actual floor shape)
+                for idx, region in enumerate(regions_data):
+                    region_name = f"Region {idx + 1}" if len(regions_data) > 1 else "Main Region"
+                    item = self.regions_tree.insert("", "end", text=region_name)
+                    self.regions_tree.set(item, "X", int(region.get('x', 0)))
+                    self.regions_tree.set(item, "Y", int(region.get('y', 0)))
+                    self.regions_tree.set(item, "Width", int(region.get('width', 0)))
+                    self.regions_tree.set(item, "Height", int(region.get('height', 0)))
+                print(f"DEBUG: Loaded {len(regions_data)} regions from JSON (non-rectangular boundary preserved)")
+            else:
+                # Fallback: create a single bounding-box region (legacy behavior)
+                solid_normalized_region = {'x': 0, 'y': 0, 'width': boundary_width, 'height': boundary_height}
+                item = self.regions_tree.insert("", "end", text="Main Region")
+                self.regions_tree.set(item, "X", int(solid_normalized_region['x']))
+                self.regions_tree.set(item, "Y", int(solid_normalized_region['y']))
+                self.regions_tree.set(item, "Width", int(solid_normalized_region['width']))
+                self.regions_tree.set(item, "Height", int(solid_normalized_region['height']))
+                print("DEBUG: No regions in JSON, created single bounding-box region (rectangular fallback)")
 
             # Reconstruct fixed rooms with normalized coordinates (will be empty for old files)
             self.cad_fixed_rooms = []
@@ -3928,8 +4016,30 @@ class FloorPlanGUI:
 
             # Set Total Area and populate UI
 
+            # Build a lookup of fixed room coordinates from results.room_placements
+            self.json_fixed_rooms = {}
+            placements = data.get("results", {}).get("room_placements", [])
+            placement_dict = {p['name']: p for p in placements}
+
             fixed_room_names = {fr['name'] for fr in self.cad_fixed_rooms}
             for room in data.get("rooms", []):
+                # If this room is marked fixed in JSON, store its coordinates
+                if room.get('is_fixed'):
+                    fixed_room_names.add(room['name'])
+                    # Get coords from fixed_x/fixed_y fields, or fall back to results.room_placements
+                    if room.get('fixed_x') is not None and room.get('fixed_y') is not None:
+                        self.json_fixed_rooms[room['name']] = {
+                            'x': int(room['fixed_x']), 'y': int(room['fixed_y']),
+                            'width': int(room['width']), 'height': int(room['height'])
+                        }
+                    elif room['name'] in placement_dict:
+                        p = placement_dict[room['name']]
+                        self.json_fixed_rooms[room['name']] = {
+                            'x': int(p['x']), 'y': int(p['y']),
+                            'width': int(p['width']), 'height': int(p['height'])
+                        }
+                    print(f"DEBUG: Fixed room '{room['name']}' detected, coords={self.json_fixed_rooms.get(room['name'])}")
+
                 item = self.rooms_tree.insert("", "end", text=room['name'])
                 width, height = int(room['width']), int(room['height'])
                 self.rooms_tree.set(item, "Width", width);
@@ -5594,11 +5704,21 @@ class FloorPlanGUI:
                                                               name=fr.get('name'))
                         room.is_fixed = True
 
-                # Add movable rooms from UI
+                # Add rooms from UI — fixed rooms get placed at their stored coordinates
+                json_fixed = getattr(self, 'json_fixed_rooms', {}) or {}
                 for item in self.rooms_tree.get_children():
                     name = self.rooms_tree.item(item)['text']
                     if 'fixed' in self.rooms_tree.item(item).get('tags', []):
-                        continue  # Skip fixed rooms already added
+                        # Fixed room from JSON — add with stored coordinates
+                        if name in json_fixed:
+                            fr = json_fixed[name]
+                            room_obj = self.floor_plan.add_fixed_room(
+                                width=fr['width'], height=fr['height'],
+                                fixed_x=fr['x'], fixed_y=fr['y'], name=name
+                            )
+                            room_obj.is_fixed = True
+                            print(f"DEBUG: Placed fixed room '{name}' at ({fr['x']}, {fr['y']}) size {fr['width']}x{fr['height']}")
+                        continue  # Skip adding as movable whether or not coords were found
                     width = int(self.rooms_tree.set(item, "Width"))
                     height = int(self.rooms_tree.set(item, "Height"))
                     max_exp = int(self.rooms_tree.set(item, "Max Expansion"))
