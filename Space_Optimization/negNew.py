@@ -149,15 +149,16 @@ class FloorPlan:
             )
 
         def is_within_any_floor_region(room):
-            """Check if the entire room lies inside any one allowed region."""
-            for region in self.floor_regions:
-                rx, ry, rw, rh = region['x'], region['y'], region['width'], region['height']
-                if (room.x >= rx and
-                        room.y >= ry and
-                        room.x + room.width <= rx + rw and
-                        room.y + room.height <= ry + rh):
-                    return True
-            return False
+            """
+            Check if the room is within the combined floor regions (union).
+            A room can span multiple regions - all of its grid cells must be
+            within at least one region (but not necessarily the same region).
+            """
+            for x in range(int(room.x), int(room.x + room.width)):
+                for y in range(int(room.y), int(room.y + room.height)):
+                    if not self.point_in_floor(x, y):
+                        return False
+            return True
 
         moved = True
         while moved:
@@ -427,7 +428,7 @@ class FloorPlan:
                             return True
         return False
 
-    def get_valid_positions(self, room, max_positions=100):
+    def get_valid_positions(self, room, max_positions=1000):
         valid_positions = []
         adjacent_rooms = []
         for neighbor in self.adjacency_graph.neighbors(room.name):
@@ -447,21 +448,17 @@ class FloorPlan:
                         if len(valid_positions) >= max_positions: return valid_positions
 
         attempts = 0
-        while len(valid_positions) < max_positions and attempts < 200:
+        while len(valid_positions) < max_positions and attempts < 500:  # Increased from 200
             attempts += 1
-            region = random.choice(self.floor_regions)
-            if region['width'] < room.width or region['height'] < room.height: continue
-            max_x, max_y = region['x'] + region['width'] - room.width, region['y'] + region['height'] - room.height
-            if max_x >= region['x'] and max_y >= region['y']:
-                x, y = random.randint(region['x'], max_x), random.randint(region['y'], max_y)
-                if (not self.check_overlap_optimized(room, x, y, room.width, room.height) and
-                        not self.check_non_adjacency_violation(room, x, y, room.width, room.height) and
-                        (x, y) not in valid_positions):
-                    valid_positions.append((x, y))
+            # NEW: Try random positions across the ENTIRE floor, not just within one region
+            x = random.randint(0, self.floor_width - room.width)
+            y = random.randint(0, self.floor_height - room.height)
+            if (self.is_within_floor(x, y, room.width, room.height) and
+                    not self.check_overlap_optimized(room, x, y, room.width, room.height) and
+                    not self.check_non_adjacency_violation(room, x, y, room.width, room.height) and
+                    (x, y) not in valid_positions):
+                valid_positions.append((x, y))
 
-        # print(room.name)
-        # print(valid_positions)
-        # print( )
         return valid_positions
 
     def add_non_adjacency(self, room1_name, room2_name):
@@ -832,9 +829,9 @@ class FloorPlan:
                     room.x, room.y = x, y
                     self._add_to_spatial_grid(room)
                     placed = True
-                    print(valid_positions[0])
-                    print(room)
-                    print("Hi")
+                    # print(valid_positions[0])
+                    # print(room)
+                    # print("Hi")
 
                 if not placed:
                     room.rotate()
