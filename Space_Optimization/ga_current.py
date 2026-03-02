@@ -106,7 +106,7 @@ WEIGHTS = {
     "corridor_conn": 25000, #corridor connectivity reward
     "boundary_corridor": 0, #penalty for boundary corridor cells 
     "boundary_accessible_corridor": 3300, #penalty for boundary entry points (holes where corridors leak to outside)
-    "room_corridor_adj": 36250, #reward for rooms adjacent to corridors
+    "room_corridor_adj": 50000, #reward for rooms adjacent to corridors
     "isolated_rooms": 5000, #penalty for rooms completely surrounded by corridors 
 }
 
@@ -130,7 +130,7 @@ def _fitness_worker(chrom: Sequence[Tuple[int, int]]) -> Tuple[float, Dict[str, 
 CORRIDOR_ID = 0
 CORRIDOR_FINAL = 99
 TARGET_CORRIDOR_RATIO = 0.2  
-MINIMUM_RATIO = 0.1
+MINIMUM_RATIO = 0.05
 
 @dataclass
 class RoomGA:
