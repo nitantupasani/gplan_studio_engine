@@ -43,7 +43,7 @@ Generates an optimized floorplan using a genetic algorithm (GA) that automatical
   Each room:
 
   - `id : string` - Unique room identifier
-  - `name : string` - Room name/label
+  - `name : string` - Room name/label (Must be a numeric string e.g. "1", "2", "3". Do not use text labels like "Living Room")
   - `color : string` - Hex color code for visualization (e.g., "#FFE5B4")
   - `walls : array[wall]` - List of walls defining the room boundary
 

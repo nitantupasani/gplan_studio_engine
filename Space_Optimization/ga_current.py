@@ -101,7 +101,7 @@ DEFAULT_ROOM_COLORS = [
 
 WEIGHTS = {
     "area": 1.0,  #area penalty 
-    "overlap": 3250, #overlap penalty
+    "overlap": 50000, #overlap penalty (Increased significantly to prevent overlaps)
     "corridor_ratio": 10000, #penalty for deviation from ratio target 
     "corridor_conn": 25000, #corridor connectivity reward
     "boundary_corridor": 0, #penalty for boundary corridor cells 
