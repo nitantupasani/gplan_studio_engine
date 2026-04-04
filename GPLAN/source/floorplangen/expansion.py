@@ -85,14 +85,24 @@ def get_case(matrix, nodecnt, cntr):
     mut_nbrs = cntr['mut_nbrs']
     mut_nbr1 = mut_nbrs[0]
     mut_nbr2 = mut_nbrs[1]
+
+    # Precompute ordered neighbours of nbr once — all while loops below use the same centre
+    _nbr_ord = opr.order_nbrs(matrix, nodecnt, nbr, cw=False)
+    _nbr_ord_len = len(_nbr_ord)
+
+    def _nbr_label(vertex):
+        """Inline of ordered_nbr_label using precomputed _nbr_ord."""
+        next_ = _nbr_ord[(_nbr_ord.index(vertex) + 1) % _nbr_ord_len]
+        lbl = 2 if (matrix[nbr][next_] == 2 or matrix[next_][nbr] == 2) else 3
+        return lbl, next_
+
     if matrix[nbr][mut_nbr1] == 2:
         if matrix[nbr][mut_nbr2] == 3:
             return case_a
         elif matrix[nbr][mut_nbr2] == 2:
             vertex = mut_nbr1
             while(vertex != mut_nbr2):
-                label, vertex = opr.ordered_nbr_label(
-                    matrix, nodecnt, nbr, vertex, cw=False)
+                label, vertex = _nbr_label(vertex)
                 if(label == 3):
                     mut_nbrs[0], mut_nbrs[1] = mut_nbrs[1], mut_nbrs[0]
                     break
@@ -116,8 +126,7 @@ def get_case(matrix, nodecnt, cntr):
         elif matrix[mut_nbr2][nbr] == 2:
             vertex = mut_nbr1
             while(vertex != mut_nbr2):
-                label, vertex = opr.ordered_nbr_label(
-                    matrix, nodecnt, nbr, vertex, cw=False)
+                label, vertex = _nbr_label(vertex)
                 if(label == 3):
                     mut_nbrs[0], mut_nbrs[1] = mut_nbrs[1], mut_nbrs[0]
                     break
@@ -129,8 +138,7 @@ def get_case(matrix, nodecnt, cntr):
         if matrix[nbr][mut_nbr2] == 3:
             vertex = mut_nbr1
             while(vertex != mut_nbr2):
-                label, vertex = opr.ordered_nbr_label(
-                    matrix, nodecnt, nbr, vertex, cw=False)
+                label, vertex = _nbr_label(vertex)
                 if(label == 2):
                     mut_nbrs[0], mut_nbrs[1] = mut_nbrs[1], mut_nbrs[0]
                     break
@@ -155,8 +163,7 @@ def get_case(matrix, nodecnt, cntr):
         elif matrix[mut_nbr2][nbr] == 3:
             vertex = mut_nbr1
             while(vertex != mut_nbr2):
-                label, vertex = opr.ordered_nbr_label(
-                    matrix, nodecnt, nbr, vertex, cw=False)
+                label, vertex = _nbr_label(vertex)
                 if(label == 2):
                     mut_nbrs[0], mut_nbrs[1] = mut_nbrs[1], mut_nbrs[0]
                     break

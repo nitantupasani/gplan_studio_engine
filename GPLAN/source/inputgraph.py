@@ -11,7 +11,7 @@ This module contains the following functions:
 import copy
 import numpy as np
 import networkx as nx
-import matplotlib.pyplot as plt
+# matplotlib imported lazily only when show_graph=True (GUI path, never on server)
 from random import randint
 from GPLAN.source.lettershape.ushape.ushape import *
 from GPLAN.source.lettershape.zshape.zshape import *
@@ -396,6 +396,7 @@ class InputGraph:
 
 
         if show_graph:
+            import matplotlib.pyplot as plt
             plt.figure()
             graphtemp = nx.from_numpy_array(self.matrix)
             nx.draw_networkx(graphtemp,positions, label='After Triangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
@@ -486,6 +487,7 @@ class InputGraph:
             print("Doing separating triangles lists test 2:",separating_triangles1)
 
             if show_graph:
+                import matplotlib.pyplot as plt
                 plt.figure()
                 graphtemp = nx.from_numpy_array(self.matrix)
                 nx.draw_networkx(graphtemp,positions, label='After retriangulation',node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
@@ -494,6 +496,7 @@ class InputGraph:
             separating_triangles1 = st.handle_STs_Door_connectivity(self.matrix,self.coordinates)
             print("Doing separating triangles lists test 2:",separating_triangles1)
             if show_graph:
+                import matplotlib.pyplot as plt
                 plt.figure()
                 graphtemp = nx.from_numpy_array(self.matrix)
                 positions = {i: coord for i, coord in enumerate(self.coordinates)}

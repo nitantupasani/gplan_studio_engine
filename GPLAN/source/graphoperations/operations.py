@@ -22,7 +22,8 @@ This module contains the following functions:
     * calculate_area - returns area of each room.
 """
 import numpy as np
-import networkx as nx 
+import networkx as nx
+from collections import deque
 
 
 def intersection(lst1, lst2):
@@ -92,20 +93,25 @@ def get_bdy(trngls, digraph):
         bdy_nodes: A list containing nodes on the outer boundary.
         bdy_edges: A list containing edges on the outer boundary.
     """
-    bdy_edges = []
-    for edge in digraph.edges:
-        count = 0
-        for trngl in trngls:
-            if edge[0] in trngl and edge[1] in trngl:
-                count += 1
-        if count == 1:
-            bdy_edges.append(edge)
+    # Precompute: for each (u,v) edge-pair, count how many triangles contain both
+    from collections import defaultdict
+    pair_count = defaultdict(int)
+    for trngl in trngls:
+        a, b, c = trngl[0], trngl[1], trngl[2]
+        pair_count[(a, b)] += 1
+        pair_count[(b, a)] += 1
+        pair_count[(a, c)] += 1
+        pair_count[(c, a)] += 1
+        pair_count[(b, c)] += 1
+        pair_count[(c, b)] += 1
+    bdy_edges = [edge for edge in digraph.edges if pair_count[(edge[0], edge[1])] == 1]
+    bdy_nodes_set = set()
     bdy_nodes = []
     for edge in bdy_edges:
-        if edge[0] not in bdy_nodes:
-            bdy_nodes.append(edge[0])
-        if edge[1] not in bdy_nodes:
-            bdy_nodes.append(edge[1])
+        for v in (edge[0], edge[1]):
+            if v not in bdy_nodes_set:
+                bdy_nodes_set.add(v)
+                bdy_nodes.append(v)
     return bdy_nodes, bdy_edges
 
 def ordered_nbr_label(matrix, nodecnt, centre, nbr, cw=False):
@@ -159,19 +165,18 @@ def order_nbrs(matrix, nodecnt, centre, cw=False):
         ,matrix[centre] == 3))[0]
         ,np.where(np.logical_or(matrix[:, centre] == 2
         ,matrix[:, centre] == 3))[0]]).tolist()
-    ord_set = [vertex_set.pop(0)]
-    while len(vertex_set) != 0:
+    ord_dq = deque([vertex_set.pop(0)])
+    while vertex_set:
         for i in vertex_set:
-            if matrix[ord_set[len(ord_set) - 1]][i] != 0 \
-                    or matrix[i][ord_set[len(ord_set) - 1]] != 0:
-                ord_set.append(i)
+            if matrix[ord_dq[-1]][i] != 0 or matrix[i][ord_dq[-1]] != 0:
+                ord_dq.append(i)
                 vertex_set.remove(i)
                 break
-            elif matrix[ord_set[0]][i] != 0 \
-            or matrix[i][ord_set[0]] != 0:
-                ord_set.insert(0, i)
+            elif matrix[ord_dq[0]][i] != 0 or matrix[i][ord_dq[0]] != 0:
+                ord_dq.appendleft(i)
                 vertex_set.remove(i)
                 break
+    ord_set = list(ord_dq)
     current = 0
     if centre == nodecnt - 2:
         if matrix[nodecnt - 1][ord_set[0]] != 0:
@@ -225,9 +230,9 @@ def get_encoded_matrix(nodecnt, room_x, room_y, room_width, room_height):
     room_x_arr = np.array(room_x, dtype='int')
     room_y_arr = np.array(room_y, dtype='int')
     for node in range(nodecnt):
-        for width in range(room_width_arr[node]):
-            for height in range(room_height_arr[node]):
-                encoded_matrix[room_y_arr[node] + height][room_x_arr[node] + width] = node
+        y = room_y_arr[node]
+        x = room_x_arr[node]
+        encoded_matrix[y:y + room_height_arr[node], x:x + room_width_arr[node]] = node
     return encoded_matrix
 
 def ordered_bdy(bdy_nodes, bdy_edges):
@@ -240,13 +245,15 @@ def ordered_bdy(bdy_nodes, bdy_edges):
     Returns:
         ordered_bdy: A list containing boundary nodes in circular order.
     """
+    bdy_edges_set = set(bdy_edges)
     ordered_bdy = [bdy_nodes[0]]
-    while(len(ordered_bdy) != len(bdy_nodes)):
-        temp = ordered_bdy[len(ordered_bdy) - 1]
+    visited = {bdy_nodes[0]}
+    while len(ordered_bdy) != len(bdy_nodes):
+        temp = ordered_bdy[-1]
         for vertex in bdy_nodes:
-            if((temp,vertex) in bdy_edges
-             and vertex not in ordered_bdy):
+            if (temp, vertex) in bdy_edges_set and vertex not in visited:
                 ordered_bdy.append(vertex)
+                visited.add(vertex)
                 break
     return ordered_bdy
 

@@ -23,10 +23,11 @@ build/
 *.egg
 /GPLAN.egg-info
 
-# Compiled shared libraries (platform-specific)
+# Compiled shared libraries
+# .dll files (Windows) - already tracked; gitignore prevents adding new ones
 *.dll
-*.so
-*.dylib
 Space_Optimization/*.dll
-Space_Optimization/*.so
+# .so files (Linux) are tracked so the server has them without needing gcc at runtime
+# macOS dynamic libs are not needed on the server
+*.dylib
 Space_Optimization/*.dylib

@@ -17,14 +17,19 @@ import GPLAN.pythongui.dimensiongui as dimgui
 import GPLAN.pythongui.mindimensiongui as mindimgui
 import GPLAN.pythongui.nonadjgui as nonadjgui
 import time
-from tkinter import messagebox
+# tkinter messagebox only used in GUI/drawGUI paths; lazy-load to avoid display requirement on server
+class _LazyMessageBox:
+    def __getattr__(self, name):
+        from tkinter import messagebox as _mb
+        return getattr(_mb, name)
+messagebox = _LazyMessageBox()
 import networkx as nx
 import numpy as np
 import GPLAN.pythongui.gui as gui
 import GPLAN.source.inputgraph as inputgraph
 import GPLAN.pythongui.drawing as draw
 import GPLAN.circulation as cir
-import matplotlib.pyplot as plt
+# matplotlib imported lazily inside drawGUI branches only (avoid module-level overhead on server)
 import copy
 
 from dataclasses import is_dataclass

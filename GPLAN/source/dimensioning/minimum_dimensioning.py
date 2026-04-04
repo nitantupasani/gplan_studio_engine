@@ -209,6 +209,12 @@ def construct_constraintgraphX(small_positive = 2):
         edges_setx.append((left_wall, right_wall))
         edges_setx.append((right_wall, left_wall))
 
+    # Precompute edge color lookup: (source, target) -> color (covers both directions)
+    edge_color_map = {}
+    for e in data['edges']:
+        edge_color_map[(e['source'], e['target'])] = e['color']
+        edge_color_map[(e['target'], e['source'])] = e['color']
+
     # Add edges for adjacencies
     for i in range(1, rooms + 1):
         left_wall_i = 2 * i - 1
@@ -217,12 +223,11 @@ def construct_constraintgraphX(small_positive = 2):
         bottom_wall_i = 2 * i
 
         for x in adj[i]:
-            for j in range(len(data['edges'])):
-                if (data['edges'][j]['source'] == x and data['edges'][j]['target'] == i) or (data['edges'][j]['source'] == i and data['edges'][j]['target'] == x) :
-                    if(data ['edges'][j]['color'] == 'red') :
-                        small_positive = 0.1
-                    elif(data ['edges'][j]['color'] == 'black') :
-                        small_positive= 2
+            color = edge_color_map.get((x, i)) or edge_color_map.get((i, x))
+            if color == 'red':
+                small_positive = 0.1
+            elif color == 'black':
+                small_positive = 2
 
 
             left_wall_x = 2 * x - 1
@@ -286,19 +291,24 @@ def construct_constraintgraphY(small_positive = 2):
         edges_sety.append((bottom_wall_i, top_wall_i))
         edges_sety.append((top_wall_i, bottom_wall_i))
 
+    # Precompute edge color lookup for Y constraint graph (built once, not per room)
+    edge_color_map_y = {}
+    for e in data['edges']:
+        edge_color_map_y[(e['source'], e['target'])] = e['color']
+        edge_color_map_y[(e['target'], e['source'])] = e['color']
+
     for i in range(1, rooms + 1):
         left_wall_i = 2 * i - 1
         right_wall_i = 2 * i
         top_wall_i = 2 * i - 1
         bottom_wall_i = 2 * i
-        
+
         for x in adj[i]:
-            for j in range(len(data['edges'])):
-                if (data['edges'][j]['source'] == x and data['edges'][j]['target'] == i) or (data['edges'][j]['source'] == i and data['edges'][j]['target'] == x) :
-                    if(data ['edges'][j]['color'] == 'red') :
-                        small_positive = 0.1
-                    elif(data ['edges'][j]['color'] == 'black'):
-                        small_positive= 2
+            color = edge_color_map_y.get((x, i)) or edge_color_map_y.get((i, x))
+            if color == 'red':
+                small_positive = 0.1
+            elif color == 'black':
+                small_positive = 2
         
 
             left_wall_x = 2 * x - 1
