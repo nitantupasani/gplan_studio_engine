@@ -1,7 +1,13 @@
 from operator import imod
 from GPLAN.source import inputgraph as inputgraph
 from GPLAN.pythongui import gui as gui
-import tkinter as tk
+
+# tkinter only needed in GUI paths (gclass is not None); never imported on the API server
+class _LazyTk:
+    def __getattr__(self, name):
+        import tkinter as _tk
+        return getattr(_tk, name)
+tk = _LazyTk()
 
 
 class DimParameters:
@@ -391,12 +397,11 @@ class GuiParameters:
 
         def find_areas(graph_new):
             for shape in graph_new.final_traversal:
-                area = 0
-                for j in range(len(shape) ):
-                    x1, y1 = shape[j]
-                    x2, y2 = shape[(j + 1)%len(shape)]
-                    area += x1 * y2 - x2 * y1
-                graph_new.area.append(abs(area)/2)
+                coords = np.array(shape)
+                x = coords[:, 0]
+                y = coords[:, 1]
+                area = 0.5 * abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
+                graph_new.area.append(area)
 
         if graph_new is not None and len(graph_new.final_traversal)==0: #FOR SANITY
             graph_new.final_traversal = inputgraph.get_final_traversal(graph_new)

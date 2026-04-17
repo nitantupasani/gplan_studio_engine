@@ -33,26 +33,30 @@ def populate_t1_matrix(matrix, nodecnt):
     t1longestdist = [-1] * (nodecnt)
     t1longestdistval = get_n_s_paths(
         matrix, nodecnt, nodecnt - 2, [nodecnt - 2], nspaths, t1longestdist, t1longestdistval)
-    t1_matrix = np.empty((0, t1longestdistval + 1), int)
-    row_index = 0
+    cols = t1longestdistval + 1
+    rows_list = []
+    # Track which vertices appear in each column to replace expensive in-matrix checks
+    col_vertices = [set() for _ in range(cols)]
     for path in nspaths:
         is_valid_path = True
-        row = [-1] * (t1longestdistval + 1)
+        row = [-1] * cols
         path_index = 0
         current_vertex = path[path_index]
-        for distance in range(t1longestdistval + 1):
+        for distance in range(cols):
             if path_index + 1 < len(path) and t1longestdist[path[path_index + 1]] <= distance:
                 path_index += 1
                 current_vertex = path[path_index]
-            if row_index != 0 and t1_matrix[row_index - 1][distance] != current_vertex \
-                    and current_vertex in t1_matrix[:, distance]:
+            if rows_list and rows_list[-1][distance] != current_vertex \
+                    and current_vertex in col_vertices[distance]:
                 is_valid_path = False
                 break
             row[distance] = current_vertex
         if is_valid_path:
-            t1_matrix = np.append(t1_matrix, [row], axis=0)
-            row_index += 1
-    t1_matrix = t1_matrix.transpose()
+            rows_list.append(row)
+            for d, v in enumerate(row):
+                if v != -1:
+                    col_vertices[d].add(v)
+    t1_matrix = np.array(rows_list, dtype=int).transpose() if rows_list else np.empty((cols, 0), int)
     return t1_matrix
 
 # while populating the t1_matrix we need N-S paths such that they are obtained in a DFS ordered manner with children
@@ -102,7 +106,7 @@ def get_n_s_paths(matrix, nodecnt, source, path, nspaths, t1longestdist, t1longe
         path.append(child)
         t1longestdistval = get_n_s_paths(
             matrix, nodecnt, child, path, nspaths, t1longestdist, t1longestdistval)
-        path.remove(child)
+        path.pop()
     return t1longestdistval
 
 
@@ -147,26 +151,29 @@ def populate_t2_matrix(matrix, nodecnt):
     t2longestdist = [-1] * (nodecnt)
     t2longestdistval = get_w_e_paths(
         matrix, nodecnt, nodecnt - 1, [nodecnt - 1], wepaths, t2longestdist, t2longestdistval)
-    t2_matrix = np.empty((0, t2longestdistval + 1), int)
-    row_index = 0
+    cols = t2longestdistval + 1
+    rows_list = []
+    col_vertices = [set() for _ in range(cols)]
     for path in wepaths:
         is_valid_path = True
-        row = [-1] * (t2longestdistval + 1)
+        row = [-1] * cols
         path_index = 0
         current_vertex = path[path_index]
-        for distance in range(t2longestdistval + 1):
+        for distance in range(cols):
             if path_index + 1 < len(path) and t2longestdist[path[path_index + 1]] <= distance:
                 path_index += 1
                 current_vertex = path[path_index]
-            if row_index != 0 and t2_matrix[row_index - 1][distance] != current_vertex \
-                    and current_vertex in t2_matrix[:, distance]:
+            if rows_list and rows_list[-1][distance] != current_vertex \
+                    and current_vertex in col_vertices[distance]:
                 is_valid_path = False
                 break
             row[distance] = current_vertex
         if is_valid_path:
-            t2_matrix = np.append(t2_matrix, [row], axis=0)
-            row_index += 1
-    return t2_matrix
+            rows_list.append(row)
+            for d, v in enumerate(row):
+                if v != -1:
+                    col_vertices[d].add(v)
+    return np.array(rows_list, dtype=int) if rows_list else np.empty((0, cols), int)
 
 
 def get_w_e_paths(matrix, nodecnt, source, path, wepaths, t2longestdist, t2longestdistval):
@@ -195,7 +202,7 @@ def get_w_e_paths(matrix, nodecnt, source, path, wepaths, t2longestdist, t2longe
         path.append(child)
         t2longestdistval = get_w_e_paths(
             matrix, nodecnt, child, path, wepaths, t2longestdist, t2longestdistval)
-        path.remove(child)
+        path.pop()
     return t2longestdistval
 
 

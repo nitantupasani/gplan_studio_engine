@@ -17,7 +17,8 @@ This module contains the following functions:
 
 """
 
-import numpy as np 
+import numpy as np
+from collections import deque
 
 def degrees(matrix):
     """Returns degree of each node of the graph.
@@ -156,24 +157,32 @@ def update_degrees(degrees, node, nbr, mut_nbrs):
     degrees[mut_nbrs[1]] -= 1
     degrees[node] = 0
     
-def check(matrix, degrees, goodnodes, node):
+def check(matrix, degrees, goodnodes, node, goodnodes_set=None):
     """Checks if given node is good vertex post contraction.
 
     Args:
         matrix: A matrix representing the adjacency matrix of the graph.
         degrees: A list representing the degrees of each node.
-        goodnodes: A list containing good nodes.
+        goodnodes: A deque containing good nodes.
         node: An integer representing vertex.
+        goodnodes_set: A set mirroring goodnodes for O(1) membership tests.
 
     Returns:
         None
     """
-    if is_goodvertex(matrix,degrees,node)\
-     and (node not in goodnodes):
-        goodnodes.append(node)
-    elif (not is_goodvertex(matrix,degrees,node))\
-     and (node in goodnodes):
-        goodnodes.remove(node)
+    good = is_goodvertex(matrix, degrees, node)
+    if goodnodes_set is not None:
+        if good and node not in goodnodes_set:
+            goodnodes.append(node)
+            goodnodes_set.add(node)
+        elif not good and node in goodnodes_set:
+            goodnodes.remove(node)
+            goodnodes_set.discard(node)
+    else:
+        if good and (node not in goodnodes):
+            goodnodes.append(node)
+        elif not good and (node in goodnodes):
+            goodnodes.remove(node)
     
 def contract(matrix, goodnodes, degrees):
     """Performs contraction on the graph.
@@ -190,24 +199,29 @@ def contract(matrix, goodnodes, degrees):
         cntrs: A list containing contractions in their order of occurence.
     """
     cntrs = []
-    attempts = len(goodnodes)
+    gd = deque(goodnodes)
+    gd_set = set(goodnodes)
+    attempts = len(gd)
     while attempts > 0:
-        node = goodnodes.pop(0)
-        nbr, mut_nbrs = cntr_nbr(matrix,node)
-        if(nbr == -1):
-            goodnodes.append(node)
+        node = gd.popleft()
+        gd_set.discard(node)
+        nbr, mut_nbrs = cntr_nbr(matrix, node)
+        if nbr == -1:
+            gd.append(node)
+            gd_set.add(node)
             attempts -= 1
             continue
         cntrs.append({'node': node
             , 'nbr': nbr
             , 'mut_nbrs': mut_nbrs
             , 'node_nbrs': np.where(matrix[node] == 1)[0]})
-        update_adjmat(matrix, node,nbr)
+        update_adjmat(matrix, node, nbr)
         update_degrees(degrees, node, nbr, mut_nbrs)
-        check(matrix, degrees, goodnodes, nbr)
-        check(matrix, degrees, goodnodes, mut_nbrs[0])
-        check(matrix, degrees, goodnodes, mut_nbrs[1])
-        attempts = len(goodnodes)
+        check(matrix, degrees, gd, nbr, gd_set)
+        check(matrix, degrees, gd, mut_nbrs[0], gd_set)
+        check(matrix, degrees, gd, mut_nbrs[1], gd_set)
+        attempts = len(gd)
+    goodnodes[:] = list(gd)
     return matrix, degrees, goodnodes, cntrs
 
 

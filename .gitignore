@@ -22,5 +22,11 @@ dist/
 build/
 *.egg
 /GPLAN.egg-info
-/data_collection/outputs
-/data_collection/outputs_exact_dimensions
+
+# Compiled shared libraries — always recompiled in Docker, never commit platform binaries
+*.dll
+*.so
+*.dylib
+Space_Optimization/*.dll
+Space_Optimization/*.so
+Space_Optimization/*.dylib

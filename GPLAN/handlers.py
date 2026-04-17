@@ -17,14 +17,19 @@ import GPLAN.pythongui.dimensiongui as dimgui
 import GPLAN.pythongui.mindimensiongui as mindimgui
 import GPLAN.pythongui.nonadjgui as nonadjgui
 import time
-from tkinter import messagebox
+# tkinter messagebox only used in GUI/drawGUI paths; lazy-load to avoid display requirement on server
+class _LazyMessageBox:
+    def __getattr__(self, name):
+        from tkinter import messagebox as _mb
+        return getattr(_mb, name)
+messagebox = _LazyMessageBox()
 import networkx as nx
 import numpy as np
 import GPLAN.pythongui.gui as gui
 import GPLAN.source.inputgraph as inputgraph
 import GPLAN.pythongui.drawing as draw
 import GPLAN.circulation as cir
-import matplotlib.pyplot as plt
+# matplotlib imported lazily inside drawGUI branches only (avoid module-level overhead on server)
 import copy
 
 from dataclasses import is_dataclass
@@ -2837,6 +2842,10 @@ def handle_ga_optimization(ui, floorplan_data, corridor_width=3, ga_config=None)
         # Generate corridors
         layout_matrix = corridor_creator(layout_matrix, corridor_width)
         
+        # Convert numpy array to plain Python list for JSON serialization
+        if hasattr(layout_matrix, 'tolist'):
+            layout_matrix = layout_matrix.tolist()
+        
         # Build output data structure
         sorted_room_ids = sorted(rooms.keys())
         room_id_to_chromosome_idx = {room_id: idx for idx, room_id in enumerate(sorted_room_ids)}
@@ -2878,15 +2887,23 @@ def handle_ga_optimization(ui, floorplan_data, corridor_width=3, ga_config=None)
                 })
         
         # Create output matching temp2.json format
+        # Convert best_solution to plain list (in case it has numpy types)
+        ga_solution_list = []
+        for item in best_solution:
+            if isinstance(item, tuple):
+                ga_solution_list.append((int(item[0]), int(item[1])))
+            else:
+                ga_solution_list.append(item)
+        
         output_data = {
-            "plot_width": floorplan_data["plot_width"],
-            "plot_height": floorplan_data["plot_height"],
+            "plot_width": int(floorplan_data["plot_width"]),
+            "plot_height": int(floorplan_data["plot_height"]),
             "rooms": optimized_rooms,
             "walls": floorplan_data["walls"],
             "labels": floorplan_data.get("labels", []),
             "windows": floorplan_data.get("windows", []),
             "doors": floorplan_data.get("doors", []),
-            "ga_solution": best_solution,
+            "ga_solution": ga_solution_list,
             "layout_matrix": layout_matrix
         }
         

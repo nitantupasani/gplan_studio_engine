@@ -1,17 +1,18 @@
 """
-Build script for compiling C files to DLLs for GPLAN Space Optimization
-Compiles 4 C files into DLL libraries and places them in the parent directory
+Build script for compiling C files to shared libraries for GPLAN Space Optimization
+Compiles 4 C files into shared libraries and places them in the parent directory
 """
 
 import os
 import subprocess
 import sys
 import shutil
+import platform
 from pathlib import Path
 
 # Configuration
 SOURCE_DIR = Path(__file__).parent / "Space_Optimization"
-TARGET_DIR = Path(__file__).parent  # Parent folder for DLL placement
+TARGET_DIR = Path(__file__).parent  # Parent folder for library placement
 
 # C files to compile
 C_FILES = [
@@ -20,6 +21,18 @@ C_FILES = [
     "corridor.c",
     "boundary_accessible_corridors.c"
 ]
+
+# Determine library extension based on platform
+def get_lib_extension():
+    system = platform.system()
+    if system == 'Windows':
+        return '.dll'
+    elif system == 'Darwin':  # macOS
+        return '.so'
+    else:  # Linux and others
+        return '.so'
+
+LIB_EXTENSION = get_lib_extension()
 
 # Colors for terminal output
 class Colors:
@@ -75,27 +88,28 @@ def check_compiler():
     return None
 
 def compile_dll(compiler, source_file, source_dir, target_dir):
-    """Compile a single C file to DLL"""
+    """Compile a single C file to shared library"""
     source_path = source_dir / source_file
-    dll_name = source_file.replace(".c", ".dll")
-    dll_path = target_dir / dll_name
+    lib_name = source_file.replace(".c", LIB_EXTENSION)
+    lib_path = target_dir / lib_name
     
     if not source_path.exists():
         print_error(f"Source file not found: {source_path}")
         return False
     
-    print_info(f"Compiling {source_file} → {dll_name}")
+    print_info(f"Compiling {source_file} → {lib_name}")
     
     # Compilation command
-    # -shared: Create shared library (DLL)
+    # -shared: Create shared library
     # -o: Output file
     # -O2: Optimization level 2
     # -Wall: Enable all warnings
-    # -I.: Include current directory for headers
+    # -fPIC: Position Independent Code (required for shared libraries on Linux/macOS)
     cmd = [
         compiler,
         "-shared",
-        "-o", str(dll_path),
+        "-fPIC",
+        "-o", str(lib_path),
         str(source_path),
         "-O2",
         "-Wall",
@@ -112,18 +126,18 @@ def compile_dll(compiler, source_file, source_dir, target_dir):
         )
         
         if result.returncode == 0:
-            if dll_path.exists():
-                file_size = dll_path.stat().st_size
-                print_success(f"Created {dll_name} ({file_size:,} bytes)")
+            if lib_path.exists():
+                file_size = lib_path.stat().st_size
+                print_success(f"Created {lib_name} ({file_size:,} bytes)")
                 
                 # Also copy to Space_Optimization folder for local use
-                local_dll = source_dir / dll_name
-                shutil.copy2(dll_path, local_dll)
-                print_info(f"Copied to Space_Optimization/{dll_name}")
+                local_lib = source_dir / lib_name
+                shutil.copy2(lib_path, local_lib)
+                print_info(f"Copied to Space_Optimization/{lib_name}")
                 
                 return True
             else:
-                print_error(f"DLL not created: {dll_name}")
+                print_error(f"Library not created: {lib_name}")
                 return False
         else:
             print_error(f"Compilation failed for {source_file}")
@@ -140,7 +154,6 @@ def compile_dll(compiler, source_file, source_dir, target_dir):
         return False
 
 def verify_headers(source_dir):
-    """Verify that all required header files exist"""
     print_info("Verifying header files...")
     
     headers = [f.replace(".c", ".h") for f in C_FILES]
@@ -180,7 +193,7 @@ def main():
     
     # Compile each C file
     print("\n" + "─" * 80)
-    print_header("Compiling C Files to DLLs")
+    print_header(f"Compiling C Files to Shared Libraries ({LIB_EXTENSION})")
     
     success_count = 0
     failed_files = []
@@ -207,26 +220,26 @@ def main():
         for f in failed_files:
             print(f"  • {f}")
     
-    # List generated DLLs
+    # List generated libraries
     print("\n" + "─" * 80)
-    print_info("Generated DLL files in parent directory:")
+    print_info(f"Generated library files in parent directory ({LIB_EXTENSION}):")
     
     for c_file in C_FILES:
-        dll_name = c_file.replace(".c", ".dll")
-        dll_path = TARGET_DIR / dll_name
-        if dll_path.exists():
-            file_size = dll_path.stat().st_size
-            print(f"  ✓ {dll_name} ({file_size:,} bytes)")
+        lib_name = c_file.replace(".c", LIB_EXTENSION)
+        lib_path = TARGET_DIR / lib_name
+        if lib_path.exists():
+            file_size = lib_path.stat().st_size
+            print(f"  ✓ {lib_name} ({file_size:,} bytes)")
         else:
-            print(f"  ✗ {dll_name} (not found)")
+            print(f"  ✗ {lib_name} (not found)")
     
     print("\n" + "=" * 80)
     
     if success_count == len(C_FILES):
-        print_success("All DLLs compiled successfully! 🎉")
+        print_success("All libraries compiled successfully! 🎉")
         return 0
     elif success_count > 0:
-        print_warning(f"Partial success: {success_count}/{len(C_FILES)} DLLs compiled")
+        print_warning(f"Partial success: {success_count}/{len(C_FILES)} libraries compiled")
         return 1
     else:
         print_error("Build failed - no DLLs created")
