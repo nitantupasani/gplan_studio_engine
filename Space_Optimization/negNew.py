@@ -25,6 +25,9 @@ class Room:
             self.max_expansion = max_expansion
         self.is_fixed = False
         self.need_corridor = True
+        # Optional geometry for non-rectangular fixed rooms.
+        self.polygon_coords = None
+        self.occupied_cells = None
 
     # Default to True, can be toggled in UI
 
@@ -41,6 +44,13 @@ class Room:
             self.height = self.original_height
 
     def get_area(self):
+        return self.get_effective_area()
+
+    def get_effective_area(self):
+        """Return occupied-cell area for non-rectilinear rooms, rectangle area otherwise."""
+        cells = self.get_occupied_cells()
+        if cells:
+            return len(cells)
         return self.width * self.height
 
     def __repr__(self):
@@ -60,8 +70,88 @@ class Room:
             return None
         return (self.x, self.x + self.width, self.y, self.y + self.height)
 
+    def get_occupied_cells(self):
+        if self.occupied_cells:
+            return {tuple(cell) for cell in self.occupied_cells if isinstance(cell, (list, tuple)) and len(cell) >= 2}
+        if self.x is None or self.y is None:
+            return set()
+        start_x, start_y = int(self.x), int(self.y)
+        end_x = int(self.x + self.width)
+        end_y = int(self.y + self.height)
+        cells = set()
+        for cy in range(start_y, end_y):
+            for cx in range(start_x, end_x):
+                cells.add((cx, cy))
+        return cells
+
+    @staticmethod
+    def _segments_from_cells(cells):
+        edge_set = set()
+        for x, y in cells:
+            edges = [
+                ((x, y), (x + 1, y)),
+                ((x + 1, y), (x + 1, y + 1)),
+                ((x + 1, y + 1), (x, y + 1)),
+                ((x, y + 1), (x, y)),
+            ]
+            for p1, p2 in edges:
+                edge = (p1, p2) if p1 <= p2 else (p2, p1)
+                if edge in edge_set:
+                    edge_set.remove(edge)
+                else:
+                    edge_set.add(edge)
+        return list(edge_set)
+
+    @staticmethod
+    def _segments_touch(seg1, seg2, epsilon=1e-9):
+        (x1, y1), (x2, y2) = seg1
+        (a1, b1), (a2, b2) = seg2
+
+        seg1_vertical = abs(x1 - x2) <= epsilon
+        seg2_vertical = abs(a1 - a2) <= epsilon
+
+        if seg1_vertical and seg2_vertical:
+            if abs(x1 - a1) > epsilon:
+                return False
+            s1_min, s1_max = min(y1, y2), max(y1, y2)
+            s2_min, s2_max = min(b1, b2), max(b1, b2)
+            return max(s1_min, s2_min) <= min(s1_max, s2_max) + epsilon
+
+        if (not seg1_vertical) and (not seg2_vertical):
+            if abs(y1 - b1) > epsilon:
+                return False
+            s1_min, s1_max = min(x1, x2), max(x1, x2)
+            s2_min, s2_max = min(a1, a2), max(a1, a2)
+            return max(s1_min, s2_min) <= min(s1_max, s2_max) + epsilon
+
+        # Perpendicular segment intersection counts as touching.
+        if seg1_vertical:
+            v_x = x1
+            v_min, v_max = min(y1, y2), max(y1, y2)
+            h_y = b1
+            h_min, h_max = min(a1, a2), max(a1, a2)
+        else:
+            v_x = a1
+            v_min, v_max = min(b1, b2), max(b1, b2)
+            h_y = y1
+            h_min, h_max = min(x1, x2), max(x1, x2)
+
+        return (h_min - epsilon <= v_x <= h_max + epsilon) and (v_min - epsilon <= h_y <= v_max + epsilon)
+
     def has_shared_wall_with(self, other_room):
         if self.x is None or self.y is None or other_room.x is None or other_room.y is None:
+            return False
+        if self.occupied_cells or other_room.occupied_cells:
+            cells_self = self.get_occupied_cells()
+            cells_other = other_room.get_occupied_cells()
+            if not cells_self or not cells_other:
+                return False
+
+            scan_cells = cells_self if len(cells_self) <= len(cells_other) else cells_other
+            ref_cells = cells_other if scan_cells is cells_self else cells_self
+            for cx, cy in scan_cells:
+                if (cx + 1, cy) in ref_cells or (cx - 1, cy) in ref_cells or (cx, cy + 1) in ref_cells or (cx, cy - 1) in ref_cells:
+                    return True
             return False
         left1, right1, bottom1, top1 = self.get_boundaries()
         left2, right2, bottom2, top2 = other_room.get_boundaries()
@@ -78,6 +168,19 @@ class Room:
     def is_adjacent_to_entrance(self, entrance_coords):
         """Check if any wall of the room touches any segment of the entrance line."""
         if self.x is None or self.y is None or not entrance_coords:
+            return False
+
+        if self.occupied_cells:
+            room_edges = self._segments_from_cells(self.get_occupied_cells())
+            entrance_edges = []
+            for i in range(len(entrance_coords) - 1):
+                p1 = entrance_coords[i]
+                p2 = entrance_coords[i + 1]
+                entrance_edges.append(((p1[0], p1[1]), (p2[0], p2[1])))
+            for r_edge in room_edges:
+                for e_edge in entrance_edges:
+                    if self._segments_touch(r_edge, e_edge):
+                        return True
             return False
 
         room_left, room_right, room_bottom, room_top = self.x, self.x + self.width, self.y, self.y + self.height
@@ -394,37 +497,100 @@ class FloorPlan:
 
     def _get_grid_cells(self, x, y, width, height):
         cells = []
-        start_x, end_x = x // self.grid_size, (x + width - 1) // self.grid_size
-        start_y, end_y = y // self.grid_size, (y + height - 1) // self.grid_size
+        start_x = int(x // self.grid_size)
+        end_x = int((x + width - 1) // self.grid_size)
+        start_y = int(y // self.grid_size)
+        end_y = int((y + height - 1) // self.grid_size)
         for gx in range(start_x, end_x + 1):
             for gy in range(start_y, end_y + 1):
                 cells.append((gx, gy))
         return cells
 
+    @staticmethod
+    def _rect_cells(x, y, width, height):
+        cells = set()
+        start_x = int(x)
+        start_y = int(y)
+        end_x = int(x + width)
+        end_y = int(y + height)
+        for cy in range(start_y, end_y):
+            for cx in range(start_x, end_x):
+                cells.add((cx, cy))
+        return cells
+
+    @staticmethod
+    def _point_inside_polygon(x, y, polygon):
+        inside = False
+        n = len(polygon)
+        if n < 3:
+            return False
+        j = n - 1
+        for i in range(n):
+            xi, yi = polygon[i]
+            xj, yj = polygon[j]
+            if (yi > y) != (yj > y):
+                denom = (yj - yi)
+                if denom != 0:
+                    x_at_y = (xj - xi) * (y - yi) / denom + xi
+                    if x < x_at_y:
+                        inside = not inside
+            j = i
+        return inside
+
+    def _polygon_to_cells(self, polygon_coords):
+        if not polygon_coords or len(polygon_coords) < 3:
+            return set()
+
+        min_x = int(min(p[0] for p in polygon_coords))
+        max_x = int(max(p[0] for p in polygon_coords))
+        min_y = int(min(p[1] for p in polygon_coords))
+        max_y = int(max(p[1] for p in polygon_coords))
+
+        cells = set()
+        for cy in range(min_y, max_y):
+            for cx in range(min_x, max_x):
+                center_x = cx + 0.5
+                center_y = cy + 0.5
+                if self._point_inside_polygon(center_x, center_y, polygon_coords):
+                    cells.add((cx, cy))
+        return cells
+
     def _add_to_spatial_grid(self, room):
-        if room.x is None or room.y is None: return
-        for cell in self._get_grid_cells(room.x, room.y, room.width, room.height):
-            if cell not in self.spatial_grid: self.spatial_grid[cell] = []
-            self.spatial_grid[cell].append(room)
+        if room.x is None or room.y is None:
+            return
+        grid_cells = self._get_grid_cells(room.x, room.y, room.width, room.height)
+        for cell in grid_cells:
+            if cell not in self.spatial_grid:
+                self.spatial_grid[cell] = []
+            if room not in self.spatial_grid[cell]:
+                self.spatial_grid[cell].append(room)
 
     def _remove_from_spatial_grid(self, room):
-        if room.x is None or room.y is None: return
-        for cell in self._get_grid_cells(room.x, room.y, room.width, room.height):
+        if room.x is None or room.y is None:
+            return
+        grid_cells = self._get_grid_cells(room.x, room.y, room.width, room.height)
+        for cell in grid_cells:
             if cell in self.spatial_grid and room in self.spatial_grid[cell]:
                 self.spatial_grid[cell].remove(room)
-                if not self.spatial_grid[cell]: del self.spatial_grid[cell]
+                if not self.spatial_grid[cell]:
+                    del self.spatial_grid[cell]
 
     def check_overlap_optimized(self, room, x, y, width, height):
+        candidate_cells = self._rect_cells(x, y, width, height)
         checked_rooms = set()
         for cell in self._get_grid_cells(x, y, width, height):
             if cell in self.spatial_grid:
                 for existing_room in self.spatial_grid[cell]:
                     if existing_room != room and existing_room not in checked_rooms:
                         checked_rooms.add(existing_room)
-                        if (x < existing_room.x + existing_room.width and
-                                x + width > existing_room.x and
-                                y < existing_room.y + existing_room.height and
-                                y + height > existing_room.y):
+                        if existing_room.occupied_cells:
+                            existing_cells = existing_room.get_occupied_cells()
+                            if candidate_cells & existing_cells:
+                                return True
+                        elif (x < existing_room.x + existing_room.width and
+                              x + width > existing_room.x and
+                              y < existing_room.y + existing_room.height and
+                              y + height > existing_room.y):
                             return True
         return False
 
@@ -475,7 +641,8 @@ class FloorPlan:
                 if temp_room.has_shared_wall_with(neighbor_room): return True
         return False
 
-    def add_room(self, name, width, height, max_expansion=3, fixed_x=None, fixed_y=None, need_corridor=True):
+    def add_room(self, name, width, height, max_expansion=3, fixed_x=None, fixed_y=None, need_corridor=True,
+                 polygon_coords=None, occupied_cells=None):
         """Create and register a room. If fixed_x/fixed_y are provided the room is treated as fixed.
 
         need_corridor: boolean flag stored on the Room instance (default True).
@@ -503,6 +670,18 @@ class FloorPlan:
                 room.max_expansion = max_expansion
             room.rotated = False
 
+        if polygon_coords:
+            room.polygon_coords = [tuple(p) for p in polygon_coords if isinstance(p, (list, tuple)) and len(p) >= 2]
+        if occupied_cells:
+            room.occupied_cells = [
+                (int(cell[0]), int(cell[1])) for cell in occupied_cells
+                if isinstance(cell, (list, tuple)) and len(cell) >= 2
+            ]
+        elif room.polygon_coords:
+            poly_cells = self._polygon_to_cells(room.polygon_coords)
+            if poly_cells:
+                room.occupied_cells = sorted(poly_cells)
+
         # Register room in lists/graphs
         self.rooms.append(room)
         self.adjacency_graph.add_node(name)
@@ -522,7 +701,8 @@ class FloorPlan:
             if all(r.name != candidate for r in self.rooms): return candidate
             i += 1
 
-    def add_fixed_room(self, width, height, fixed_x, fixed_y, name=None, max_expansion=3, ui=None, need_corridor=True):
+    def add_fixed_room(self, width, height, fixed_x, fixed_y, name=None, max_expansion=3, ui=None,
+                       need_corridor=True, polygon_coords=None, occupied_cells=None):
         chosen_name = None
         if name and str(name).strip():
             chosen_name = str(name).strip()
@@ -538,7 +718,17 @@ class FloorPlan:
         while any(r.name == chosen_name for r in self.rooms):
             chosen_name = f"{base}_{counter}"
             counter += 1
-        return self.add_room(chosen_name, width, height, max_expansion=max_expansion, fixed_x=fixed_x, fixed_y=fixed_y, need_corridor=need_corridor)
+        return self.add_room(
+            chosen_name,
+            width,
+            height,
+            max_expansion=max_expansion,
+            fixed_x=fixed_x,
+            fixed_y=fixed_y,
+            need_corridor=need_corridor,
+            polygon_coords=polygon_coords,
+            occupied_cells=occupied_cells
+        )
 
     def add_adjacency(self, room1_name, room2_name):
         if room1_name in self.adjacency_graph.nodes and room2_name in self.adjacency_graph.nodes:
@@ -568,6 +758,7 @@ class FloorPlan:
         # Iterate over all placed rooms (non-fixed and fixed)
         all_placed_rooms = [r for r in self.rooms if r.x is not None] + self.fixed_rooms
 
+        candidate_cells = None
         for room in all_placed_rooms:
             # *** THIS IS THE FIX ***
             # Skip the room we are explicitly ignoring
@@ -575,12 +766,21 @@ class FloorPlan:
                 continue
             # *** END OF FIX ***
 
-            # Standard bounding box check
-            if not (x + width <= room.x or
-                    x >= room.x + room.width or
-                    y + height <= room.y or
-                    y >= room.y + room.height):
-                return True  # Overlap detected
+            bbox_overlaps = not (x + width <= room.x or
+                                 x >= room.x + room.width or
+                                 y + height <= room.y or
+                                 y >= room.y + room.height)
+            if not bbox_overlaps:
+                continue
+
+            if room.occupied_cells:
+                if candidate_cells is None:
+                    candidate_cells = self._rect_cells(x, y, width, height)
+                if candidate_cells & room.get_occupied_cells():
+                    return True
+                continue
+
+            return True  # Overlap detected
         return False  # No overlap
 
     def evaluate_adjacency_score(self):
@@ -605,6 +805,72 @@ class FloorPlan:
                     score -= 2
                     violations.append((room1_name, room2_name))
         return score, adjacent_pairs, violations
+
+    def _capture_layout_snapshot(self):
+        """Capture the current room placements so a partial best layout can be restored later."""
+        snapshot_rooms = []
+        placed_count = 0
+
+        for room in self.rooms:
+            if room.x is None or room.y is None:
+                continue
+
+            snapshot_rooms.append({
+                "name": room.name,
+                "x": room.x,
+                "y": room.y,
+                "width": room.width,
+                "height": room.height,
+                "rotated": room.rotated,
+                "original_width": room.original_width,
+                "original_height": room.original_height,
+                "is_fixed": bool(getattr(room, "is_fixed", False)),
+            })
+            placed_count += 1
+
+        return {
+            "rooms": snapshot_rooms,
+            "placed_count": placed_count,
+            "total_rooms": len(self.rooms),
+        }
+
+    def _restore_layout_snapshot(self, snapshot):
+        """Restore a saved room-placement snapshot onto the current FloorPlan."""
+        if not snapshot:
+            return 0
+
+        snapshot_rooms = snapshot.get("rooms", []) or []
+        snapshot_by_name = {
+            room_data.get("name"): room_data
+            for room_data in snapshot_rooms
+            if isinstance(room_data, dict) and room_data.get("name")
+        }
+
+        self.spatial_grid = {}
+        placed_count = 0
+
+        for room in self.rooms:
+            room_data = snapshot_by_name.get(room.name)
+            if not room_data:
+                if not getattr(room, "is_fixed", False):
+                    room.x = None
+                    room.y = None
+                    room.reset_to_original_size()
+                continue
+
+            room.x = room_data.get("x")
+            room.y = room_data.get("y")
+            room.width = room_data.get("width", room.width)
+            room.height = room_data.get("height", room.height)
+            room.rotated = bool(room_data.get("rotated", False))
+            room.original_width = room_data.get("original_width", room.original_width)
+            room.original_height = room_data.get("original_height", room.original_height)
+
+            if room.x is not None and room.y is not None:
+                self._add_to_spatial_grid(room)
+                placed_count += 1
+
+        return placed_count
 
     def enforce_minimum_adjacency(self):
         """
@@ -792,6 +1058,8 @@ class FloorPlan:
 
         best_score = -1
         best_placement = None
+        best_placed_count = -1
+        full_success = False
 
         for attempt in range(max_attempts):
             self.spatial_grid = {}
@@ -823,21 +1091,19 @@ class FloorPlan:
                 valid_positions = self.get_valid_positions(room, max_positions=100)
                 # print("Hi1")
                 if valid_positions:
-                    # Very nice alternative can be used if ever a issue comes where repeated floor plans are not satisfying non adj. const. :)
-                    #x, y = random.choice(valid_positions)
-                    x,y = valid_positions[0]
+                    x,y = valid_positions[0] 
                     room.x, room.y = x, y
                     self._add_to_spatial_grid(room)
                     placed = True
-                    # print(valid_positions[0])
-                    # print(room)
+                    print(valid_positions[0])
+                    print(room)
                     # print("Hi")
 
                 if not placed:
                     room.rotate()
                     valid_positions = self.get_valid_positions(room, max_positions=30)
                     if valid_positions:
-                        x, y = random.choice(valid_positions)
+                        x, y = valid_positions[0]
                         room.x, room.y = x, y
                         self._add_to_spatial_grid(room)
                         placed = True
@@ -849,41 +1115,58 @@ class FloorPlan:
                     print(room)
                     break
 
+            # Capture the layout reached in this attempt, even if it is only partial.
+            current_snapshot = self._capture_layout_snapshot()
+            score, _, _ = self.evaluate_adjacency_score()
+            current_placed_count = current_snapshot.get("placed_count", 0)
+
+            if (current_placed_count > best_placed_count) or (
+                current_placed_count == best_placed_count and score > best_score
+            ):
+                best_score = score
+                best_placed_count = current_placed_count
+                best_placement = current_snapshot
+
             if placement_successful:
-                # *** CHANGE IS HERE ***
-                # Expansion is NO LONGER done inside the loop.
-                # We now evaluate the score based on the unexpanded room sizes.
-                score, _, _ = self.evaluate_adjacency_score()
-                if score > best_score:
-                    best_score = score
-                    # Save the best placement found so far (with original dimensions)
-                    best_placement = [
-                        (r.name, r.x, r.y, r.width, r.height, r.rotated) for r in self.rooms
-                    ]
+                full_success = True
                 if score == len(self.adjacency_graph.edges):
                     break
 
         if best_placement:
             self.spatial_grid = {}
-            for name, x, y, width, height, rotated in best_placement:
-                room = next(r for r in self.rooms if r.name == name)
-                room.x, room.y, room.width, room.height, room.rotated = x, y, width, height, rotated
-                self._add_to_spatial_grid(room)
+            restored_count = self._restore_layout_snapshot(best_placement)
 
-            # *** CHANGE IS HERE ***
-            # After the best layout is restored, we now check if expansion is enabled
-            # and only run the expansion logic if the checkbox was ticked.
+            # Only expand after a fully successful placement. For partial results, keep the best
+            # raw layout so the GUI can present the exact maximum placement that was found.
             print("best_placement ", best_placement)
-            if enable_expansion:
+            if enable_expansion and full_success:
                 self.expand_rooms_optimized()
 
-            return True
+            self.last_layout_result = {
+                "success": bool(full_success),
+                "partial": not full_success,
+                "best_snapshot": best_placement,
+                "placed_count": int(best_placement.get("placed_count", restored_count) or restored_count),
+                "total_rooms": len(self.rooms),
+                "best_score": best_score,
+                "attempts": max_attempts,
+            }
+            return bool(full_success)
 
         print("\n--- After placement (fixed rooms only) ---")
         for r in self.rooms:
             if getattr(r, "is_fixed", False):
                 print(f"{r.name}: ({r.x}, {r.y}), size={r.width}x{r.height}")
 
+        self.last_layout_result = {
+            "success": False,
+            "partial": False,
+            "best_snapshot": None,
+            "placed_count": 0,
+            "total_rooms": len(self.rooms),
+            "best_score": best_score,
+            "attempts": max_attempts,
+        }
         return False
 
     def expand_rooms_optimized(self, directions=None):
@@ -1251,16 +1534,23 @@ class FloorPlan:
         for room in placed_rooms:
             if room.name in room_legend:
                 symbol = room_legend[room.name]
+                occupied = room.get_occupied_cells()
+                if occupied:
+                    for x, y in occupied:
+                        mx = int(x / grid_resolution)
+                        my = int(y / grid_resolution)
+                        if 0 <= my < matrix_height and 0 <= mx < matrix_width:
+                            matrix[my][mx] = symbol
+                else:
+                    start_x = int(room.x / grid_resolution)
+                    start_y = int(room.y / grid_resolution)
+                    end_x = int((room.x + room.width) / grid_resolution)
+                    end_y = int((room.y + room.height) / grid_resolution)
 
-                start_x = int(room.x / grid_resolution)
-                start_y = int(room.y / grid_resolution)
-                end_x = int((room.x + room.width) / grid_resolution)
-                end_y = int((room.y + room.height) / grid_resolution)
-
-                for y in range(start_y, min(end_y, matrix_height)):
-                    for x in range(start_x, min(end_x, matrix_width)):
-                        if 0 <= y < matrix_height and 0 <= x < matrix_width:
-                            matrix[y][x] = symbol
+                    for y in range(start_y, min(end_y, matrix_height)):
+                        for x in range(start_x, min(end_x, matrix_width)):
+                            if 0 <= y < matrix_height and 0 <= x < matrix_width:
+                                matrix[y][x] = symbol
 
         return matrix, room_legend
 
@@ -1298,16 +1588,26 @@ class FloorPlan:
 
                 room_legend[room.name] = {'symbol': symbol, 'id': room_id_counter, 'is_fixed': True}
 
-                # Place fixed room in initial_grid
-                start_x = int(room.x)
-                start_y = int(room.y)
-                end_x = int(room.x + room.width)
-                end_y = int(room.y + room.height)
+                fixed_cells = room.get_occupied_cells()
+                if (not fixed_cells) and room.polygon_coords:
+                    fixed_cells = self._polygon_to_cells(room.polygon_coords)
+                    if fixed_cells:
+                        room.occupied_cells = sorted(fixed_cells)
 
-                for y in range(start_y, min(end_y, matrix_height)):
-                    for x in range(start_x, min(end_x, matrix_width)):
+                if fixed_cells:
+                    for x, y in fixed_cells:
                         if 0 <= y < matrix_height and 0 <= x < matrix_width:
                             initial_grid[y, x] = room_id_counter
+                else:
+                    # Legacy fallback for rectangular fixed rooms.
+                    start_x = int(room.x)
+                    start_y = int(room.y)
+                    end_x = int(room.x + room.width)
+                    end_y = int(room.y + room.height)
+                    for y in range(start_y, min(end_y, matrix_height)):
+                        for x in range(start_x, min(end_x, matrix_width)):
+                            if 0 <= y < matrix_height and 0 <= x < matrix_width:
+                                initial_grid[y, x] = room_id_counter
 
                 room_id_counter += 1
 
@@ -1379,6 +1679,16 @@ class FloorPlan:
         """
         print("--- Starting layout generation ---")
 
+        self.last_layout_result = {
+            "success": False,
+            "partial": False,
+            "best_snapshot": None,
+            "placed_count": 0,
+            "total_rooms": len(self.rooms),
+            "best_score": -1,
+            "attempts": max_attempts,
+        }
+
         for room in self.rooms:
             if not getattr(room, "is_fixed", False):
                 room.reset_to_original_size()
@@ -1431,8 +1741,29 @@ class FloorPlan:
 
                 print("--- Layout generation complete ---")
 
+            layout_result = getattr(self, "last_layout_result", {}) or {}
+            layout_result.update({
+                "success": True,
+                "partial": False,
+                "placed_count": len([room for room in self.rooms if room.x is not None]),
+                "total_rooms": len(self.rooms),
+            })
+            self.last_layout_result = layout_result
+
         else:
             print("--- Layout generation FAILED ---")
+
+            layout_result = getattr(self, "last_layout_result", {}) or {}
+            best_snapshot = layout_result.get("best_snapshot")
+            if best_snapshot:
+                placed_count = self._restore_layout_snapshot(best_snapshot)
+                layout_result.update({
+                    "success": False,
+                    "partial": bool(placed_count),
+                    "placed_count": placed_count,
+                    "total_rooms": len(self.rooms),
+                })
+                self.last_layout_result = layout_result
 
         return success
 

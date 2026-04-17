@@ -22,3 +22,5 @@ dist/
 build/
 *.egg
 /GPLAN.egg-info
+/data_collection/outputs
+/data_collection/outputs_exact_dimensions
