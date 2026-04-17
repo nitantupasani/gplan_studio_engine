@@ -18,6 +18,53 @@ import math
 import matplotlib.path as mpath
 
 
+def _normalize_polygon_points(points):
+    normalized = []
+    for pt in points or []:
+        if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+            normalized.append((float(pt[0]), float(pt[1])))
+    if len(normalized) >= 2 and normalized[0] == normalized[-1]:
+        normalized = normalized[:-1]
+    return normalized
+
+
+def _point_inside_polygon(x, y, polygon):
+    inside = False
+    n = len(polygon)
+    if n < 3:
+        return False
+    j = n - 1
+    for i in range(n):
+        xi, yi = polygon[i]
+        xj, yj = polygon[j]
+        if (yi > y) != (yj > y):
+            denom = (yj - yi)
+            if denom != 0:
+                x_at_y = (xj - xi) * (y - yi) / denom + xi
+                if x < x_at_y:
+                    inside = not inside
+        j = i
+    return inside
+
+
+def _polygon_to_occupied_cells(polygon_points):
+    poly = _normalize_polygon_points(polygon_points)
+    if len(poly) < 3:
+        return []
+
+    min_x = int(min(p[0] for p in poly))
+    max_x = int(max(p[0] for p in poly))
+    min_y = int(min(p[1] for p in poly))
+    max_y = int(max(p[1] for p in poly))
+
+    cells = []
+    for cy in range(min_y, max_y):
+        for cx in range(min_x, max_x):
+            if _point_inside_polygon(cx + 0.5, cy + 0.5, poly):
+                cells.append((cx, cy))
+    return cells
+
+
 class CADApp:
     # Replace existing CADApp.__init__(self, parent, callback) with this:
     # In the CADApp class, replace the __init__ method with this corrected version:
@@ -35,7 +82,7 @@ class CADApp:
         self.window = tk.Toplevel(parent)
         self.callback = callback
         self.grid_spacing = tk.IntVar(value=1)
-        self.grid_spacing_set = True
+        self.grid_spacing_set = False
 
         # --- START: Consolidated Attribute Initialization (FIX) ---
         # All instance attributes are now initialized here to prevent ordering errors.
@@ -114,6 +161,18 @@ class CADApp:
                 self.last_fixed_rooms = list(initial_state.get('last_fixed_rooms') or [])
                 self.boundary_state = list(initial_state.get('boundary_state') or [])
                 self.fixed_names = list(initial_state.get('fixed_names') or [])
+                spacing_val = initial_state.get('unit_spacing')
+                if spacing_val is not None:
+                    try:
+                        spacing_int = int(float(spacing_val))
+                    except Exception:
+                        spacing_int = 1
+                    if spacing_int > 0:
+                        self.unit_spacing = spacing_int
+                        self.grid_spacing.set(spacing_int)
+                        self.grid_spacing_set = True
+                        self.unit_spacing_prev = spacing_int
+                        self.done2 = True
                 ### FIX ###: Load the raw entrance coordinates from the main GUI state
                 self.stored_coordinates = list(initial_state.get('entrance_grid_coords') or [])
         except Exception:
@@ -697,6 +756,7 @@ class CADApp:
                 messagebox.showerror("Invalid Input", "Grid spacing must be a positive integer.")
                 return
             self.unit_spacing = value
+            self.grid_spacing.set(value)
             if (not self.done2):
                 self.unit_spacing_prev = value
                 self.done2 = True
@@ -705,6 +765,41 @@ class CADApp:
             print(f"Grid spacing set to: {self.unit_spacing}")
         except tk.TclError:
             messagebox.showerror("Invalid Input", "Please enter a valid integer for grid spacing.")
+
+    def _sync_unit_spacing_from_entry(self, require_positive=False):
+        """
+        Synchronize self.unit_spacing from the grid spacing entry value.
+        If require_positive is True, show an error and return False on invalid input.
+        """
+        try:
+            value = int(self.grid_spacing.get())
+        except Exception:
+            if require_positive:
+                messagebox.showerror("Invalid Input", "Please enter a valid integer for grid spacing.")
+            return False
+
+        if value <= 0:
+            if require_positive:
+                messagebox.showerror("Invalid Input", "Grid spacing must be a positive integer.")
+            return False
+
+        changed = value != int(getattr(self, "unit_spacing", 1) or 1)
+        self.unit_spacing = value
+        self.grid_spacing_set = True
+        if (not self.done2):
+            self.unit_spacing_prev = value
+            self.done2 = True
+        elif changed:
+            self.unit_spacing_prev = value
+
+        if changed:
+            try:
+                self.update_status()
+            except Exception:
+                pass
+            print(f"[CAD] Auto-synced grid spacing to {self.unit_spacing} before area operations")
+
+        return True
 
     def create_grid(self):
         self.grid_points = []
@@ -1887,6 +1982,9 @@ class CADApp:
         """
         Finalizes the drawing and sends the data back to the main GUI.
         """
+        if not self._sync_unit_spacing_from_entry(require_positive=True):
+            return
+
         # --- Always scale the main boundary so Finalize works without Fixed shape ---
         self.scaled_coordinates.clear()
         for a, b in self.clicked_coordinates:
@@ -1922,15 +2020,27 @@ class CADApp:
         fixed_rooms = []
         for idx, poly in enumerate(self.scaled_final_area):
             if poly:
-                min_x, max_x = min(p[0] for p in poly), max(p[0] for p in poly)
-                min_y, max_y = min(p[1] for p in poly), max(p[1] for p in poly)
+                normalized_poly = _normalize_polygon_points(poly)
+                min_x, max_x = min(p[0] for p in normalized_poly), max(p[0] for p in normalized_poly)
+                min_y, max_y = min(p[1] for p in normalized_poly), max(p[1] for p in normalized_poly)
                 width, height = int(round(max_x - min_x)), int(round(max_y - min_y))
                 if width > 0 and height > 0:
                     name = self.fixed_names[idx] if hasattr(self, "fixed_names") and idx < len(
                         self.fixed_names) else f"Fixed{idx + 1}"
+                    occupied_cells = _polygon_to_occupied_cells(normalized_poly)
                     fixed_rooms.append(
-                        {'name': name, 'x': int(round(min_x)), 'y': int(round(min_y)), 'width': width, 'height': height,
-                         'is_fixed': True, 'max_expansion': 0})
+                        {
+                            'name': name,
+                            'x': int(round(min_x)),
+                            'y': int(round(min_y)),
+                            'width': width,
+                            'height': height,
+                            'is_fixed': True,
+                            'max_expansion': 0,
+                            'polygon': [[p[0], p[1]] for p in normalized_poly],
+                            'occupied_cells': [[c[0], c[1]] for c in occupied_cells]
+                        }
+                    )
 
         regions = self.decompose_into_rectangles()
         if not regions:
@@ -1956,7 +2066,8 @@ class CADApp:
             'final_area': getattr(self, 'final_area', []), 'boundary_state': self.boundary_state,
             'fixed_area': getattr(self, 'fixed_area_total', 0.0),
             'fixed_names': getattr(self, 'fixed_names', []),
-            'total_area': precise_total_area
+            'total_area': precise_total_area,
+            'unit_spacing': self.unit_spacing
         }
 
         if callable(self.callback):
@@ -2916,6 +3027,13 @@ class FloorPlanGUI:
                 self.fixed_names = list(payload.get('fixed_names') or [])
             if 'entrance_grid_coords' in payload:
                 self.entrance_grid_coords = list(payload.get('entrance_grid_coords') or [])
+            if 'unit_spacing' in payload:
+                try:
+                    spacing_val = int(float(payload.get('unit_spacing') or 1))
+                except Exception:
+                    spacing_val = 1
+                if spacing_val > 0:
+                    self.unit_spacing = spacing_val
 
             self.update_regions_from_cad(payload)
             self.root.deiconify()
@@ -2925,7 +3043,8 @@ class FloorPlanGUI:
             'last_fixed_rooms': getattr(self, 'last_fixed_rooms', []) or [],
             'boundary_state': getattr(self, 'boundary_state', []) or [],
             'fixed_names': getattr(self, 'fixed_names', []) or [],
-            'entrance_grid_coords': getattr(self, 'entrance_grid_coords', []) or []
+            'entrance_grid_coords': getattr(self, 'entrance_grid_coords', []) or [],
+            'unit_spacing': getattr(self, 'unit_spacing', 1) or 1
         }
 
         print(
@@ -2986,7 +3105,8 @@ class FloorPlanGUI:
                         max_expansion=int(fr.get('max_expansion', 3) or 3),
                         width=w,
                         height=h,
-                        is_fixed=True
+                        is_fixed=True,
+                        occupied_cells=fr.get('occupied_cells')
                     )
                     # add row to rooms_tree (does not touch your FloorPlan model)
                     try:
@@ -3000,8 +3120,7 @@ class FloorPlanGUI:
                                     self.rooms_tree.set(item, "Width", int(w))
                                     self.rooms_tree.set(item, "Height", int(h))
                                     self.rooms_tree.set(item, "Max Expansion", int(room_obj.max_expansion))
-                                    spacing = float(getattr(self, "unit_spacing", 1.0) or 1.0)
-                                    self.rooms_tree.set(item, "Area", int(round((w * h) * (spacing ** 2))))
+                                    self._set_room_tree_area(item, w, h, room_obj=room_obj)
                                     self.rooms_tree.set(item, "Need Corridor", "Yes")
                                     # tag as fixed
                                     try:
@@ -3394,6 +3513,52 @@ class FloorPlanGUI:
     #     except Exception as e:
     #         print("update_area_stats: unexpected error:", e)
 
+    def _unit_spacing_factor(self):
+        """Return squared unit spacing used for area conversions."""
+        try:
+            spacing = float(getattr(self, "unit_spacing", 1.0) or 1.0)
+        except Exception:
+            spacing = 1.0
+        return spacing ** 2
+
+    def _occupied_cells_count(self, room_obj=None, room_data=None):
+        """Return unique occupied-cell count when polygon occupancy is available."""
+        cells = None
+        if room_obj is not None:
+            try:
+                if hasattr(room_obj, "get_occupied_cells") and callable(room_obj.get_occupied_cells):
+                    cells = room_obj.get_occupied_cells()
+            except Exception:
+                cells = None
+            if not cells:
+                cells = getattr(room_obj, "occupied_cells", None)
+        elif isinstance(room_data, dict):
+            cells = room_data.get("occupied_cells")
+
+        if not cells:
+            return None
+
+        try:
+            unique_cells = {
+                (int(cell[0]), int(cell[1]))
+                for cell in cells
+                if isinstance(cell, (list, tuple)) and len(cell) >= 2
+            }
+            return len(unique_cells) if unique_cells else None
+        except Exception:
+            return None
+
+    def _scaled_room_area_value(self, width, height, room_obj=None, room_data=None):
+        """Compute room area from geometry only (occupied-cells or width*height), independent of grid spacing."""
+        occupied_count = self._occupied_cells_count(room_obj=room_obj, room_data=room_data)
+        raw_area = float(occupied_count) if occupied_count is not None else float(width or 0) * float(height or 0)
+        return int(round(raw_area))
+
+    def _set_room_tree_area(self, item, width, height, room_obj=None, room_data=None):
+        """Set the Area column using literal room area semantics (no spacing scaling)."""
+        area_value = self._scaled_room_area_value(width, height, room_obj=room_obj, room_data=room_data)
+        self.rooms_tree.set(item, "Area", str(area_value))
+
     # In FloorPlanGUI class
     def update_area_stats(self, total_area_override=None):
         """
@@ -3444,6 +3609,11 @@ class FloorPlanGUI:
 
         self.stats_text.delete('1.0', tk.END)
 
+        layout_result = getattr(self.floor_plan, "last_layout_result", {}) or {}
+        placed_count = int(layout_result.get("placed_count") or sum(1 for room in self.floor_plan.rooms if room.x is not None))
+        total_room_count = int(layout_result.get("total_rooms") or len(self.floor_plan.rooms))
+        is_partial_layout = bool(layout_result.get("partial")) and placed_count < total_room_count
+
         # ### This is the crucial line that needs to be changed ###
         # It ensures we use the correct total area (60) that we confirmed is being stored.
         total_area = self.total_area.get()
@@ -3452,13 +3622,25 @@ class FloorPlanGUI:
         print(
             f"DEBUG 4 (update_output_display): At the moment of display, self.total_area.get() is {self.total_area.get()}")
 
-        used_area = sum(room.width * room.height for room in self.floor_plan.rooms if room.x is not None)
+        used_area = 0.0
+        for room in self.floor_plan.rooms:
+            if room.x is None:
+                continue
+            used_area += self._scaled_room_area_value(room.width, room.height, room_obj=room)
 
-        stats = f"FLOOR PLAN STATISTICS (Generated)\n{'=' * 30}\n\n"
+        stats_title = "PARTIAL FLOOR PLAN STATISTICS (Best Available)" if is_partial_layout else "FLOOR PLAN STATISTICS (Generated)"
+        stats = f"{stats_title}\n{'=' * 30}\n\n"
         stats += f"Total Floor Area: {total_area} square units\n"
+        if is_partial_layout:
+            stats += f"Placed Rooms: {placed_count}/{total_room_count}\n"
         stats += f"Final Used Area: {used_area} square units\n"
         if total_area > 0:
             stats += f"Space Utilization: {used_area / total_area:.2%}\n\n"
+
+        if is_partial_layout:
+            unplaced_rooms = [room.name for room in self.floor_plan.rooms if room.x is None]
+            if unplaced_rooms:
+                stats += f"Unplaced Rooms: {', '.join(unplaced_rooms)}\n\n"
 
         score, adjacent_pairs, violations = self.floor_plan.evaluate_adjacency_score()
         stats += f"Adjacency Score: {score}/{len(self.floor_plan.adjacency_graph.edges)}\n"
@@ -3839,6 +4021,7 @@ class FloorPlanGUI:
                     "boundary_state": getattr(self, 'boundary_state', []),
                     "final_area": getattr(self, 'final_area', []),
                     "fixed_names": getattr(self, 'fixed_names', []),
+                    "cad_fixed_rooms": getattr(self, 'cad_fixed_rooms', []),
                     "entrance_grid_coords": getattr(self, 'entrance_grid_coords', [])
                 },
                 "regions": self.get_regions_data(),
@@ -3847,7 +4030,8 @@ class FloorPlanGUI:
                 "non_adjacencies": self.get_non_adjacencies_data(),
                 "generation_settings": {
                     "max_attempts": int(self.max_attempts_var.get()),
-                    "enable_expansion": self.enable_expansion_var.get()
+                    "enable_expansion": self.enable_expansion_var.get(),
+                    "unit_spacing": float(getattr(self, "unit_spacing", 1.0) or 1.0)
                 }
             }
 
@@ -3930,6 +4114,11 @@ class FloorPlanGUI:
                 main_boundary_coords = next(
                     (item.get('coords', []) for item in self.boundary_state if item.get("type") == "polygon"), [])
 
+                # Preferred path for modern files: restore exact fixed-room geometry payload.
+                cad_fixed_state = cad_state.get("cad_fixed_rooms", [])
+                if isinstance(cad_fixed_state, list) and cad_fixed_state:
+                    self.cad_fixed_rooms = cad_fixed_state
+
             # Fallback for OLD format: If no boundary found, reconstruct from "regions"
             if not main_boundary_coords and "regions" in data:
                 print("Legacy JSON format detected. Reconstructing boundary from regions.")
@@ -3949,24 +4138,10 @@ class FloorPlanGUI:
             if not main_boundary_coords:
                 raise ValueError("File does not contain a valid boundary in 'cad_state' or a 'regions' list.")
 
-            # Calculate total area from regions if available, otherwise from boundary
+            # Calculate total area from boundary using current unit spacing.
+            # This avoids mixed-unit issues when regions come from legacy/unscaled payloads.
             regions_data = data.get("regions", [])
-            if regions_data:
-                # Sum the areas of all regions (most accurate for multi-region layouts)
-                total_area_from_regions = sum(r.get('width', 0) * r.get('height', 0) for r in regions_data)
-
-                fixed_rooms_area = 0
-                for room in data.get("rooms", []):
-                    if room.get('is_fixed', False):
-                        fixed_rooms_area += room.get('width', 0) * room.get('height', 0)
-                
-                total_area_from_regions = total_area_from_regions + fixed_rooms_area
-                
-                self.total_area.set(int(round(total_area_from_regions)))
-                print(f"DEBUG: loaded total_area from regions = {total_area_from_regions}")
-            else:
-                # Fallback to boundary calculation
-                self._set_total_area_from_boundary(main_boundary_coords)
+            self._set_total_area_from_boundary(main_boundary_coords)
 
             # Normalize all coordinates to a (0,0) origin
             offset_x = min(p[0] for p in main_boundary_coords)
@@ -4000,19 +4175,28 @@ class FloorPlanGUI:
                 self.regions_tree.set(item, "Height", int(solid_normalized_region['height']))
                 print("DEBUG: No regions in JSON, created single bounding-box region (rectangular fallback)")
 
-            # Reconstruct fixed rooms with normalized coordinates (will be empty for old files)
-            self.cad_fixed_rooms = []
-            for i, poly in enumerate(self.final_area):
-                if poly and i < len(self.fixed_names):
-                    poly_min_x = min(p[0] for p in poly)
-                    poly_min_y = min(p[1] for p in poly)
-                    self.cad_fixed_rooms.append({
-                        'name': self.fixed_names[i],
-                        'x': (poly_min_x - offset_x) * self.unit_spacing,
-                        'y': (poly_min_y - offset_y) * self.unit_spacing,
-                        'width': (max(p[0] for p in poly) - poly_min_x) * self.unit_spacing,
-                        'height': (max(p[1] for p in poly) - poly_min_y) * self.unit_spacing
-                    })
+            # Reconstruct fixed rooms from polygons only when modern cad_fixed_rooms are not available.
+            if not getattr(self, "cad_fixed_rooms", None):
+                self.cad_fixed_rooms = []
+                for i, poly in enumerate(self.final_area):
+                    if poly and i < len(self.fixed_names):
+                        normalized_poly = _normalize_polygon_points(poly)
+                        scaled_poly = [
+                            ((p[0] - offset_x) * self.unit_spacing, (p[1] - offset_y) * self.unit_spacing)
+                            for p in normalized_poly
+                        ]
+                        poly_min_x = min(p[0] for p in scaled_poly)
+                        poly_min_y = min(p[1] for p in scaled_poly)
+                        occupied_cells = _polygon_to_occupied_cells(scaled_poly)
+                        self.cad_fixed_rooms.append({
+                            'name': self.fixed_names[i],
+                            'x': poly_min_x,
+                            'y': poly_min_y,
+                            'width': (max(p[0] for p in scaled_poly) - poly_min_x),
+                            'height': (max(p[1] for p in scaled_poly) - poly_min_y),
+                            'polygon': [[p[0], p[1]] for p in scaled_poly],
+                            'occupied_cells': [[c[0], c[1]] for c in occupied_cells]
+                        })
 
             # Set Total Area and populate UI
 
@@ -4022,6 +4206,11 @@ class FloorPlanGUI:
             placement_dict = {p['name']: p for p in placements}
 
             fixed_room_names = {fr['name'] for fr in self.cad_fixed_rooms}
+            cad_fixed_lookup = {
+                fr.get('name'): fr
+                for fr in (self.cad_fixed_rooms or [])
+                if isinstance(fr, dict) and fr.get('name')
+            }
             for room in data.get("rooms", []):
                 # If this room is marked fixed in JSON, store its coordinates
                 if room.get('is_fixed'):
@@ -4045,7 +4234,13 @@ class FloorPlanGUI:
                 self.rooms_tree.set(item, "Width", width);
                 self.rooms_tree.set(item, "Height", height)
                 self.rooms_tree.set(item, "Max Expansion", room.get('max_expansion', 0))
-                self.rooms_tree.set(item, "Area", int(round(width * height * self.unit_spacing ** 2)))
+                room_area_data = room
+                if room.get('name') in cad_fixed_lookup and not room.get('occupied_cells'):
+                    fixed_meta = cad_fixed_lookup.get(room.get('name')) or {}
+                    if fixed_meta.get('occupied_cells'):
+                        room_area_data = dict(room)
+                        room_area_data['occupied_cells'] = fixed_meta.get('occupied_cells')
+                self._set_room_tree_area(item, width, height, room_data=room_area_data)
                 if room['name'] in fixed_room_names: self.rooms_tree.item(item, tags=('fixed',))
 
             if "adjacencies" in data:
@@ -4114,7 +4309,15 @@ class FloorPlanGUI:
                         w, h, fx, fy = int(fixed_room_data['width']), int(fixed_room_data['height']), int(
                             fixed_room_data['x']), int(fixed_room_data['y'])
                         fy = floor_height - (fy + h)  # Flip Y coordinate
-                        room = self.floor_plan.add_fixed_room(width=w, height=h, fixed_x=fx, fixed_y=fy, name=name)
+                        room = self.floor_plan.add_fixed_room(
+                            width=w,
+                            height=h,
+                            fixed_x=fx,
+                            fixed_y=fy,
+                            name=name,
+                            polygon_coords=fixed_room_data.get('polygon'),
+                            occupied_cells=fixed_room_data.get('occupied_cells')
+                        )
                         room.is_fixed = True
                 else:
                     # Handle regular rooms
@@ -4432,7 +4635,7 @@ class FloorPlanGUI:
             self.rooms_tree.set(item, "Width", width)
             self.rooms_tree.set(item, "Height", height)
             self.rooms_tree.set(item, "Max Expansion", max_exp)
-            self.rooms_tree.set(item, "Area", width * height)
+            self._set_room_tree_area(item, width, height)
             self.rooms_tree.set(item, "Need Corridor", "Yes")
             # self.rooms_tree.set(item, "Area", area)
 
@@ -4531,7 +4734,6 @@ class FloorPlanGUI:
             new_width = int(self.edit_width_var.get())
             new_height = int(self.edit_height_var.get())
             new_max_exp = int(self.edit_max_exp_var.get())
-            new_area = new_width * new_height
 
             # Validation
             if not new_name:
@@ -4564,7 +4766,7 @@ class FloorPlanGUI:
             self.rooms_tree.set(selected_item, "Width", new_width)
             self.rooms_tree.set(selected_item, "Height", new_height)
             self.rooms_tree.set(selected_item, "Max Expansion", new_max_exp)
-            self.rooms_tree.set(selected_item, "Area", new_area)
+            self._set_room_tree_area(selected_item, new_width, new_height)
             # Update Need Corridor value from edit dialog checkbox
             try:
                 need_corr_val = bool(getattr(self, 'edit_need_corr_var', tk.BooleanVar(value=True)).get())
@@ -4702,7 +4904,7 @@ class FloorPlanGUI:
         name_entry.select_range(0, tk.END)
 
     def add_bulk_rooms(self):
-        """Add multiple rooms with the same dimensions (stores real area)."""
+        """Add multiple rooms with the same dimensions (stores literal width*height area)."""
         try:
             base_name = self.bulk_room_name_var.get().strip()
             quantity = int(self.bulk_room_quantity_var.get())
@@ -4736,9 +4938,7 @@ class FloorPlanGUI:
             if not hasattr(self, "rooms_area_list"):
                 self.rooms_area_list = []
 
-            spacing = float(getattr(self, "unit_spacing", 1.0) or 1.0)
             raw_area = width * height
-            real_area = raw_area * (spacing ** 2)
             added_count = 0
 
             # NEW: read need_corr value for bulk rooms
@@ -4754,7 +4954,7 @@ class FloorPlanGUI:
                     self.rooms_tree.set(item, "Width", str(int(width)))
                     self.rooms_tree.set(item, "Height", str(int(height)))
                     self.rooms_tree.set(item, "Max Expansion", str(int(max_exp)))
-                    self.rooms_tree.set(item, "Area", str(int(round(real_area))))
+                    self._set_room_tree_area(item, width, height)
                     try:
                         # Force the widget to process pending redraws so values appear immediately
                         self.rooms_tree.update_idletasks()
@@ -4776,7 +4976,7 @@ class FloorPlanGUI:
                     except Exception:
                         pass
 
-                    self.rooms_area_list.append(real_area)
+                    self.rooms_area_list.append(raw_area)
                     added_count += 1
                 except Exception as e:
                     messagebox.showerror("Error", f"Failed to add room '{room_name}': {str(e)}")
@@ -4839,13 +5039,12 @@ class FloorPlanGUI:
                 return
 
             # Add to UI tree
-            real_area = width * height
             item = self.rooms_tree.insert("", "end", text=name)
             # Store numeric values as strings to ensure Treeview displays consistently
             self.rooms_tree.set(item, "Width", str(int(width)))
             self.rooms_tree.set(item, "Height", str(int(height)))
             self.rooms_tree.set(item, "Max Expansion", str(int(max_exp)))
-            self.rooms_tree.set(item, "Area", str(int(round(real_area))))
+            self._set_room_tree_area(item, width, height)
             try:
                 self.rooms_tree.update_idletasks()
             except Exception:
@@ -5195,7 +5394,7 @@ class FloorPlanGUI:
             self.rooms_tree.set(item, "Width", int(round(wf)))
             self.rooms_tree.set(item, "Height", int(round(hf)))
             self.rooms_tree.set(item, "Max Expansion", int(getattr(room, "max_expansion", 0)))
-            self.rooms_tree.set(item, "Area", int(round(wf * hf)))
+            self._set_room_tree_area(item, wf, hf, room_obj=room)
 
             # Tag the item as 'fixed'
             try:
@@ -5657,6 +5856,10 @@ class FloorPlanGUI:
 
                 # 3. Add all rooms from the UI, fixing the ones we identified.
                 placement_dict = {p['name']: p for p in placements}
+                cad_fixed_by_name = {
+                    fr.get('name'): fr for fr in (cad_blob.get('cad_fixed_rooms') or [])
+                    if isinstance(fr, dict) and fr.get('name')
+                }
                 all_ui_rooms = {self.rooms_tree.item(item)['text'] for item in self.rooms_tree.get_children()}
 
                 for name in all_ui_rooms:
@@ -5666,6 +5869,9 @@ class FloorPlanGUI:
                     if name in fixed_names and name in placement_dict:
                         # This is a fixed room. Add it with its saved position and size.
                         p = placement_dict[name]
+                        fr_payload = cad_fixed_by_name.get(name, {})
+                        poly_payload = _normalize_polygon_points(fr_payload.get('polygon') or [])
+                        occ_payload = fr_payload.get('occupied_cells') or None
                         print(f"  -> Adding '{name}' as a FIXED room at its saved position.")
                         # Prefer the original room's max_expansion when available (default to 3)
                         try:
@@ -5673,7 +5879,9 @@ class FloorPlanGUI:
                         except Exception:
                             orig_max = 3
                         room = self.floor_plan.add_fixed_room(width=p['width'], height=p['height'], fixed_x=p['x'],
-                                                              fixed_y=p['y'], name=name, max_expansion=orig_max)
+                                                              fixed_y=p['y'], name=name, max_expansion=orig_max,
+                                                              polygon_coords=poly_payload or None,
+                                                              occupied_cells=occ_payload)
                         room.is_fixed = True
                     else:
                         # This is a movable room. Add it with its original (unfed) dimensions.
@@ -5700,8 +5908,31 @@ class FloorPlanGUI:
                     for fr in cad_fixed:
                         w, h, fx, fy = int(fr['width']), int(fr['height']), int(fr['x']), int(fr['y'])
                         fy = floor_height - (fy + h)
+                        polygon = fr.get('polygon') or []
+                        transformed_polygon = []
+                        if polygon:
+                            normalized_poly = _normalize_polygon_points(polygon)
+                            transformed_polygon = [(px, floor_height - py) for px, py in normalized_poly]
+
+                        occupied_cells = fr.get('occupied_cells') or []
+                        transformed_cells = []
+                        if occupied_cells:
+                            transformed_cells = [(int(cx), int(floor_height - 1 - cy)) for cx, cy in occupied_cells]
+
+                        if transformed_polygon:
+                            min_px = min(p[0] for p in transformed_polygon)
+                            max_px = max(p[0] for p in transformed_polygon)
+                            min_py = min(p[1] for p in transformed_polygon)
+                            max_py = max(p[1] for p in transformed_polygon)
+                            fx = int(round(min_px))
+                            fy = int(round(min_py))
+                            w = int(round(max_px - min_px))
+                            h = int(round(max_py - min_py))
+
                         room = self.floor_plan.add_fixed_room(width=w, height=h, fixed_x=fx, fixed_y=fy,
-                                                              name=fr.get('name'))
+                                                              name=fr.get('name'),
+                                                              polygon_coords=transformed_polygon or None,
+                                                              occupied_cells=transformed_cells or None)
                         room.is_fixed = True
 
                 # Add rooms from UI — fixed rooms get placed at their stored coordinates
@@ -5752,12 +5983,15 @@ class FloorPlanGUI:
             max_attempts = int(self.max_attempts_var.get())
             enable_expansion = self.enable_expansion_var.get()
             success = self.floor_plan.generate_layout(max_attempts=max_attempts, enable_expansion=enable_expansion)
+            layout_result = getattr(self.floor_plan, "last_layout_result", {}) or {}
 
             if success:
                 messagebox.showinfo("Success", "Floor plan generated successfully!")
                 self.update_output_display()
             else:
                 messagebox.showwarning("Generation Failed", "Could not place all rooms with the given constraints.")
+                if layout_result.get("best_snapshot") or layout_result.get("partial"):
+                    self.update_output_display()
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred during generation: {str(e)}")
             import traceback
@@ -5875,16 +6109,31 @@ class FloorPlanGUI:
                     linewidth = room_line_width
                     alpha = max(0.4, min(0.7, 1.0 / np.sqrt(num_rooms / 20 + 1)))
 
-                rect = Rectangle(
-                    (room.x, room.y),
-                    room.width,
-                    room.height,
-                    linewidth=linewidth,
-                    edgecolor=edge_color,
-                    facecolor=face_color,
-                    alpha=alpha
-                )
-                self.ax.add_patch(rect)
+                occupied = room.get_occupied_cells() if hasattr(room, "get_occupied_cells") else set()
+                if occupied and getattr(room, "is_fixed", False):
+                    # Draw fixed rectilinear shapes as exact occupied cells.
+                    for cx, cy in occupied:
+                        cell_rect = Rectangle(
+                            (cx, cy),
+                            1,
+                            1,
+                            linewidth=max(0.2, linewidth * 0.6),
+                            edgecolor=edge_color,
+                            facecolor=face_color,
+                            alpha=alpha
+                        )
+                        self.ax.add_patch(cell_rect)
+                else:
+                    rect = Rectangle(
+                        (room.x, room.y),
+                        room.width,
+                        room.height,
+                        linewidth=linewidth,
+                        edgecolor=edge_color,
+                        facecolor=face_color,
+                        alpha=alpha
+                    )
+                    self.ax.add_patch(rect)
 
                 # Adaptive text display
                 self._draw_room_text(room, base_font_size, show_room_details, show_expansion_info)
@@ -5938,9 +6187,20 @@ class FloorPlanGUI:
             # Find room at click location
             clicked_room = None
             for room in self.floor_plan.rooms:
-                if (room.x is not None and room.y is not None and
-                        room.x <= event.xdata <= room.x + room.width and
-                        room.y <= event.ydata <= room.y + room.height):
+                if room.x is None or room.y is None:
+                    continue
+
+                occupied = room.get_occupied_cells() if hasattr(room, "get_occupied_cells") else set()
+                if occupied and getattr(room, "is_fixed", False):
+                    if event.xdata is None or event.ydata is None:
+                        continue
+                    px = int(event.xdata)
+                    py = int(event.ydata)
+                    if (px, py) in occupied:
+                        clicked_room = room
+                        break
+                elif (room.x <= event.xdata <= room.x + room.width and
+                      room.y <= event.ydata <= room.y + room.height):
                     clicked_room = room
                     break
 
