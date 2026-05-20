@@ -2547,7 +2547,8 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
     ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
 
 def handle_space_optimization(ui, regions, rooms, fixed_rooms, adjacency, non_adjacency, entrance_coords=None, 
-                               max_attempts=100, enable_expansion=True, enable_compaction=True):
+                               max_attempts=100, enable_expansion=True, enable_compaction=True,
+                               boundary_bounds=None):
     """
     Handler for space optimization using the negNew FloorPlan engine.
     
@@ -2562,6 +2563,7 @@ def handle_space_optimization(ui, regions, rooms, fixed_rooms, adjacency, non_ad
         max_attempts: Maximum placement attempts
         enable_expansion: Whether to enable room expansion
         enable_compaction: Whether to enable room compaction
+        boundary_bounds: Optional dict with raw boundary min/max values used to align fixed-room Y coordinates
     
     Returns:
         bool: True if successful, False otherwise
@@ -2582,6 +2584,16 @@ def handle_space_optimization(ui, regions, rooms, fixed_rooms, adjacency, non_ad
         
         # Set entrance location if provided
         if entrance_coords:
+            if boundary_bounds and boundary_bounds.get('max_y') is not None:
+                try:
+                    boundary_max_y = int(boundary_bounds['max_y'])
+                    entrance_coords = [
+                        (int(point[0]), int(boundary_max_y - point[1]))
+                        if isinstance(point, (list, tuple)) and len(point) >= 2 else point
+                        for point in entrance_coords
+                    ]
+                except Exception:
+                    pass
             floor_plan.set_entrance_location(entrance_coords)
         
         # Add regular rooms
@@ -2595,13 +2607,22 @@ def handle_space_optimization(ui, regions, rooms, fixed_rooms, adjacency, non_ad
         
         # Add fixed rooms
         for fixed_room in fixed_rooms:
-            floor_plan.add_room(
-                name=fixed_room['name'],
+            fixed_y = fixed_room['y']
+            if boundary_bounds and boundary_bounds.get('max_y') is not None:
+                try:
+                    boundary_max_y = int(boundary_bounds['max_y'])
+                    fixed_y = boundary_max_y - (int(fixed_room['y']) + int(fixed_room['height']))
+                except Exception:
+                    fixed_y = fixed_room['y']
+            floor_plan.add_fixed_room(
                 width=fixed_room['width'],
                 height=fixed_room['height'],
-                max_expansion=fixed_room.get('max_expansion', 0),
                 fixed_x=fixed_room['x'],
-                fixed_y=fixed_room['y']
+                fixed_y=fixed_y,
+                name=fixed_room['name'],
+                max_expansion=fixed_room.get('max_expansion', 0),
+                polygon_coords=fixed_room.get('polygon'),
+                occupied_cells=fixed_room.get('occupied_cells')
             )
         
         # Add adjacency constraints
