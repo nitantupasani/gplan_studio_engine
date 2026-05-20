@@ -37,84 +37,87 @@ from GPLAN.api import Documents
 # ============================================================================
 
 request_data = {
-  "request_id": "req_lshape_apartment_001",
-  "engine": "FloorPlan",
-  "params": {
-    "boundary": [
-      [0, 0],
-      [40, 0],
-      [40, 24],
-      [20, 24],
-      [20, 32],
-      [0, 32]
-    ],
-
-    "fixed_rooms": [
-      {
-        "name": "Staircase",
-        "x": 32,
-        "y": 0,
-        "width": 8,
-        "height": 12,
-        "is_fixed": True,
-        "max_expansion": 0
-      },
-      {
-        "name": "Lift",
-        "x": 28,
-        "y": 0,
-        "width": 4,
-        "height": 6,
-        "is_fixed": True,
-        "max_expansion": 0
-      },
-      {
-        "name": "Duct",
-        "x": 0,
-        "y": 24,
-        "width": 4,
-        "height": 8,
-        "is_fixed": True,
-        "max_expansion": 0
-      }
-    ],
-
-    "rooms": [
-      { "name": "Living", "width": 16, "height": 10, "max_expansion": 6 },
-      { "name": "Dining", "width": 10, "height": 8, "max_expansion": 4 },
-      { "name": "Kitchen", "width": 8, "height": 7, "max_expansion": 3 },
-      { "name": "Bedroom1", "width": 12, "height": 10, "max_expansion": 5 },
-      { "name": "Bedroom2", "width": 12, "height": 10, "max_expansion": 5 },
-      { "name": "Bathroom1", "width": 6, "height": 6, "max_expansion": 2 },
-      { "name": "Bathroom2", "width": 6, "height": 6, "max_expansion": 2 },
-      { "name": "Utility", "width": 6, "height": 6, "max_expansion": 2 },
-      { "name": "Balcony", "width": 8, "height": 4, "max_expansion": 2 }
-    ],
-
-    "adjacency": [
-      ["Living", "Dining"],
-      ["Dining", "Kitchen"],
-      ["Bedroom1", "Bathroom1"],
-      ["Bedroom2", "Bathroom2"],
-      ["Kitchen", "Utility"]
-    ],
-
-    "non_adjacency": [
-      ["Bedroom1", "Lift"],
-      ["Bedroom2", "Lift"],
-      ["Kitchen", "Bathroom2"],
-      ["Living", "Bathroom1"]
-    ],
-
-    "entrance_coords": [
-      [0, 10],
-      [0, 14]
-    ],
-
-    "max_attempts": 1000
-  },
-
-  "ops": ["place", "compact", "expand", "score"]
+    "request_id": "req-space-2483013a-dcdf-4704-8cd2-0aecc75983da",
+    "engine": "FloorPlan",
+    "params": {
+        "boundary": [
+            [
+                896,
+                426
+            ],
+            [
+                896,
+                444
+            ],
+            [
+                902,
+                444
+            ],
+            [
+                902,
+                448
+            ],
+            [
+                926,
+                448
+            ],
+            [
+                926,
+                426
+            ]
+        ],
+        "rooms": [
+            {
+                "name": "Study",
+                "width": 10,
+                "height": 10,
+                "max_expansion": 0
+            },
+            {
+                "name": "Bathroom",
+                "width": 4,
+                "height": 6,
+                "max_expansion": 0
+            },
+            {
+                "name": "Bedroom",
+                "width": 12,
+                "height": 10,
+                "max_expansion": 0
+            },
+            {
+                "name": "Kitchen",
+                "width": 8,
+                "height": 6,
+                "max_expansion": 0
+            },
+            {
+                "name": "Living Room",
+                "width": 10,
+                "height": 9,
+                "max_expansion": 0
+            }
+        ],
+        "adjacency": [],
+        "non_adjacency": [],
+        "fixed_rooms": [
+            {
+                "name": "A",
+                "x": 908,
+                "y": 426,
+                "width": 6,
+                "height": 6,
+                "is_fixed": True,
+                "max_expansion": 0
+            }
+        ],
+        "max_attempts": 1000
+    },
+    "ops": [
+        "place",
+        "compact",
+        "score"
+    ]
 }
 
 

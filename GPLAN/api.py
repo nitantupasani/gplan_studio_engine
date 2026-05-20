@@ -368,6 +368,15 @@ class Documents:
                         'data': {},
                         'error': {'message': f'Failed to convert boundary to regions: {str(e)}'}
                     }
+
+            boundary_bounds = None
+            if boundary:
+                boundary_bounds = {
+                    'min_x': min(point[0] for point in boundary),
+                    'min_y': min(point[1] for point in boundary),
+                    'max_x': max(point[0] for point in boundary),
+                    'max_y': max(point[1] for point in boundary),
+                }
             
             # Validate that we have regions (either provided or converted)
             if not regions:
@@ -405,7 +414,8 @@ class Documents:
                 entrance_coords=entrance_coords,
                 max_attempts=max_attempts,
                 enable_expansion=enable_expansion,
-                enable_compaction=enable_compaction
+                enable_compaction=enable_compaction,
+                boundary_bounds=boundary_bounds
             )
             
             if not success:
