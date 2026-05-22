@@ -37,48 +37,28 @@ from GPLAN.api import Documents
 # ============================================================================
 
 request_data = {
-    "request_id": "req-space-2483013a-dcdf-4704-8cd2-0aecc75983da",
+    "request_id": "req-space-ce8c3c06-a7c9-467f-9976-e38a8e5f4f07",
     "engine": "FloorPlan",
     "params": {
         "boundary": [
             [
-                896,
-                426
+                884,
+                420
             ],
             [
-                896,
-                444
+                884,
+                440
             ],
             [
-                902,
-                444
+                910,
+                440
             ],
             [
-                902,
-                448
-            ],
-            [
-                926,
-                448
-            ],
-            [
-                926,
-                426
+                910,
+                420
             ]
         ],
         "rooms": [
-            {
-                "name": "Study",
-                "width": 10,
-                "height": 10,
-                "max_expansion": 0
-            },
-            {
-                "name": "Bathroom",
-                "width": 4,
-                "height": 6,
-                "max_expansion": 0
-            },
             {
                 "name": "Bedroom",
                 "width": 12,
@@ -92,9 +72,15 @@ request_data = {
                 "max_expansion": 0
             },
             {
-                "name": "Living Room",
-                "width": 10,
-                "height": 9,
+                "name": "Bathroom",
+                "width": 4,
+                "height": 6,
+                "max_expansion": 0
+            },
+            {
+                "name": "Dining Room",
+                "width": 6,
+                "height": 7,
                 "max_expansion": 0
             }
         ],
@@ -102,11 +88,11 @@ request_data = {
         "non_adjacency": [],
         "fixed_rooms": [
             {
-                "name": "A",
-                "x": 908,
-                "y": 426,
-                "width": 6,
-                "height": 6,
+                "name": "Aa",
+                "x": 884,
+                "y": 420,
+                "width": 10,
+                "height": 10,
                 "is_fixed": True,
                 "max_expansion": 0
             }

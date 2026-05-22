@@ -22,7 +22,7 @@ if space_opt_path not in sys.path:
 from boundary_utils import boundary_to_regions as convert_boundary_to_regions
 
 
-def boundary_to_regions(boundary):
+def boundary_to_regions(boundary, fixed_rooms=None):
     """
     Convert a polygonal boundary to a list of rectangular regions.
     
@@ -31,6 +31,7 @@ def boundary_to_regions(boundary):
     
     Args:
         boundary: List of [x, y] coordinate pairs defining the polygon vertices
+        fixed_rooms: Optional list of fixed room polygons to exclude during decomposition
         
     Returns:
         List of region dictionaries with x, y, width, height
@@ -44,7 +45,7 @@ def boundary_to_regions(boundary):
         raise ValueError("Boundary must have at least 3 points")
     
     # Use the shared utility function (same as UI)
-    return convert_boundary_to_regions(boundary)
+    return convert_boundary_to_regions(boundary, fixed_rooms=fixed_rooms)
 
 
 class Asset:
@@ -354,11 +355,38 @@ class Documents:
             # Support EITHER regions OR boundary
             regions = params.get('regions', None)
             boundary = params.get('boundary', None)
+            rooms = params.get('rooms', [])
+            fixed_rooms = params.get('fixed_rooms', [])
+            adjacency = params.get('adjacency', [])
+            non_adjacency = params.get('non_adjacency', [])
+            entrance_coords = params.get('entrance_coords', None)
+
+            fixed_room_polygons = []
+            for fixed_room in fixed_rooms:
+                if not isinstance(fixed_room, dict):
+                    continue
+                polygon = fixed_room.get('polygon')
+                if polygon:
+                    fixed_room_polygons.append(polygon)
+                    continue
+                try:
+                    fx = int(fixed_room['x'])
+                    fy = int(fixed_room['y'])
+                    fw = int(fixed_room['width'])
+                    fh = int(fixed_room['height'])
+                except Exception:
+                    continue
+                fixed_room_polygons.append([
+                    [fx, fy],
+                    [fx + fw, fy],
+                    [fx + fw, fy + fh],
+                    [fx, fy + fh],
+                ])
             
             # If boundary is provided instead of regions, convert it
             if boundary and not regions:
                 try:
-                    regions = boundary_to_regions(boundary)
+                    regions = boundary_to_regions(boundary, fixed_rooms=fixed_room_polygons)
                     print(f"Converted boundary with {len(boundary)} points to {len(regions)} regions")
                 except Exception as e:
                     builtins.print = original_print
@@ -387,12 +415,6 @@ class Documents:
                     'data': {},
                     'error': {'message': 'Either regions or boundary must be provided'}
                 }
-            
-            rooms = params.get('rooms', [])
-            fixed_rooms = params.get('fixed_rooms', [])
-            adjacency = params.get('adjacency', [])
-            non_adjacency = params.get('non_adjacency', [])
-            entrance_coords = params.get('entrance_coords', None)
             
             # Operation flags
             enable_expansion = 'expand' in ops

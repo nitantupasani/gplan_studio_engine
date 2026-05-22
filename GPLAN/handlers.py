@@ -2582,6 +2582,9 @@ def handle_space_optimization(ui, regions, rooms, fixed_rooms, adjacency, non_ad
             sys.path.insert(0, space_opt_path)
         
         from negNew import FloorPlan
+
+        boundary_min_x = int(boundary_bounds['min_x']) if boundary_bounds and boundary_bounds.get('min_x') is not None else 0
+        boundary_max_y = int(boundary_bounds['max_y']) if boundary_bounds and boundary_bounds.get('max_y') is not None else None
         
         # Create FloorPlan instance - DO NOT pass fixed_rooms to constructor
         # We'll add them via add_room() instead
@@ -2589,11 +2592,10 @@ def handle_space_optimization(ui, regions, rooms, fixed_rooms, adjacency, non_ad
         
         # Set entrance location if provided
         if entrance_coords:
-            if boundary_bounds and boundary_bounds.get('max_y') is not None:
+            if boundary_max_y is not None:
                 try:
-                    boundary_max_y = int(boundary_bounds['max_y'])
                     entrance_coords = [
-                        (int(point[0]), int(boundary_max_y - point[1]))
+                        (int(point[0]) - boundary_min_x, int(boundary_max_y - point[1]))
                         if isinstance(point, (list, tuple)) and len(point) >= 2 else point
                         for point in entrance_coords
                     ]
@@ -2613,16 +2615,18 @@ def handle_space_optimization(ui, regions, rooms, fixed_rooms, adjacency, non_ad
         # Add fixed rooms
         for fixed_room in fixed_rooms:
             fixed_y = fixed_room['y']
-            if boundary_bounds and boundary_bounds.get('max_y') is not None:
+            fixed_x = fixed_room['x']
+            if boundary_max_y is not None:
                 try:
-                    boundary_max_y = int(boundary_bounds['max_y'])
+                    fixed_x = int(fixed_room['x']) - boundary_min_x
                     fixed_y = boundary_max_y - (int(fixed_room['y']) + int(fixed_room['height']))
                 except Exception:
+                    fixed_x = fixed_room['x']
                     fixed_y = fixed_room['y']
             floor_plan.add_fixed_room(
                 width=fixed_room['width'],
                 height=fixed_room['height'],
-                fixed_x=fixed_room['x'],
+                fixed_x=fixed_x,
                 fixed_y=fixed_y,
                 name=fixed_room['name'],
                 max_expansion=fixed_room.get('max_expansion', 0),
