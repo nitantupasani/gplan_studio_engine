@@ -22,6 +22,10 @@ import sys
 import os
 import pprint
 import json
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+from matplotlib.patches import Rectangle
+import numpy as np
 
 # Add parent directory to path to allow imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -30,6 +34,13 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 from GPLAN.api import Documents
+
+
+# ============================================================================
+# VISUALIZATION FLAG
+# ============================================================================
+# Set to True to display ASCII visualization of the floorplan
+VISUALIZE = True
 
 
 # ============================================================================
@@ -106,6 +117,145 @@ request_data = {
     ]
 }
 
+
+
+# ============================================================================
+# VISUALIZATION & ANALYSIS FUNCTIONS
+# ============================================================================
+
+def visualize_floorplan(result):
+    """GUI visualization of the floorplan using matplotlib"""
+    if result['status'] != 'ok':
+        return
+    
+    floor = result['data']['floor']
+    placements = result['data']['placements']
+    
+    width = floor['width']
+    height = floor['height']
+    
+    # Create figure and axis
+    fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+    
+    # Set axis limits
+    ax.set_xlim(-1, width + 1)
+    ax.set_ylim(-1, height + 1)
+    ax.set_aspect('equal')
+    ax.invert_yaxis()  # Invert Y to match typical floor plan orientation
+    
+    # Draw regions with light background
+    for region in floor['regions']:
+        x = region['x']
+        y = region['y']
+        w = region['width']
+        h = region['height']
+        rect = Rectangle((x, y), w, h, linewidth=2, edgecolor='gray', 
+                         facecolor='lightgray', alpha=0.3, linestyle='--')
+        ax.add_patch(rect)
+    
+    # Color palette for rooms
+    colors = plt.cm.Set3(np.linspace(0, 1, len(placements)))
+    
+    # Track overlaps
+    overlaps = {}
+    
+    # Draw rooms
+    for idx, room in enumerate(placements):
+        x = room['x']
+        y = room['y']
+        w = room['width']
+        h = room['height']
+        
+        # Use different edge style for fixed rooms
+        edge_style = 'solid' if room['is_fixed'] else 'solid'
+        edge_width = 3 if room['is_fixed'] else 2
+        edge_color = 'darkred' if room['is_fixed'] else 'black'
+        
+        # Draw rectangle
+        rect = Rectangle((x, y), w, h, linewidth=edge_width, 
+                         edgecolor=edge_color, facecolor=colors[idx], 
+                         alpha=0.7, linestyle=edge_style)
+        ax.add_patch(rect)
+        
+        # Add label
+        label = f"{room['name']}"
+        if room['is_fixed']:
+            label = f"🔒 {room['name']}"
+        
+        ax.text(x + w/2, y + h/2, label, ha='center', va='center', 
+               fontsize=9, fontweight='bold', wrap=True)
+        
+        # Add dimensions
+        ax.text(x + w/2, y - 0.5, f"{w}×{h}", ha='center', va='top', 
+               fontsize=8, style='italic', color='gray')
+    
+    # Draw grid
+    ax.grid(True, alpha=0.2, linestyle=':')
+    
+    # Labels and title
+    ax.set_xlabel('X (width)', fontsize=11, fontweight='bold')
+    ax.set_ylabel('Y (height)', fontsize=11, fontweight='bold')
+    ax.set_title(f'Floorplan Visualization - {width}×{height} | {len(placements)} rooms', 
+                fontsize=13, fontweight='bold')
+    
+    # Add legend
+    legend_elements = []
+    for idx, room in enumerate(placements):
+        marker = '(Fixed)' if room['is_fixed'] else '(Flexible)'
+        legend_elements.append(
+            patches.Patch(facecolor=colors[idx], edgecolor='black', 
+                         label=f"{room['name']} - {room['width']}×{room['height']} {marker}")
+        )
+    
+    ax.legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(1.02, 1), 
+             fontsize=9, title='Rooms', title_fontsize=10)
+    
+    # Check for overlaps
+    overlaps = check_overlaps_detailed(result)
+    if overlaps:
+        # Add overlap warning to title
+        overlap_text = f"\n⚠️  WARNING: {len(overlaps)} overlap(s) detected!"
+        ax.set_title(ax.get_title() + overlap_text, fontsize=13, fontweight='bold', color='red')
+    
+    plt.tight_layout()
+    plt.show()
+
+
+def check_overlaps_detailed(result):
+    """Detailed overlap analysis"""
+    if result['status'] != 'ok':
+        return []
+    
+    placements = result['data']['placements']
+    overlaps = []
+    
+    for i, room1 in enumerate(placements):
+        for room2 in placements[i+1:]:
+            # Check if rooms overlap
+            x1_min, x1_max = room1['x'], room1['x'] + room1['width']
+            y1_min, y1_max = room1['y'], room1['y'] + room1['height']
+            
+            x2_min, x2_max = room2['x'], room2['x'] + room2['width']
+            y2_min, y2_max = room2['y'], room2['y'] + room2['height']
+            
+            # Check for overlap
+            if not (x1_max <= x2_min or x2_max <= x1_min or 
+                    y1_max <= y2_min or y2_max <= y1_min):
+                # Calculate overlap area
+                overlap_x = min(x1_max, x2_max) - max(x1_min, x2_min)
+                overlap_y = min(y1_max, y2_max) - max(y1_min, y2_min)
+                overlap_area = overlap_x * overlap_y
+                
+                overlaps.append({
+                    'room1': room1['name'],
+                    'room2': room2['name'],
+                    'room1_fixed': room1['is_fixed'],
+                    'room2_fixed': room2['is_fixed'],
+                    'overlap_area': overlap_area,
+                    'overlap_dims': (overlap_x, overlap_y)
+                })
+    
+    return overlaps
 
 
 # ============================================================================
@@ -189,6 +339,24 @@ def run_test():
             print(f"\n🚪 Entrance Adjacent Rooms:")
             for room_name in metrics['entrance_adjacent_rooms']:
                 print(f"   • {room_name}")
+        
+        # Overlap analysis
+        overlaps = check_overlaps_detailed(result)
+        if overlaps:
+            print(f"\n⚠️  OVERLAP ANALYSIS:")
+            print(f"   Found {len(overlaps)} overlap(s):")
+            for overlap in overlaps:
+                fixed_info = ""
+                if overlap['room1_fixed'] or overlap['room2_fixed']:
+                    fixed_info = " (FIXED ROOM OVERLAP!)" if overlap['room1_fixed'] or overlap['room2_fixed'] else ""
+                print(f"   • {overlap['room1']} ↔ {overlap['room2']}{fixed_info}")
+                print(f"     Overlap area: {overlap['overlap_area']} sq units ({overlap['overlap_dims'][0]}×{overlap['overlap_dims'][1]})")
+        else:
+            print(f"\n✅ No overlaps detected!")
+        
+        # Visualization
+        if VISUALIZE:
+            visualize_floorplan(result)
         
     else:
         print("❌ FAILED!")
