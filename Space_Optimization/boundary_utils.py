@@ -28,9 +28,10 @@ def point_inside_polygon(x, y, polygon):
         if y > min(p1y, p2y):
             if y <= max(p1y, p2y):
                 if x <= max(p1x, p2x):
+                    xinters = None
                     if p1y != p2y:
                         xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
-                    if p1x == p2x or x <= xinters:
+                    if p1x == p2x or (xinters is not None and x <= xinters):
                         inside = not inside
         p1x, p1y = p2x, p2y
     
@@ -71,6 +72,17 @@ def decompose_boundary_into_rectangles(boundary_coords, fixed_rooms=None, unit_s
     for fixed_room in fixed_rooms:
         if fixed_room and len(fixed_room) >= 3:
             scaled_fixed_areas.append([(x * unit_spacing, y * unit_spacing) for x, y in fixed_room])
+
+    # Normalize to the same local origin used by the UI before region decomposition.
+    # This keeps region coordinates relative to the boundary, not the absolute canvas.
+    origin_x = min(p[0] for p in main_polygon)
+    origin_y = min(p[1] for p in main_polygon)
+    if origin_x or origin_y:
+        main_polygon = [(x - origin_x, y - origin_y) for x, y in main_polygon]
+        scaled_fixed_areas = [
+            [(x - origin_x, y - origin_y) for x, y in area]
+            for area in scaled_fixed_areas
+        ]
     
     # Get all unique x and y coordinates from the main boundary and all fixed shapes
     all_coords = list(main_polygon)
@@ -147,12 +159,13 @@ def decompose_boundary_into_rectangles(boundary_coords, fixed_rooms=None, unit_s
     return regions
 
 
-def boundary_to_regions(boundary_coords):
+def boundary_to_regions(boundary_coords, fixed_rooms=None):
     """
     Simplified wrapper for API usage - converts boundary to regions without fixed rooms.
     
     Args:
         boundary_coords: List of [x, y] coordinate pairs
+        fixed_rooms: Optional list of fixed room polygons, each as list of [x, y] points
         
     Returns:
         List of region dictionaries with keys: x, y, width, height
@@ -161,4 +174,4 @@ def boundary_to_regions(boundary_coords):
     polygon_coords = [(point[0], point[1]) for point in boundary_coords]
     
     # Use the shared decomposition function
-    return decompose_boundary_into_rectangles(polygon_coords, fixed_rooms=None, unit_spacing=1)
+    return decompose_boundary_into_rectangles(polygon_coords, fixed_rooms=fixed_rooms, unit_spacing=1)
