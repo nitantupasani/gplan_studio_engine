@@ -107,7 +107,12 @@ The property of adjacency and non adjacency of the rooms (nodes) are depicted us
 
 : Upper cap for the width of the overall rectangular plot. Applied only when > 0;
   send 0 for no cap (the solver minimizes the plot anyway). If no floorplan fits
-  the cap, the engine retries unbounded and scales results to the plot
+  the cap, the engine retries unbounded and returns **expand-only** results: rooms
+  keep their solved (minimum-satisfying) dimensions or grow to fill the plot, and
+  the plot is enlarged on any overflowing axis — rooms are never scaled below
+  their minimums to force a fit. The batch is ordered by required plot growth
+  (least first) and the task message contains "the plot was expanded to fit",
+  which clients can detect via the keyword `expanded`
 
 `plot_height : int`
 

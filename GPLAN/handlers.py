@@ -2013,9 +2013,9 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 print("Getting optimal floorplan with same info just plot data is 0")
                 if gclass is not None:
                     messagebox.showwarning("Warning",
-                                    "No floorplan found which satisfies the given plot dimensions drawing optimal floorplan and resizing based on plot inputs.")
+                                    "No floorplan fits the given plot dimensions; room dimensions were kept and the plot was expanded to fit.")
                 else:
-                    ui.print_gui("Warning: No floorplan found which satisfies the given plot dimensions drawing optimal floorplan and resizing based on plot inputs.")
+                    ui.print_gui("Warning: No floorplan fits the given plot dimensions; room dimensions were kept and the plot was expanded to fit.")
          
                 ui._set_output_data([])
                 ui._set_multiple_output_found(0)
@@ -2429,9 +2429,9 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 print("Getting optimal floorplan with same info just plot data is 0")
                 if gclass is not None:
                     messagebox.showwarning("Warning",
-                                    "No floorplan found which satisfies the given plot dimensions drawing optimal floorplan and resizing based on plot inputs.")
+                                    "No floorplan fits the given plot dimensions; room dimensions were kept and the plot was expanded to fit.")
                 else:
-                    ui.print_gui("Warning: No floorplan found which satisfies the given plot dimensions drawing optimal floorplan and resizing based on plot inputs.")
+                    ui.print_gui("Warning: No floorplan fits the given plot dimensions; room dimensions were kept and the plot was expanded to fit.")
         
                 ui._set_output_data([])
                 ui._set_multiple_output_found(0)

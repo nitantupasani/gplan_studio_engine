@@ -1079,7 +1079,12 @@ class Documents:
                             note += ' Some floorplans have a non-rectangular outline.'
                         if len(ui.get_output_data()) > 0:
                             graph = retry_graph
-                            message += note
+                            # Re-capture ui's accumulated message: the retry
+                            # re-ran handle_door_connectivity, and warnings it
+                            # emitted (e.g. "plot was expanded") must reach the
+                            # caller - the capture above predates the retry.
+                            message = ('Generated Multiple Door connectivity floorplan.'
+                                       + ui.get_message() + note)
                             break
             elif caller == "multiple_l":
                 handle_multiple_l(ui, graph)

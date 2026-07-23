@@ -609,24 +609,34 @@ class InputGraph:
                     if point[1] > height:
                         height = point[1]
             print("width: ", width, "height: ", height)
-            height = plot_height/height
-            width = plot_width/width
+            # Expand-only fit: scale factors are clamped to >= 1 so rooms keep
+            # their solved (minimum-satisfying) dimensions or grow to fill the
+            # plot; an overflowing axis is left at natural size, i.e. the plot
+            # is enlarged rather than the rooms squeezed.
+            scale_h = plot_height / height if height > 0 and plot_height > 0 else 1.0
+            scale_w = plot_width / width if width > 0 and plot_width > 0 else 1.0
+            scale_h = max(1.0, scale_h)
+            scale_w = max(1.0, scale_w)
 
-            diff = width if width >= 1 else 1/width
-            diff = diff*height if height >= 1 else diff/height
-            
+            # Rank plans by how much the plot must grow to hold them: scaled
+            # extent over requested plot per axis (1.0 = fits the plot).
+            # Least expansion is served first.
+            grow_w = (width * scale_w) / plot_width if plot_width > 0 else 1.0
+            grow_h = (height * scale_h) / plot_height if plot_height > 0 else 1.0
+            diff = max(1.0, grow_w) * max(1.0, grow_h)
+
             reorder_mapping.append([diff,i])
             #Things to change area , final_traversal,room_height,room_width,room_x,room_y
             for i in range(len(graph.final_traversal)):
                 for j in range(len(graph.final_traversal[i])):
                     x, y = graph.final_traversal[i][j]
-                    graph.final_traversal[i][j] = (x * width, y * height) 
+                    graph.final_traversal[i][j] = (x * scale_w, y * scale_h)
             for index in range(len(graph.room_height)):
-                graph.room_height[index] *= height
-                graph.room_width[index] *= width
-                graph.room_x[index] *= width
-                graph.room_y[index] *= height
-                graph.area[index] *= height * width
+                graph.room_height[index] *= scale_h
+                graph.room_width[index] *= scale_w
+                graph.room_x[index] *= scale_w
+                graph.room_y[index] *= scale_h
+                graph.area[index] *= scale_h * scale_w
 
             print(reorder_mapping)
         reorder_mapping.sort(key=lambda x: x[0])
