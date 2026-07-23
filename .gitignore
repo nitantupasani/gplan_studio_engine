@@ -30,3 +30,11 @@ build/
 Space_Optimization/*.dll
 Space_Optimization/*.so
 Space_Optimization/*.dylib
+
+# PyInstaller artifacts and local-only content (untracked 2026-07-23)
+build/
+dist/
+Rule-Based-Paper
+.vscode/
+engine.log
+graphify-out/
