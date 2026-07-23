@@ -30,7 +30,12 @@ The property of adjacency and non adjacency of the rooms (nodes) are depicted us
 
 `minDimEnabled : bool (true|false)`
 
-: Used if dimensions are to be sent
+: Used if dimensions are to be sent. Dimensions are **minimums only**: each node's
+  `width.min` / `height.min` is enforced as a lower bound and the server opens the
+  upper bound (`max` is ignored and treated as 99999) — the min-dim solver compacts
+  every room toward its minimum, so rooms come out at or just above `min`. Do not
+  use min = max to request exact dimensions; exact sizing is not supported on this
+  path.
 
 `removeAddCirculation : bool (true|false)`
 
@@ -75,9 +80,11 @@ The property of adjacency and non adjacency of the rooms (nodes) are depicted us
 - `color: Hex Code (optional) (default =  #1C4C82)`
     : The HexCode of the color of the node to be used in the graph
 - `width : limit`
-    : The limits for the width of the room/area represented by the node
+    : The limits for the width of the room/area represented by the node. With
+      `minDimEnabled`, only `min` is used (as a lower bound); `max` is ignored
 - `height : limit`
-    : The limits for the height of the room/area represented by the node
+    : The limits for the height of the room/area represented by the node. With
+      `minDimEnabled`, only `min` is used (as a lower bound); `max` is ignored
 - `ratio : limit (optional) (default = {"max" : 9999, "min" : 3})`
 
 - `limit` 
@@ -98,11 +105,21 @@ The property of adjacency and non adjacency of the rooms (nodes) are depicted us
 
 `plot_width : int`
 
-: Limit for the width of the overallrectangular plot in the floorplan 
+: Upper cap for the width of the overall rectangular plot. Applied only when > 0;
+  send 0 for no cap (the solver minimizes the plot anyway). If no floorplan fits
+  the cap, the engine retries unbounded and scales results to the plot
 
 `plot_height : int`
 
-: Limit for the height of the overall rectangular plot in the floorplan 
+: Upper cap for the height of the overall rectangular plot (same semantics as
+  `plot_width`)
+
+`rotation_enabled : int (0|1) (optional) (default = 1)`
+
+: When 1 (default), every accepted floorplan is also returned as a whole-plan 90°
+  rotated variant. In rotated variants each room satisfies its minimums with width
+  and height swapped. Send 0 if minimum width/height must hold strictly per axis
+  (also roughly halves generation time)
 
 ///
 

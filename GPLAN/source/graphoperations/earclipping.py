@@ -192,6 +192,7 @@ def triangulate(vertices, max_iterations=0):
 
     index_counter = 0
     it_counter = 0
+    stall_counter = 0  # iterations since the last ear was clipped
 
     # Simplest possible algorithm. Create list of indexes.
     # Find first ear vertex. Create triangle. Remove vertex from list
@@ -220,11 +221,28 @@ def triangulate(vertices, max_iterations=0):
         else:
             is_ear = False
         if is_ear and area(vert_prev[0], vert_prev[1], vert_crnt[0], vert_crnt[1], vert_next[0], vert_next[1]) == 0:
-            is_ear = False
+            # Zero-area (collinear) ears are normally skipped, but once a full
+            # sweep has found no clippable ear they are the only way forward:
+            # accept them then - the emitted triangle is degenerate in the
+            # embedding but combinatorially valid (callers only consume the
+            # vertex triples/edges), and the polygon keeps shrinking.
+            if stall_counter <= vertlist.size:
+                is_ear = False
         if is_ear:
             indices[index_counter, :] = np.array([i, j, k], dtype=np.int64)
             index_counter += 1
             vertlist.remove(node.data)
+            stall_counter = 0
+        else:
+            stall_counter += 1
+            if stall_counter > vertlist.size:
+                # A full sweep found no clippable ear: the remaining polygon is
+                # degenerate (collinear/duplicate points, common in
+                # planar_layout embeddings). Drop the current vertex without
+                # emitting a triangle so the loop terminates instead of
+                # spinning forever.
+                vertlist.remove(node.data)
+                stall_counter = 0
 
         it_counter += 1
         node = node.next

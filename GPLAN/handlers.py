@@ -1762,15 +1762,31 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             input_dims = copy.deepcopy(input_dims)
             if plot_width == 0 and plot_height == 0:
                 input_dims = []
+            if allow_rotation and getattr(graph, "cardinal_constraints", []):
+                # The rotation pass swaps x/y, which would rotate pinned rooms
+                # off their required compass side - disable it under cardinal
+                # constraints.
+                allow_rotation = 0
             if allow_rotation:
                 print("Will try rotation the floorplans")
-            try:
-                graph.oneconnected_dual("multiple")
-            except inputgraph.OCError:
-                show_warning("Can not generate rectangular floorplan.")
+            if getattr(graph, "cardinal_constraints", []):
+                # Cardinal constraints are enforced by the 8-symmetry boundary
+                # filter inside irreg_multiple_dual (which on a PTPG produces
+                # exact rectangular duals - no dummy vertices). The
+                # one-connected construction below never applies here: by this
+                # point door_connectivity() has augmented the graph to
+                # biconnected, so oneconnected_dual would always raise
+                # BCNError. One-connected inputs are handled upstream by the
+                # stacked composition in api.py.
                 graph.irreg_multiple_dual(input_dims)
-            except inputgraph.BCNError:
-                graph.irreg_multiple_dual(input_dims)
+            else:
+                try:
+                    graph.oneconnected_dual("multiple")
+                except inputgraph.OCError:
+                    show_warning("Can not generate rectangular floorplan.")
+                    graph.irreg_multiple_dual(input_dims)
+                except inputgraph.BCNError:
+                    graph.irreg_multiple_dual(input_dims)
             number_of_floorplans = graph.fpcnt
             floorplan_found = False
             graph.graph_list = []

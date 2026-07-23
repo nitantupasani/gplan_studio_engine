@@ -148,6 +148,12 @@ class InputGraph:
         self.graph_list_by_bdy = []
         self.logger = logger
         self.name_coords = []
+        # Cardinal (exterior-facing) constraints: list of (node, dir_idx) pairs where
+        # dir_idx indexes the boundary paths of a 4-completion candidate
+        # (0 = N, 1 = E, 2 = S, 3 = W — same order news.add_news wires them).
+        # A boundary candidate is kept only if every constrained node lies on its
+        # required path, i.e. the node becomes adjacent to that NEWS vertex.
+        self.cardinal_constraints = []
 
         # Check if input has crossings
         x_coord = [x[0] for x in node_coordinates]
@@ -843,6 +849,11 @@ class InputGraph:
             None
         """
         graph_list=[]
+        if self.cardinal_constraints:
+            # Exhaustive search under cardinal pins: explore every REL of every
+            # satisfying boundary instead of stopping at the per-boundary
+            # min-dim cap - only the global floorplan_limit bounds the search.
+            self.floorplan_per_bdy_limit = self.floorplan_limit
         # Biconnectivity Augmentation
         start_time = time.time()
         if (self.nodecnt == 2 and self.edgecnt == 1):
@@ -926,13 +937,24 @@ class InputGraph:
                     self.matrix, self.nodecnt, self.edgecnt, bcn_edges, trng_edges, mergednodes, irreg_nodes1,
                     irreg_nodes2)
                 print("these are all the boundaries above in the code: ", cip_list)
+                if self.cardinal_constraints:
+                    cip_list = filter_boundaries_by_cardinal(cip_list, self.cardinal_constraints)
+                    print("boundaries satisfying cardinal constraints: ", cip_list)
 
                 end_time = time.time()
                 elapsed_time = end_time - start_time
                 logger.info(f"{__name__}Transformations and Multiple Bdry to took {elapsed_time:.5f} seconds to execute.")
                 start_time1 = time.time()
                 # optimal selection for bdy
-                if( len(input_dims) > 0):
+                if self.cardinal_constraints:
+                    # Exhaustive search under cardinal pins: construct every
+                    # cardinal-satisfying boundary. The dimension-fit
+                    # pre-selector both narrows the space and rebuilds paths at
+                    # arbitrary even/odd slots (scrambling the N/E/S/W
+                    # assignment), so it is skipped - the min-dim solver and
+                    # the geometric post-check in api.py do the selecting.
+                    selected_list = cip_list
+                elif( len(input_dims) > 0):
                     room_width = input_dims[0]
                     room_height = input_dims[1]
                     plot_width = input_dims[2]
@@ -953,7 +975,7 @@ class InputGraph:
                     matrix = copy.deepcopy(self.matrix)
                     rel_matrices = generate_multiple_rel(
                         bdys, matrix, self.nodecnt, self.edgecnt)
-                    
+
 
                     g = nx.from_numpy_array(self.matrix, create_using=nx.DiGraph)
                     edgeset = g.edges()
@@ -1001,18 +1023,28 @@ class InputGraph:
             self.matrix, cip_list, self.nodecnt, self.edgecnt, mergednodes, irreg_nodes1, irreg_nodes2,bdy_edges = generate_multiple_bdy(
                 self.matrix, self.nodecnt, self.edgecnt, bcn_edges, trng_edges, mergednodes, irreg_nodes1, irreg_nodes2)
             print("these are all the boundaries: ", cip_list)
+            if self.cardinal_constraints:
+                cip_list = filter_boundaries_by_cardinal(cip_list, self.cardinal_constraints)
+                print("boundaries satisfying cardinal constraints: ", cip_list)
             start_time1 = time.time()
             end_time = time.time()
             elapsed_time = end_time - start_time
             logger.info(f"{__name__}Transformations and Multiple Bdry to took {elapsed_time:.5f} seconds to execute.")
             start_time1 = time.time()
             #optimal selection for bdy
-            if( len(input_dims) > 0):
+            if self.cardinal_constraints:
+                # Exhaustive search under cardinal pins: construct every
+                # cardinal-satisfying boundary; skip the dimension-fit
+                # pre-selector (it narrows the space and scrambles the N/E/S/W
+                # path order). Selection happens in the min-dim solver and the
+                # geometric post-check in api.py.
+                selected_list = cip_list
+            elif( len(input_dims) > 0):
                 room_width = input_dims[0]
                 room_height = input_dims[1]
                 plot_width = input_dims[2]
                 plot_height = input_dims[3]
-                selected_list = dim_on_paths_bdy(cip_list, 
+                selected_list = dim_on_paths_bdy(cip_list,
                     room_width, room_height, plot_width,plot_height,bdy_edges)
                 print("these are the selected boundaries:", selected_list)
             else:
@@ -1320,6 +1352,53 @@ class InputGraph:
                 self.extranodes.append([])
 
 @timing_decorator
+def filter_boundaries_by_cardinal(cip_list, cardinal_constraints):
+    """Keeps only boundary candidates satisfying cardinal constraints.
+
+    Each candidate in cip_list is a list of 4 boundary paths ordered
+    [N, E, S, W] (the order news.add_news connects them to the four
+    exterior vertices). A constraint (node, dir_idx) requires the node
+    to lie on path dir_idx, which makes it adjacent to that NEWS vertex
+    in the 4-completed graph and hence puts its wall on that side of
+    the rectangular dual.
+
+    Args:
+        cip_list: A list of boundary candidates (each a list of 4 paths).
+        cardinal_constraints: A list of (node, dir_idx) pairs, dir_idx in 0..3.
+
+    Returns:
+        A list containing only the candidates satisfying every constraint.
+    """
+    if not cardinal_constraints:
+        return cip_list
+    # The boundary enumeration always starts path 0 at the first corner in
+    # boundary-array order, so the N/E/S/W assignment is an arbitrary rotation.
+    # Rotating the four paths reassigns the same corner choice to the other
+    # three compass orientations — all are geometrically valid floorplans —
+    # which is exactly the freedom cardinal constraints need.
+    filtered = []
+    seen = set()
+    for bdys in cip_list:
+        # The boundary enumeration walks the outer cycle in one direction
+        # only. The mirrored floorplan (reversed walk) is equally valid and is
+        # REQUIRED whenever the pins' cyclic order matches the opposite
+        # orientation - e.g. pins E, N, W appearing clockwise can only be
+        # satisfied by the reflection. Reversing the path order and each path
+        # preserves the shared-corner invariant (path_i's last node ==
+        # path_{i+1}'s first node), so together with the 4 rotations this
+        # covers all 8 symmetries of the rectangle.
+        reflected = [list(reversed(path)) for path in reversed(bdys)]
+        for candidate in (bdys, reflected):
+            for rot in range(4):
+                rotated = candidate[rot:] + candidate[:rot]
+                if all(node in rotated[dir_idx] for node, dir_idx in cardinal_constraints):
+                    key = tuple(tuple(path) for path in rotated)
+                    if key not in seen:
+                        seen.add(key)
+                        filtered.append(rotated)
+    return filtered
+
+
 def generate_multiple_rel(bdys, matrix, nodecnt, edgecnt):
     """Generates multiple RELs for given matrix and boundary.
 
