@@ -7,7 +7,6 @@ For more info:
 """
 
 from operator import le
-from turtle import right
 import numpy as np
 class Point:
     def __init__(self,x: float,y: float) -> None:

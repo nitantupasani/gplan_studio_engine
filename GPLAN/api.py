@@ -1557,3 +1557,33 @@ class Documents:
                 'data': {},
                 'error': {'message': str(e)}
             }
+
+    @staticmethod
+    def get_multi_ptpg_floorplans(request_data):
+        """Dimensioned floorplans for every topological PTPG variant of one graph.
+
+        Combines the two GPLAN-team branches: ``QA_multi_ptpg`` enumerates the
+        PTPG variants of the input adjacency graph, and the ``ptpg_floorplanner``
+        exact-dimension placer runs over each of them. See
+        :mod:`GPLAN.source.multi_ptpg_pipeline` for the request/response shape.
+
+        Args:
+            request_data: ``{"request_id": str, "params": {...}}`` where params
+                carries ``nodes`` (each with an exact ``width``/``height``),
+                ``edges``, and the optional variant/strictness knobs.
+
+        Returns:
+            ``{"request_id", "status", "engine", "data", "error"}``
+        """
+        from GPLAN.source import multi_ptpg_pipeline
+
+        original_print = builtins.print
+
+        def null_print(*args, **kwargs):
+            pass
+
+        builtins.print = null_print
+        try:
+            return multi_ptpg_pipeline.run(request_data)
+        finally:
+            builtins.print = original_print

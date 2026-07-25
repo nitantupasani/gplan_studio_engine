@@ -129,6 +129,33 @@ def _prepare(data, shape):
     )
 
 
+@app.post("/api/generate/multi-ptpg")
+def generate_multi_ptpg():
+    """Local stand-in for the Django multi-PTPG endpoint (no Celery, no Redis).
+
+    Registered before the ``<shape>`` route so Flask does not route it there;
+    the response envelope matches the backend so the frontend polls identically.
+    """
+    task_id = str(uuid.uuid4())
+    try:
+        body = request.get_json(force=True)
+        params = body.get("params", {})
+        print(f"[bridge] multi-ptpg: rooms={len(params.get('nodes', []))} "
+              f"edges={len(params.get('edges', []))} "
+              f"strictness={params.get('strictness', 'relaxed')}")
+        result = Documents.get_multi_ptpg_floorplans(body)
+        data = result.get("data") or {}
+        print(f"[bridge] multi-ptpg: done - {data.get('variant_count', 0)} variants, "
+              f"{data.get('floorplan_count', 0)} floorplans")
+    except Exception as exc:
+        traceback.print_exc()
+        result = {"status": "error", "engine": "MultiPTPG_FloorPlan",
+                  "data": {}, "error": {"message": str(exc)}}
+    with _results_lock:
+        _results[task_id] = result
+    return jsonify({"task_id": task_id, "status": "started"}), 202
+
+
 @app.post("/api/generate/<shape>")
 def generate(shape):
     task_id = str(uuid.uuid4())
