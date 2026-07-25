@@ -447,6 +447,196 @@ def _polyline_rect(poly, eps):
     return (x0, y0, x1, y1)
 
 
+_INF = float("inf")
+
+
+def _room_bounds(ui, count):
+    """Per-room {minw, minh, maxw, maxh, minarea, maxarea, aspect} or None.
+
+    Everything here is already carried by the request: min/max width and height
+    per node, and the ratio band that min-dim itself ignores. Area bounds are
+    the products, the aspect cap is max_ratio.
+    """
+    params = getattr(ui, "min_dim_inputs", None)
+    if params is None:
+        return None
+
+    def col(getter, default):
+        try:
+            values = getter() or []
+        except Exception:
+            return []
+        out = []
+        for v in values:
+            try:
+                f = float(v)
+            except (TypeError, ValueError):
+                f = default
+            out.append(f)
+        return out
+
+    minw = col(params.get_min_width, 0.0)
+    minh = col(params.get_min_height, 0.0)
+    maxw = col(params.get_max_width, 99999.0)
+    maxh = col(params.get_max_height, 99999.0)
+    maxr = col(params.get_max_aspect_ratio, 0.0)
+    if not minw or not minh:
+        return None
+
+    def at(arr, i, default):
+        if i >= len(arr):
+            return default
+        v = arr[i]
+        return default if v is None else v
+
+    bounds = []
+    for i in range(count):
+        lw, lh = at(minw, i, 0.0), at(minh, i, 0.0)
+        hw, hh = at(maxw, i, 99999.0), at(maxh, i, 99999.0)
+        if lw <= 0 or lh <= 0:
+            bounds.append(None)           # dummy room, leave it alone
+            continue
+        if hw <= 0 or hw >= 99999:
+            hw = _INF
+        if hh <= 0 or hh >= 99999:
+            hh = _INF
+        ratio = at(maxr, i, 0.0)
+        bounds.append({
+            "minw": lw, "minh": lh, "maxw": hw, "maxh": hh,
+            "minarea": lw * lh,
+            "maxarea": (hw * hh) if (hw < _INF and hh < _INF) else _INF,
+            "aspect": ratio if ratio and 1.0 <= ratio < 99999 else _INF,
+        })
+    return bounds if any(b is not None for b in bounds) else None
+
+
+def _axis_targets(bounds, other_side, horizontal):
+    """[lo, hi] for one room's span on this axis, given its span on the other.
+
+    Area and aspect are bilinear, so they only become interval constraints once
+    the other axis is held fixed. That is what makes the alternating solve below
+    a pair of linear problems instead of one non-convex one. Minimums are hard,
+    so when the two disagree the minimum wins and the ceiling is reported as
+    unmet rather than silently violating a floor.
+    """
+    if bounds is None or other_side <= 0:
+        return None
+    lo = bounds["minw"] if horizontal else bounds["minh"]
+    hi = bounds["maxw"] if horizontal else bounds["maxh"]
+    lo = max(lo, bounds["minarea"] / other_side)
+    if bounds["maxarea"] < _INF:
+        hi = min(hi, bounds["maxarea"] / other_side)
+    if bounds["aspect"] < _INF:
+        lo = max(lo, other_side / bounds["aspect"])
+        hi = min(hi, other_side * bounds["aspect"])
+    if hi < lo:
+        hi = lo
+    return (lo, hi)
+
+
+def _relax_axis(rects, bounds, horizontal, rounds=60, damping=0.5):
+    """Move the shared coordinate lines so every room lands inside its band.
+
+    A rectangular dissection is fully described by a set of global coordinate
+    lines plus, for each room, WHICH lines its edges sit on. Changing the line
+    POSITIONS therefore keeps every room a rectangle, keeps the tiling exactly
+    gapless, and keeps every adjacency (so every door survives). That is the
+    whole trick: the layout is untouched, only the measurements move.
+
+    Each room asks its span to grow or shrink; every gap inside that span is
+    asked for an equal share; each gap averages the requests of the rooms that
+    contain it and moves a damped step. Gaps never go below a small floor, so
+    the ordering of the lines cannot invert.
+    """
+    lo_i, hi_i = (0, 2) if horizontal else (1, 3)
+    coords = sorted({round(r[lo_i], 6) for r in rects} | {round(r[hi_i], 6) for r in rects})
+    if len(coords) < 2:
+        return rects
+    index = {c: i for i, c in enumerate(coords)}
+    spans = []
+    for r in rects:
+        spans.append((index[round(r[lo_i], 6)], index[round(r[hi_i], 6)]))
+    gaps = [coords[i + 1] - coords[i] for i in range(len(coords) - 1)]
+    floor = min([g for g in gaps if g > 1e-9] + [1.0]) * 0.05
+
+    for _ in range(rounds):
+        other = []
+        for k, r in enumerate(rects):
+            other.append(r[3] - r[1] if horizontal else r[2] - r[0])
+        want = [[] for _ in gaps]
+        moved = False
+        for k, (a, b) in enumerate(spans):
+            target = _axis_targets(bounds[k] if k < len(bounds) else None, other[k], horizontal)
+            if target is None or b <= a:
+                continue
+            cur = sum(gaps[a:b])
+            lo, hi = target
+            goal = min(max(cur, lo), hi)
+            if abs(goal - cur) < 1e-6:
+                continue
+            moved = True
+            share = (goal - cur) / (b - a)
+            for g in range(a, b):
+                want[g].append(share)
+        if not moved:
+            break
+        for g in range(len(gaps)):
+            if want[g]:
+                gaps[g] = max(floor, gaps[g] + damping * (sum(want[g]) / len(want[g])))
+        # A gap is shared, so the compromise above can drag a room under its
+        # floor even though every individual request respected it. Minimums are
+        # NOT negotiable - they are the NBC line - so grow back any room that
+        # fell short. Growth only, hence this terminates.
+        for _ in range(40):
+            short = False
+            for k, (a, b) in enumerate(spans):
+                target = _axis_targets(bounds[k] if k < len(bounds) else None,
+                                       other[k], horizontal)
+                if target is None or b <= a:
+                    continue
+                cur = sum(gaps[a:b])
+                if cur < target[0] - 1e-6:
+                    short = True
+                    add = (target[0] - cur) / (b - a)
+                    for g in range(a, b):
+                        gaps[g] += add
+            if not short:
+                break
+        # rebuild rects from the new lines so `other` is fresh next round
+        pos = [coords[0]]
+        for g in gaps:
+            pos.append(pos[-1] + g)
+        for k, (a, b) in enumerate(spans):
+            r = rects[k]
+            if horizontal:
+                rects[k] = (pos[a], r[1], pos[b], r[3])
+            else:
+                rects[k] = (r[0], pos[a], r[2], pos[b])
+    return rects
+
+
+REPAIR_DIMENSIONS = os.environ.get("GPLAN_REPAIR_DIMS", "1") == "1"
+
+
+def repair_dimensions(rects, bounds, passes=6):
+    """Alternate the two axis relaxations until the plan stops improving.
+
+    Returns the repaired rects. The tiling stays gapless and every room stays a
+    rectangle by construction, so this can only change measurements, never the
+    arrangement.
+    """
+    if not bounds or not REPAIR_DIMENSIONS:
+        return rects
+    work = list(rects)
+    for _ in range(passes):
+        before = list(work)
+        work = _relax_axis(work, bounds, True)
+        work = _relax_axis(work, bounds, False)
+        if all(abs(a[i] - b[i]) < 1e-4 for a, b in zip(before, work) for i in range(4)):
+            break
+    return work
+
+
 def _room_size_caps(ui, count):
     """Per-room (max span, max area) for the gap fill, or None when unbounded.
 
@@ -657,6 +847,15 @@ def rectangularize_output(ui):
                 caps_broken = True
         if _rects_overlap(rects, eps) or not _is_gapless(rects, eps):
             continue
+        # The tiling is now correct but the MEASUREMENTS are not: min-dim only
+        # ever honoured minimums, and closing the gaps above pushed whatever
+        # slack was left into whichever room could reach it. Re-solve the
+        # coordinate lines against the full band (min and max width, height,
+        # area and aspect). This moves shared walls only, so the arrangement,
+        # the gaplessness and every adjacency survive untouched.
+        repaired = repair_dimensions(rects, _room_bounds(ui, len(rects)))
+        if not _rects_overlap(repaired, eps) and _is_gapless(repaired, eps):
+            rects = repaired
         plan.final_traversal = [
             [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
             for (x0, y0, x1, y1) in rects
