@@ -529,6 +529,18 @@ def _axis_targets(bounds, other_side, horizontal):
     if bounds["aspect"] < _INF:
         lo = max(lo, other_side / bounds["aspect"])
         hi = min(hi, other_side * bounds["aspect"])
+    # Optional asymmetric w/h band (ar_lo <= w/h <= ar_hi), used by the NBC
+    # post-processor. The symmetric "aspect" cap above is the special case
+    # ar_lo = 1/aspect, ar_hi = aspect; bounds without these keys are untouched.
+    ar_lo = bounds.get("ar_lo")
+    ar_hi = bounds.get("ar_hi")
+    if ar_lo and ar_hi and 0 < ar_lo <= ar_hi:
+        if horizontal:
+            lo = max(lo, ar_lo * other_side)
+            hi = min(hi, ar_hi * other_side)
+        else:
+            lo = max(lo, other_side / ar_hi)
+            hi = min(hi, other_side / ar_lo)
     if hi < lo:
         hi = lo
     return (lo, hi)
@@ -1187,11 +1199,12 @@ class Documents:
         self.count = count
         self.floorplans = []
         self.ptpg_graph = None
+        self.postprocess = None
 
     def append_floorplan(self,floorplan):
         if floorplan:
             self.floorplans.append([room.to_dict() for room in floorplan])
-    
+
     def set_ptpg_graph(self, ptpg_graph):
         self.ptpg_graph = ptpg_graph
 
@@ -1206,14 +1219,18 @@ class Documents:
         }
         if self.ptpg_graph is not None:
             doc_dict["ptpg_graph"] = self.ptpg_graph
-            
+        if self.postprocess is not None:
+            # Per-plan NBC post-processing reports, index-aligned with
+            # floorPlans (null for plans that were passed through untouched).
+            doc_dict["postprocess"] = self.postprocess
+
         return {
             "Documents": doc_dict
         }
 
     @staticmethod
     def get_floorplans(starting_from: int, count: int, caller, nodes_list: list, graph: InputGraph, rectangular: bool, corridor=False,
-                         dimensioned = False, dimensionedCirculation = False, minDimEnabled = False, removeAddCirculation = False, publicEnabled = False, nonAdj = False, normalize_const=40, limit=FLOORPLAN_LIMIT, corridor_thickness=None,documentID=None, name=None,circulationEnabled = 0, dim_inputs={},edges_list=[], non_adj_edge_list=[], cardinal_constraints=[]):
+                         dimensioned = False, dimensionedCirculation = False, minDimEnabled = False, removeAddCirculation = False, publicEnabled = False, nonAdj = False, normalize_const=40, limit=FLOORPLAN_LIMIT, corridor_thickness=None,documentID=None, name=None,circulationEnabled = 0, dim_inputs={},edges_list=[], non_adj_edge_list=[], cardinal_constraints=[], postProcessEnabled=False, postprocess_options=None):
         original_print = builtins.print
 
         def null_print(*args, **kwargs):
@@ -1346,6 +1363,28 @@ class Documents:
                         response = Documents(False, 0, documentID, name,
                                              min(len(stacked_plans), limit, count))
                         response.floorplans = stacked_plans[:min(limit, count)]
+                        if postProcessEnabled and minDimEnabled:
+                            # This path returns pre-serialized plans and skips
+                            # the shared serialization loop below, so it gets
+                            # the JSON-level post-processing adapter instead.
+                            from GPLAN.source.postprocessing.postprocess import (
+                                postprocess_serialized_plans)
+                            # Stacked plans are name-keyed (labels are unique on
+                            # this path), so hand the doors over as name pairs.
+                            door_edges = [(nodes_list[int(e[0])]["label"],
+                                           nodes_list[int(e[1])]["label"])
+                                          for e in edges_list
+                                          if e is not None and len(e) >= 2
+                                          and int(e[0]) < len(nodes_list)
+                                          and int(e[1]) < len(nodes_list)]
+                            new_plans, pp_reports, pp_note = \
+                                postprocess_serialized_plans(
+                                    response.floorplans,
+                                    postprocess_options,
+                                    edges=door_edges)
+                            response.floorplans = new_plans
+                            response.postprocess = pp_reports
+                            message += pp_note
                         builtins.print = original_print
                         return response, message
                 apply_cardinal_ring(graph, len(nodes_list), edges_list,
@@ -1417,7 +1456,30 @@ class Documents:
         hasMore = graph.fpcnt - offset - 1 > 0
         total_fp_count = min(min(len(outputData), limit),count)
         response = Documents(hasMore, offset, documentID, name, total_fp_count)
-        
+
+        # NBC post-processing: bring rooms inside their aspect bands and
+        # service-room ceilings, trading the gapless rectangle for boundary
+        # notches where needed. Only meaningful on dimensioned catalogues -
+        # dimensionless duals are integer grids the rulebook does not apply to.
+        postprocess_reports = None
+        if postProcessEnabled and minDimEnabled and caller == "door_connectivity":
+            from GPLAN.source.postprocessing.postprocess import postprocess_ui_output
+            # Cardinal pins were verified BEFORE this point; a room absorbing
+            # notch space could grow into the strip between a pinned room and
+            # its side, so any post-processed plan must re-pass the pin check
+            # or be reverted.
+            pp_cardinal_pairs = normalize_cardinal_constraints(
+                cardinal_constraints, len(nodes_list))
+            validator = None
+            if pp_cardinal_pairs:
+                validator = (lambda plan:
+                             plan_satisfies_cardinal(plan, pp_cardinal_pairs))
+            postprocess_reports, pp_note = postprocess_ui_output(
+                ui, nodes_list, edges_list, postprocess_options, total_fp_count,
+                plan_validator=validator)
+            message += pp_note
+            response.postprocess = postprocess_reports
+
         # Add ptpg_graph if available
         if caller == "door_connectivity":
             ptpg_graph = ui.get_ptpg_graph() if hasattr(ui, 'get_ptpg_graph') else None
@@ -1453,6 +1515,59 @@ class Documents:
 
         builtins.print = original_print
 
+        return response, message
+
+    @staticmethod
+    def postprocess_floorplans(request_data):
+        """Standalone NBC post-processing of already-generated floorplans.
+
+        Accepts either the documented response envelope or a bare batch:
+          {"floorPlans": [[room, ...], ...]}                       - bare
+          {"response": {"Documents": {"floorPlans": [...]}}}      - envelope
+          {"Documents": {"floorPlans": [...]}}                    - envelope
+
+        Optional fields:
+          "edges":   requested adjacencies (doors) as index pairs or
+                     room-name pairs; protected pairs keep >= the configured
+                     door overlap of shared wall.
+          "options": see postprocess.DEFAULT_OPTIONS - phases on/off, the
+                     aspect band, per-type rule overrides, door overlap.
+
+        Returns (response_dict, message). response_dict carries the same
+        Documents envelope with rewritten geometry plus a "postprocess" list
+        of per-plan reports (null entries = plan passed through untouched).
+        """
+        from GPLAN.source.postprocessing.postprocess import (
+            postprocess_serialized_plans)
+
+        data = request_data or {}
+        container = data
+        if isinstance(container.get("response"), dict):
+            container = container["response"]
+        if isinstance(container.get("Documents"), dict):
+            container = container["Documents"]
+        floorplans = container.get("floorPlans") or data.get("floorPlans") or []
+        if not isinstance(floorplans, list):
+            raise ValueError("floorPlans must be a list of floorplans")
+        # A single plan (list of room dicts) is accepted and re-wrapped.
+        if floorplans and isinstance(floorplans[0], dict):
+            floorplans = [floorplans]
+
+        new_plans, reports, note = postprocess_serialized_plans(
+            floorplans, data.get("options"), edges=data.get("edges"))
+
+        document_id = container.get("documentID") or str(uuid.uuid4())
+        doc_name = container.get("name") or "Untitled Document"
+        response = {
+            "Documents": {
+                "documentID": document_id,
+                "name": doc_name,
+                "count": len(new_plans),
+                "floorPlans": new_plans,
+                "postprocess": reports,
+            }
+        }
+        message = ("Post-processed %d floorplan(s)." % len(new_plans)) + note
         return response, message
 
     @staticmethod

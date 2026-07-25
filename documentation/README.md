@@ -16,6 +16,8 @@ Restored web-API docs:
 - [door_connectivity.md](door_connectivity.md)
 - [space_optimization_api.md](space_optimization_api.md)
 - [ga_optimization_api.md](ga_optimization_api.md)
+- [postprocess_api.md](postprocess_api.md) - NBC post-processing of dimensioned
+  floorplans (aspect bands + service-room ceilings, notched outlines allowed)
 
 Handover docs for new maintainers:
 1. [contribution_workflow.md](contribution_workflow.md)

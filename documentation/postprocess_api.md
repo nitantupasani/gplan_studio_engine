@@ -1,0 +1,236 @@
+# NBC Post-Processing API
+
+Post-processes dimensioned floorplans against the NBC rulebook: brings rooms
+inside their aspect bands and service-room ceilings by trading the perfect
+rectangular outline for boundary notches. Added 2026-07-25.
+
+## Why this exists
+
+The dimensioned catalogue (`door_connectivity` + `minDimEnabled`) returns
+**gapless rectangular tilings**, and that gaplessness is exactly what deforms
+rooms. Room areas must sum to the bounding box, so whatever slack the solver
+leaves is redistributed into whichever room can reach it, and when the room
+ceilings block a topology they are released rather than failing the plan. The
+measured result (unit-defaults audit, 2026-07-25): bathrooms of 54x8 ft,
+utilities of 9x28 ft, kitchens at 3.1x their area cap.
+
+The post-processor inverts the trade. The rectangular outline is treated as
+the *least* important property of a plan: rooms are trimmed back inside their
+architectural limits, and the outline is allowed to step inward where that is
+the only way to get there. A notch in the boundary is an architectural
+feature (a recess, a light well, a setback); a 54 ft bathroom is not.
+
+## The algorithm
+
+Three phases, pure geometry over axis-aligned room rectangles (feet, y-down
+screen space, matching the `door_connectivity` wall coordinates). Implemented
+in `GPLAN/source/postprocessing/postprocess.py`; NBC rule table in
+`GPLAN/source/postprocessing/nbc_rules.py`.
+
+1. **Repair (in-tile).** `api.repair_dimensions` moves the shared coordinate
+   lines of the rectangular dissection, now with bounds built from the NBC
+   rules and per-room aspect bands (`_axis_targets` gained an optional
+   asymmetric `ar_lo <= w/h <= ar_hi` band). Gapless-preserving,
+   adjacency-preserving. Rolled back if it would grow the plan footprint more
+   than `max_bbox_growth` (3% per axis by default): NBC minimum floors must
+   rebalance the tiling, not balloon it.
+
+2. **Trim (exterior).** A room still past its ceilings or aspect band is
+   trimmed inward from a **fully exterior side**: the entire strip from that
+   side to the plan bounding box must be empty, so every notch created is
+   connected to the outside and interior holes are impossible by
+   construction. Requested adjacencies (doors) are inviolable: every
+   protected pair keeps at least `min_door_overlap` (2 ft, the solver's own
+   black-edge constant) of shared wall, and a trim that would break one is
+   capped or skipped. NBC and user minimums are floors. An area violation is
+   fixed on whichever axis has an exterior side available.
+
+3. **Absorb (capped).** Rooms grow back into the notches, ordered by
+   remaining headroom, but never past their own span/area ceilings or aspect
+   band. This is the capped twin of `api._fill_gaps`; the uncapped pass that
+   produced the original inflation is never run. Trim and absorb alternate up
+   to `max_passes` times.
+
+Every phase is validated afterwards (no overlaps, no interior holes, doors
+kept, footprint growth bounded); a phase that breaks an invariant is rolled
+back for that plan and noted in the report.
+
+### Hard guarantees vs best effort
+
+Guaranteed on every processed plan:
+
+- rooms stay axis-aligned rectangles and never overlap;
+- no interior holes: all empty space connects to the plan boundary;
+- every requested adjacency keeps >= 2 ft of shared wall (door survives);
+- room minimums (user + NBC floors) are never violated by the processor;
+- the footprint never grows beyond the configured margin;
+- the rulebook score never gets worse (a failing phase rolls back).
+
+Best effort, with honest reporting when unreachable:
+
+- ceilings and aspect bands. Two structural cases resist local repair and are
+  left in `issues_after` instead of being forced: a **door-locked** room
+  (its protected door partners sit at both extreme ends of its long side at
+  exactly the minimum overlap, so any trim severs a door), and a **spanning**
+  room (its length equals the sum of its neighbours' minimums across a full
+  stack, e.g. a dining room running the full depth of the plan - only a
+  different arrangement fixes that, which is `multi-ptpg`'s job, not
+  post-processing's).
+
+Measured on the default 4BHK program (30 plans): rulebook violations
+`max_area` 204 -> 107, `aspect` 133 -> 98, worst plan score 111 -> 42;
+~30 ms per plan.
+
+## API surface 1: inline flag on the dimensioned catalogue
+
+`POST /api/generate/<shape>` (and `Documents.get_floorplans`) accepts:
+
+```jsonc
+{
+  // ... normal door_connectivity request ...
+  "minDimEnabled": true,
+  "postProcessEnabled": true,          // default false
+  "postprocess_options": { }           // optional, see options below
+}
+```
+
+Only applied when `minDimEnabled` and `caller == "door_connectivity"`
+(dimensionless duals are integer grids the rulebook does not apply to). The
+flag participates in the backend request hash, so flagged and unflagged
+batches cache separately.
+
+Response changes:
+
+- room geometry (`walls`, `circular_coordinates`, `width`, `height`, `area`,
+  `label_coord`) is rewritten in place - same envelope, same parser;
+- `response.Documents.postprocess` = per-plan report array, index-aligned
+  with `floorPlans` (`null` = plan passed through untouched, e.g. it
+  contained merged L-shaped rooms);
+- the task `message` gains: `"Post-processing adjusted N of M floorplans
+  toward NBC room limits and aspect bands; plan outlines may carry notches."`
+
+## API surface 2: standalone endpoint
+
+`POST /api/postprocess/floorplans` - synchronous, returns **200 with the
+result directly** (pure geometry; no task_id, no polling). Mirrored in
+`local_engine_bridge.py` for local development. Throttle scope
+`postprocess_floorplan` (300/hour).
+
+```jsonc
+{
+  // either a bare batch:
+  "floorPlans": [[ { "name", "walls", "circular_coordinates", ... }, ... ]],
+  // or a full previous response envelope (both accepted):
+  "response": { "Documents": { "floorPlans": [ ... ] } },
+
+  // optional: the requested adjacencies (doors), as node-index pairs or
+  // room-name pairs. STRONGLY recommended - without it the processor only
+  // protects each room's single largest shared wall.
+  "edges": [[0, 1], [1, 2]],
+
+  "options": { }                        // see below
+}
+```
+
+Engine facade: `Documents.postprocess_floorplans(request_data)` in
+`GPLAN/api.py` (returns `(response_dict, message)`).
+
+Response:
+
+```jsonc
+{
+  "message": "Post-processed 6 floorplan(s). Post-processing adjusted ...",
+  "response": {
+    "Documents": {
+      "documentID": "...", "name": "...", "count": 6,
+      "floorPlans": [ ... same room-dict format, geometry rewritten ... ],
+      "postprocess": [ { /* report */ }, null, ... ]
+    }
+  }
+}
+```
+
+## Options
+
+All optional; defaults in `postprocess.DEFAULT_OPTIONS`.
+
+| key | default | meaning |
+|---|---|---|
+| `repair` | `true` | phase 1 on/off |
+| `trim` | `true` | phase 2 on/off (the notch-creating phase) |
+| `absorb` | `true` | phase 3 on/off |
+| `max_passes` | `3` | trim+absorb rounds |
+| `min_door_overlap` | `2.0` | ft of shared wall every protected pair keeps |
+| `aspect` | `null` | global w/h band, e.g. `{"min": 0.5, "max": 1.5}`; intersected with each room type's own band |
+| `rules` | `null` | per-type overrides, e.g. `{"Bathroom": {"max_area": 60, "max_aspect": 1.8}}` (keys of `nbc_rules.NBC_RULES` entries) |
+| `tolerance` | `0.02` | fraction past a limit before the processor acts |
+| `max_bbox_growth` | `0.03` | per-axis footprint growth allowed to the repair phase |
+
+Aspect semantics: each room type carries a slenderness cap from the rulebook
+(`max_aspect`, long/short - bedroom 1.8, bathroom 2.0, balcony 3.5 ...),
+applied as the symmetric band `[1/cap, cap]` on w/h. The `aspect` option
+intersects an additional global band, so `{"min": 0.5, "max": 1.5}`
+tightens every room toward squareness but never loosens a type's own cap.
+
+## The per-plan report
+
+```jsonc
+{
+  "changed": true,
+  "score_before": 31, "score_after": 11,        // plan_sanity_score (10/error, 1/warning)
+  "issues_before": [ {"severity", "room", "rule", "message"}, ... ],
+  "issues_after":  [ ... ],                      // residual violations - always disclosed
+  "gapless_before": true, "gapless_after": false,
+  "notch_area": 76.8, "notch_ratio": 0.192,      // empty area inside the bbox / bbox area
+  "interior_hole_area": 0.0,                     // always ~0 by construction
+  "doors_preserved": true,
+  "phase_notes": ["repair rolled back (would grow the plan footprint ...)"],
+  "rooms": [
+    { "name": "Bathroom",
+      "before": {"width": 20, "height": 8, "area": 160, "aspect": 2.5},
+      "after":  {"width": 8.5, "height": 8, "area": 68, "aspect": 1.06},
+      "actions": ["trimmed 11.5 ft from E"] },
+    ...
+  ]
+}
+```
+
+`notch_ratio` is the honesty metric: it says how much of the bounding box the
+plan no longer fills. High values on 2BHK+ plans expose upstream inflation
+(released ceilings + gap fill), not post-processor damage - the rooms are
+right, the void is what the inflation was.
+
+## The rulebook
+
+`nbc_rules.py` mirrors the designer frontend's
+`src/constants/nbcRules.ts` (NBC 2016 Part 3 Section 1 clause 8 derived):
+per-type min/max area, min/max W x H, slenderness cap, room class, plus the
+`AREA_ORDERING` hierarchy (no wet/service room matches or beats a habitable
+one, kitchen < living, balcony < living, ...) and `plan_issues` /
+`plan_sanity_score`, which are ports of the client-side validator used to
+rank the catalogue. **Keep the two files in sync** - a change to one without
+the other makes the server repair to one standard and the client score to
+another. Room names are matched via `base_room_name` (strips numeric
+suffixes) plus an alias table ("Bath" -> Bathroom, "WC" -> Toilet, ...);
+unknown types get a fallback (aspect cap 3.0, span cap 18 ft, no area rule).
+
+## Frontend companion notes (not yet wired)
+
+The designer client gates non-rectangular plans out of mixed batches
+(`isRectangularArrangement` in `gplanApi.ts`) and places windows with flush
+edge tests (`dummyPlan.ts`). Before turning `postProcessEnabled` on from the
+designer: relax that gate (overlap check stays, drop the area==bbox
+requirement or accept plans whose report says `doors_preserved`), and give
+window placement the same strip-intersection treatment the entrance already
+has. Rendering itself is already notch-safe (`deriveWalls` classifies
+exterior walls per room edge).
+
+## Tests
+
+`python test_api_postprocess.py` from the engine repo root - synthetic
+invariants, a live engine batch with the inline flag, the standalone facade,
+and options behaviour. Backend: `python smoke_test_postprocess.py` from the
+`gplan_backend` root (Django routing -> view -> Celery-eager task -> engine;
+set `GPLAN_ENGINE_ROOT` to test an engine checkout other than the
+submodule). Both bridge endpoints exercised by the designer harnesses'
+pattern (`local_engine_bridge.py` on :8027).

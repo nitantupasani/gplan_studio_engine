@@ -11,6 +11,7 @@ Frontend: GPLAN_LOCAL_ENGINE=1 npm run dev             (designer repo)
 
 Endpoints:
     POST /api/generate/<shape>       run Documents.get_floorplans, return task id
+    POST /api/postprocess/floorplans NBC post-processing, synchronous 200
     GET  /api/task/<task_id>/        return the stored result
     POST /users/auth/token/refresh/  dummy token so the frontend auth flow passes
     POST /api/v1/authentication/login/  same
@@ -126,7 +127,31 @@ def _prepare(data, shape):
         dim_inputs=dim_inputs,
         circulationEnabled=data.get("circulationEnabled", 0),
         cardinal_constraints=data.get("cardinal_constraints", []),
+        postProcessEnabled=data.get("postProcessEnabled", False),
+        postprocess_options=data.get("postprocess_options", None),
     )
+
+
+@app.post("/api/postprocess/floorplans")
+def postprocess_floorplans():
+    """Local stand-in for the Django post-processing endpoint.
+
+    Synchronous like the real one: pure geometry, returns 200 with the result
+    directly (no task id, no polling).
+    """
+    try:
+        body = request.get_json(force=True) or {}
+        response, message = Documents.postprocess_floorplans(body)
+        plans = response["Documents"]["floorPlans"]
+        changed = sum(1 for r in response["Documents"]["postprocess"]
+                      if r and r.get("changed"))
+        print(f"[bridge] postprocess: {changed}/{len(plans)} plans adjusted")
+        return jsonify({"message": message, "response": response}), 200
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({"status": "error", "data": {},
+                        "error": {"message": str(exc),
+                                  "type": type(exc).__name__}}), 500
 
 
 @app.post("/api/generate/multi-ptpg")
