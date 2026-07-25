@@ -504,37 +504,49 @@ def _span_limit(caps, i, other_side):
     return span_cap
 
 
-def _fill_gaps(rects, eps, caps=None):
+def _headroom(rects, caps, i):
+    """How much more area room i may still take before hitting its ceiling.
+
+    Uncapped rooms are treated as bottomless so they absorb first. A room that
+    is already at or past its ceiling returns 0 and drops to the back of the
+    queue, which is what keeps a leftover strip out of the bathroom.
+    """
+    if not caps or i >= len(caps) or caps[i] is None:
+        return float('inf')
+    x0, y0, x1, y1 = rects[i]
+    return caps[i][1] - (x1 - x0) * (y1 - y0)
+
+
+def _fill_gaps(rects, eps, caps=None, enforce=True):
     """Greedy wall extension: push each room's sides outward to the nearest
     obstruction (another room overlapping that side's span, else the plan
     bounds) until nothing moves. Rooms stay rectangles and never overlap;
     empty notches next to a full side get absorbed. Mutates and returns rects.
 
-    With `caps` (see _room_size_caps) a room stops growing at its own ceiling,
-    so the leftover strip flows to a room that can still absorb it instead of
-    inflating the nearest bathroom or balcony."""
+    `caps` (see _room_size_caps) drives two separate things:
+      * ORDER, always. Rooms are visited in descending remaining headroom,
+        recomputed every round, so leftover area flows to whoever can still
+        take it (living rooms and bedrooms) rather than to whichever room
+        happens to sit next to the notch.
+      * LIMIT, only when `enforce`. The second, gap-closing pass runs with
+        enforce=False: it must be free to break a ceiling to reach a gapless
+        rectangle, but it should still hand the slack to the right rooms.
+    """
     bx0 = min(r[0] for r in rects)
     by0 = min(r[1] for r in rects)
     bx1 = max(r[2] for r in rects)
     by1 = max(r[3] for r in rects)
-    # Expand in descending order of headroom so the rooms that are meant to
-    # absorb leftover area (living, bedrooms) take it before a bathroom or a
-    # balcony does. Uncapped rooms go first; ties keep the original order.
-    if caps:
-        order = sorted(range(len(rects)),
-                       key=lambda i: (-(float('inf') if i >= len(caps) or caps[i] is None
-                                        else caps[i][1]), i))
-    else:
-        order = list(range(len(rects)))
+    limits = caps if enforce else None
     changed = True
     guard = 0
     while changed and guard < 200:
         changed = False
         guard += 1
+        order = sorted(range(len(rects)), key=lambda i: (-_headroom(rects, caps, i), i))
         for i in order:
             x0, y0, x1, y1 = rects[i]
-            wide = _span_limit(caps, i, y1 - y0)
-            tall = _span_limit(caps, i, x1 - x0)
+            wide = _span_limit(limits, i, y1 - y0)
+            tall = _span_limit(limits, i, x1 - x0)
             # East
             obst = bx1
             for j, (a0, b0, a1, b1) in enumerate(rects):
@@ -633,7 +645,9 @@ def rectangularize_output(ui):
         if caps is not None:
             _fill_gaps(rects, eps, caps)
         if not _is_gapless(rects, eps):
-            _fill_gaps(rects, eps)
+            # Ceilings off, priority ordering still on: the hole must close, but
+            # the room that closes it should be one that can carry the area.
+            _fill_gaps(rects, eps, caps, enforce=False)
             # The uncapped pass can push a room past its ceiling. That is the
             # intended trade (a gapless rectangle is required, honouring every
             # ceiling is preferred), but it must not be silent: the solver-side
