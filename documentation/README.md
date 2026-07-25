@@ -2,6 +2,15 @@
 
 This folder now contains both the restored web-API documentation and the newer handover docs.
 
+**Changing an algorithm? Start here:** [algorithms/README.md](algorithms/README.md).
+
+The docs listed below describe the API surface: what a request looks like and what comes back. They do not
+explain how the engine works inside. The algorithm pointer document does: it maps each change you might want
+to make ("make rooms respect maximum dimensions", "add a new shaped floorplan") to the files that implement
+it in reading order, the invariants you must not break, what breaks silently elsewhere, which copy of a
+duplicated file is the live one, and which defects are already known. It is backed by 35 detailed dossiers in
+`algorithms/graph/` and `algorithms/dim/`, each written against the source and independently verified.
+
 Restored web-API docs:
 - [api_flow_and_translation.md](api_flow_and_translation.md)
 - [door_connectivity.md](door_connectivity.md)
