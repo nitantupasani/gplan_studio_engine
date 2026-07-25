@@ -306,6 +306,53 @@ def call_circulation_new(ui, graph_data, graph, coord, is_dimensioned, dim_const
         return (graph, circulation_obj.is_dimensioning_successful)
 
 
+def get_max_dims(ui):
+    """Per-room maximum width/height lists supplied by the caller, else (None, None).
+
+    Minimum dimensioning bounds every room at DEFAULT_UB_FACTOR x its own
+    minimum when no ceiling is given, which is what lets a small service room
+    stretch until it outgrows a habitable one. Callers that send maximums get
+    them applied; empty lists (the GUI path, and API clients that do not opt in)
+    keep the old behaviour.
+    """
+    params = getattr(ui, "min_dim_inputs", None)
+    if params is None:
+        return None, None
+
+    def usable(values):
+        # 99999 is the "open" sentinel every legacy client sends; a list made
+        # only of sentinels carries no ceiling at all.
+        if not values:
+            return None
+        for value in values:
+            try:
+                if 0 < float(value) < 99999:
+                    return values
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    return usable(params.get_max_width()), usable(params.get_max_height())
+
+
+def solve_min_dim(floorplan_data, plot_width, plot_height, capped):
+    """min_dim.main, retrying without the per-room ceilings when they block it.
+
+    Returns (status, out_data, released). The caller prefers a plan that honours
+    every room maximum, but a plan that breaks one still beats no plan at all,
+    so a topology the ceilings rule out is retried with them stripped.
+    """
+    retry_data = copy.deepcopy(floorplan_data) if capped else None
+    status, out_data = min_dim.main(floorplan_data, plot_width, plot_height)
+    if status or retry_data is None:
+        return status, out_data, False
+    for node in retry_data['nodes']:
+        node.pop('max_width', None)
+        node.pop('max_height', None)
+    status, out_data = min_dim.main(retry_data, plot_width, plot_height)
+    return status, out_data, bool(status)
+
+
 def generate_mindim_rfp(ui, graph, gclass, min_width, min_height, plot_width, plot_height, optimal_floorplan):
     try:
         graph.oneconnected_dual("multiple")
@@ -1758,6 +1805,8 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             else:
                 min_width, min_height, plot_width, plot_height, optimal_floorplan,allow_rotation,multiple_door = ui.min_dim_inputs.get_min_width(), ui.min_dim_inputs.get_min_height(), ui.min_dim_inputs.get_plot_width(), ui.min_dim_inputs.get_plot_height(), ui.min_dim_inputs.get_isOptimalEnabled(),ui.min_dim_inputs.get_isRotationAllowed(),ui.get_is_multiple_door()
             start = time.time()
+            max_width, max_height = get_max_dims(ui)
+            max_dims_released = False
             input_dims = [min_width, min_height, plot_width, plot_height]
             input_dims = copy.deepcopy(input_dims)
             if plot_width == 0 and plot_height == 0:
@@ -1828,7 +1877,8 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         ui.get_roomNames(), ui.get_roomColors(), ui.get_nodeCoordinates(), min_width, min_height,
                         graph.graph_list[i].room_x, graph.graph_list[i].room_y, graph.graph_list[i].room_width,
                         graph.graph_list[i].room_height,
-                        ui.get_edges(), enc_mat
+                        ui.get_edges(), enc_mat,
+                        max_width=max_width, max_height=max_height
                     )
 
 
@@ -1841,7 +1891,10 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     # print(f"JSON data has been written to {input_path}")
 
                     # If floorplan satisfying the given constraints is satisfied
-                    [status, out_data] = min_dim.main(floorplan_data, plot_width, plot_height)
+                    status, out_data, released = solve_min_dim(
+                        floorplan_data, plot_width, plot_height,
+                        max_width is not None or max_height is not None)
+                    max_dims_released = max_dims_released or released
                     if status == True:
                         bdy_fplans += 1
                         room_x = []
@@ -1934,7 +1987,8 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         ui.get_roomNames(), ui.get_roomColors(), ui.get_nodeCoordinates(), min_width, min_height,
                         graph.graph_list[i].room_x, graph.graph_list[i].room_y, graph.graph_list[i].room_width,
                         graph.graph_list[i].room_height,
-                        ui.get_edges(), enc_mat
+                        ui.get_edges(), enc_mat,
+                        max_width=max_width, max_height=max_height
                     )
 
                     # print(floorplan_data)
@@ -1946,7 +2000,11 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     # print(f"JSON data has been written to {input_path}")
 
                     # If floorplan satisfying the given constraints is satisfied
-                    [status, out_data] = min_dim.main(floorplan_data, plot_height, plot_width) # reverse order of plot width and height
+                    # reverse order of plot width and height for the rotated pass
+                    status, out_data, released = solve_min_dim(
+                        floorplan_data, plot_height, plot_width,
+                        max_width is not None or max_height is not None)
+                    max_dims_released = max_dims_released or released
                     if status == True:
                         room_x = []
                         room_y = []
@@ -2011,11 +2069,14 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             if not floorplan_found:
                 print("No floorplan found which satisfies the minimum dimensions input by user.")
                 print("Getting optimal floorplan with same info just plot data is 0")
+                # This retry drops the PLOT cap only. Per-room maximums still
+                # apply and are released per topology inside solve_min_dim.
+                warning = ("No floorplan fits the given plot dimensions; room dimensions were kept "
+                           "and the plot was expanded to fit.")
                 if gclass is not None:
-                    messagebox.showwarning("Warning",
-                                    "No floorplan fits the given plot dimensions; room dimensions were kept and the plot was expanded to fit.")
+                    messagebox.showwarning("Warning", warning)
                 else:
-                    ui.print_gui("Warning: No floorplan fits the given plot dimensions; room dimensions were kept and the plot was expanded to fit.")
+                    ui.print_gui("Warning: " + warning)
          
                 ui._set_output_data([])
                 ui._set_multiple_output_found(0)
@@ -2047,13 +2108,18 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                             ui.get_roomNames(), ui.get_roomColors(), ui.get_nodeCoordinates(), min_width, min_height,
                             graph.graph_list[i].room_x, graph.graph_list[i].room_y, graph.graph_list[i].room_width,
                             graph.graph_list[i].room_height,
-                            ui.get_edges(), enc_mat
+                            ui.get_edges(), enc_mat,
+                            max_width=max_width, max_height=max_height
                         )
 
                         # print(floorplan_data)
 
-                        # If floorplan satisfying the given constraints is satisfied
-                        [status, out_data] = min_dim.main(floorplan_data, 0, 0)
+                        # This pass drops only the PLOT cap; the room ceilings
+                        # still apply and are released per topology only when
+                        # they are what blocks it.
+                        status, out_data, released = solve_min_dim(
+                            floorplan_data, 0, 0, max_width is not None or max_height is not None)
+                        max_dims_released = max_dims_released or released
                         if status == True:
                             bdy_fplans += 1
                             room_x = []
@@ -2133,6 +2199,8 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     ui._set_multiple_output_found(1)
             end = time.time()
             ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
+            if max_dims_released:
+                ui.print_gui("Warning: Room maximum dimensions were released for some floorplans.")
             # ui._set_multiple_output_found(1)
             
             # gclass.ptpg = graph#FIX THIS
@@ -2189,6 +2257,8 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 min_width, min_height, plot_width, plot_height, optimal_floorplan,allow_rotation,multiple_door = ui.min_dim_inputs.get_min_width(), ui.min_dim_inputs.get_min_height(), ui.min_dim_inputs.get_plot_width(), ui.min_dim_inputs.get_plot_height(), ui.min_dim_inputs.get_isOptimalEnabled(),ui.min_dim_inputs.get_isRotationAllowed(),ui.get_is_multiple_door()
 
             ui._set_dim_constraints([min_width, min_height, plot_width, plot_height])
+            max_width, max_height = get_max_dims(ui)
+            max_dims_released = False
             input_dims = [min_width, min_height, plot_width, plot_height]
             input_dims = copy.deepcopy(input_dims)
             if plot_width == 0 and plot_height == 0:
@@ -2229,7 +2299,8 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     floorplan_data = floorplan_obj.get_floorplan_details(
                         ui.get_roomNames(), ui.get_roomColors(), ui.get_nodeCoordinates(), min_width, min_height, graph.graph_list[i].room_x,
                         graph.graph_list[i].room_y, graph.graph_list[i].room_width, graph.graph_list[i].room_height,
-                        ui.get_edges(), enc_mat
+                        ui.get_edges(), enc_mat,
+                        max_width=max_width, max_height=max_height
                     )
 
                     # Storing the dummy merge nodes, and the irregular room they will be adjacent to
@@ -2248,7 +2319,10 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         floorplan_data['nodes'][merge_node]['min_height'] = node_min_height/2
 
                     # If floorplan satisfying the given constraints is satisfied
-                    [status, out_data] = min_dim.main(floorplan_data, plot_width, plot_height)
+                    status, out_data, released = solve_min_dim(
+                        floorplan_data, plot_width, plot_height,
+                        max_width is not None or max_height is not None)
+                    max_dims_released = max_dims_released or released
                     if status == True:
                         bdy_fplans += 1
                         room_x = []
@@ -2337,7 +2411,8 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     floorplan_data = floorplan_obj.get_floorplan_details(
                         ui.get_roomNames(), ui.get_roomColors(), ui.get_nodeCoordinates(), min_width, min_height, graph.graph_list[i].room_x,
                         graph.graph_list[i].room_y, graph.graph_list[i].room_width, graph.graph_list[i].room_height,
-                        ui.get_edges(), enc_mat
+                        ui.get_edges(), enc_mat,
+                        max_width=max_width, max_height=max_height
                     )
 
                     # Storing the dummy merge nodes, and the irregular room they will be adjacent to
@@ -2356,7 +2431,11 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         floorplan_data['nodes'][merge_node]['min_height'] = node_min_height/2
 
                     # If floorplan satisfying the given constraints is satisfied
-                    [status, out_data] = min_dim.main(floorplan_data, plot_height, plot_width)#swapping plot width and height
+                    # swapping plot width and height for the rotated pass
+                    status, out_data, released = solve_min_dim(
+                        floorplan_data, plot_height, plot_width,
+                        max_width is not None or max_height is not None)
+                    max_dims_released = max_dims_released or released
                     if status == True:
                         room_x = []
                         room_y = []
@@ -2427,11 +2506,14 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 #Here tell front that no floorplan was made
                 print("No floorplan found which satisfies the minimum dimensions input by user.")
                 print("Getting optimal floorplan with same info just plot data is 0")
+                # This retry drops the PLOT cap only. Per-room maximums still
+                # apply and are released per topology inside solve_min_dim.
+                warning = ("No floorplan fits the given plot dimensions; room dimensions were kept "
+                           "and the plot was expanded to fit.")
                 if gclass is not None:
-                    messagebox.showwarning("Warning",
-                                    "No floorplan fits the given plot dimensions; room dimensions were kept and the plot was expanded to fit.")
+                    messagebox.showwarning("Warning", warning)
                 else:
-                    ui.print_gui("Warning: No floorplan fits the given plot dimensions; room dimensions were kept and the plot was expanded to fit.")
+                    ui.print_gui("Warning: " + warning)
         
                 ui._set_output_data([])
                 ui._set_multiple_output_found(0)
@@ -2460,7 +2542,8 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         floorplan_data = floorplan_obj.get_floorplan_details(
                             ui.get_roomNames(), ui.get_roomColors(), ui.get_nodeCoordinates(), min_width, min_height, graph.graph_list[i].room_x,
                             graph.graph_list[i].room_y, graph.graph_list[i].room_width, graph.graph_list[i].room_height,
-                            ui.get_edges(), enc_mat
+                            ui.get_edges(), enc_mat,
+                            max_width=max_width, max_height=max_height
                         )
 
                         # Storing the dummy merge nodes, and the irregular room they will be adjacent to
@@ -2478,8 +2561,12 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                             floorplan_data['nodes'][merge_node]['min_width'] = node_min_width/2
                             floorplan_data['nodes'][merge_node]['min_height'] = node_min_height/2
 
-                        # If floorplan satisfying the given constraints is satisfied
-                        [status, out_data] = min_dim.main(floorplan_data, 0, 0)
+                        # This pass drops only the PLOT cap; the room ceilings
+                        # still apply and are released per topology only when
+                        # they are what blocks it.
+                        status, out_data, released = solve_min_dim(
+                            floorplan_data, 0, 0, max_width is not None or max_height is not None)
+                        max_dims_released = max_dims_released or released
                         if status == True:
                             bdy_fplans += 1
                             room_x = []
@@ -2560,6 +2647,8 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             ui._set_dim_constraints([min_width, min_height, plot_width, plot_height])
             end = time.time()
             ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
+            if max_dims_released:
+                ui.print_gui("Warning: Room maximum dimensions were released for some floorplans.")
 
             # Sets the ptpg object to the current graph to use for download catalogue and also stores the dimensional constraints of the graph
             # gclass.ptpg = graph

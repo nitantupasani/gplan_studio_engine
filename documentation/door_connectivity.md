@@ -30,12 +30,48 @@ The property of adjacency and non adjacency of the rooms (nodes) are depicted us
 
 `minDimEnabled : bool (true|false)`
 
-: Used if dimensions are to be sent. Dimensions are **minimums only**: each node's
-  `width.min` / `height.min` is enforced as a lower bound and the server opens the
-  upper bound (`max` is ignored and treated as 99999) — the min-dim solver compacts
-  every room toward its minimum, so rooms come out at or just above `min`. Do not
-  use min = max to request exact dimensions; exact sizing is not supported on this
-  path.
+: Used if dimensions are to be sent. By default dimensions are **minimums only**:
+  each node's `width.min` / `height.min` is enforced as a lower bound and the server
+  opens the upper bound (`max` is ignored and treated as 99999) — the min-dim solver
+  compacts every room toward its minimum, so rooms come out at or just above `min`.
+  Do not use min = max to request exact dimensions; exact sizing is not supported on
+  this path. Send `maxDimEnabled: true` to also apply the per-node ceilings.
+
+`maxDimEnabled : bool (true|false) (default = false)`
+
+: Opt in to per-room **maximum** dimensions. Without it every `width.max` /
+  `height.max` is replaced by 99999 and the solver bounds each room at 5x its own
+  minimum, which is what lets a small service room stretch until it is larger than a
+  habitable one. With it the ceilings are applied along a deliberate degradation
+  ladder, so a batch is never returned empty because the ceilings were too tight:
+
+  1. The longest-path solve widens each supplied ceiling to at least **2.5x that
+     room's minimum** (`SOLVER_UB_SLACK`). In a gapless rectangular tiling a column
+     of small rooms must stack to the same total as a column of large ones, so hard
+     per-room ceilings make nearly every topology infeasible.
+  2. A topology that is still infeasible is retried with its ceilings stripped. When
+     that happens the task message gains
+     `"Room maximum dimensions were released for some floorplans."`
+  3. The plot-expansion fallback (see `plot_width`) drops **only** the plot cap; the
+     ceilings continue to apply inside it.
+  4. The gapless fill that closes notches applies the **exact** ceilings (both the
+     larger of `width.max`/`height.max` as a span cap and `width.max * height.max` as
+     an area cap), expanding rooms in descending order of headroom so living rooms
+     and bedrooms absorb leftover area before a bathroom or balcony does. A hole no
+     capped room may absorb is then closed without ceilings, because a gapless
+     rectangle is required and an oversized service room is only undesirable. When
+     that happens the task message gains
+     `"Room maximum dimensions were exceeded while closing gaps in some floorplans."`
+
+  Consequence for clients: room dimensions are still not guaranteed to sit inside the
+  ceilings. Treat them as a strong preference, check the returned geometry, and rank
+  or flag plans accordingly. Both degradation steps announce themselves in the
+  message, so a batch that carries neither warning is fully within its ceilings.
+
+  Measured on a 5-room flat (`test_max_dimensions.py`): with ceilings at 3x each
+  room's minimum the solver never needs the release, 4 of 6 plans come back entirely
+  within the ceilings, and the 2 that do not are reported. With ceilings just above
+  the minimums the release fires and the plans behave like the uncapped baseline.
 
 `removeAddCirculation : bool (true|false)`
 

@@ -447,26 +447,101 @@ def _polyline_rect(poly, eps):
     return (x0, y0, x1, y1)
 
 
-def _fill_gaps(rects, eps):
+def _room_size_caps(ui, count):
+    """Per-room (max span, max area) for the gap fill, or None when unbounded.
+
+    The dimensioning solver honours per-axis maximums, but the greedy fill below
+    can undo that by handing a whole leftover strip to whichever room happens to
+    touch it (this is how a 5x7 ft balcony became 5x24 ft). The span cap is
+    max(max_width, max_height) rather than the per-axis value because the
+    rotation pass may already have swapped a plan's axes; the area cap does the
+    real work of keeping a service room from outgrowing a habitable one.
+    """
+    params = getattr(ui, "min_dim_inputs", None)
+    if params is None:
+        return None
+    max_w = params.get_max_width() or []
+    max_h = params.get_max_height() or []
+    if not max_w or not max_h:
+        return None
+
+    def value(arr, i):
+        if i >= len(arr):
+            return None
+        try:
+            v = float(arr[i])
+        except (TypeError, ValueError):
+            return None
+        return v if 0 < v < 99999 else None
+
+    caps = []
+    for i in range(count):
+        w, h = value(max_w, i), value(max_h, i)
+        # Dummy rooms from separating-triangle removal have no entry: leave open.
+        caps.append(None if w is None or h is None else (max(w, h), w * h))
+    return caps if any(c is not None for c in caps) else None
+
+
+def _exceeds_caps(rects, caps, eps):
+    """True when any room now runs past its own span or area ceiling."""
+    for i, (x0, y0, x1, y1) in enumerate(rects):
+        if i >= len(caps) or caps[i] is None:
+            continue
+        span_cap, area_cap = caps[i]
+        w, h = x1 - x0, y1 - y0
+        if max(w, h) > span_cap + eps or w * h > area_cap + eps:
+            return True
+    return False
+
+
+def _span_limit(caps, i, other_side):
+    """Longest this room may run on one axis given its current span on the other."""
+    if not caps or i >= len(caps) or caps[i] is None:
+        return None
+    span_cap, area_cap = caps[i]
+    if other_side > 0:
+        return min(span_cap, area_cap / other_side)
+    return span_cap
+
+
+def _fill_gaps(rects, eps, caps=None):
     """Greedy wall extension: push each room's sides outward to the nearest
     obstruction (another room overlapping that side's span, else the plan
     bounds) until nothing moves. Rooms stay rectangles and never overlap;
-    empty notches next to a full side get absorbed. Mutates and returns rects."""
+    empty notches next to a full side get absorbed. Mutates and returns rects.
+
+    With `caps` (see _room_size_caps) a room stops growing at its own ceiling,
+    so the leftover strip flows to a room that can still absorb it instead of
+    inflating the nearest bathroom or balcony."""
     bx0 = min(r[0] for r in rects)
     by0 = min(r[1] for r in rects)
     bx1 = max(r[2] for r in rects)
     by1 = max(r[3] for r in rects)
+    # Expand in descending order of headroom so the rooms that are meant to
+    # absorb leftover area (living, bedrooms) take it before a bathroom or a
+    # balcony does. Uncapped rooms go first; ties keep the original order.
+    if caps:
+        order = sorted(range(len(rects)),
+                       key=lambda i: (-(float('inf') if i >= len(caps) or caps[i] is None
+                                        else caps[i][1]), i))
+    else:
+        order = list(range(len(rects)))
     changed = True
     guard = 0
     while changed and guard < 200:
         changed = False
         guard += 1
-        for i, (x0, y0, x1, y1) in enumerate(rects):
+        for i in order:
+            x0, y0, x1, y1 = rects[i]
+            wide = _span_limit(caps, i, y1 - y0)
+            tall = _span_limit(caps, i, x1 - x0)
             # East
             obst = bx1
             for j, (a0, b0, a1, b1) in enumerate(rects):
                 if j != i and min(y1, b1) - max(y0, b0) > eps and a0 >= x1 - eps:
                     obst = min(obst, a0)
+            if wide is not None:
+                obst = min(obst, x0 + wide)
             if obst - x1 > eps:
                 rects[i] = (x0, y0, obst, y1)
                 changed = True
@@ -476,6 +551,8 @@ def _fill_gaps(rects, eps):
             for j, (a0, b0, a1, b1) in enumerate(rects):
                 if j != i and min(y1, b1) - max(y0, b0) > eps and a1 <= x0 + eps:
                     obst = max(obst, a1)
+            if wide is not None:
+                obst = max(obst, x1 - wide)
             if x0 - obst > eps:
                 rects[i] = (obst, y0, x1, y1)
                 changed = True
@@ -485,6 +562,8 @@ def _fill_gaps(rects, eps):
             for j, (a0, b0, a1, b1) in enumerate(rects):
                 if j != i and min(x1, a1) - max(x0, a0) > eps and b0 >= y1 - eps:
                     obst = min(obst, b0)
+            if tall is not None:
+                obst = min(obst, y0 + tall)
             if obst - y1 > eps:
                 rects[i] = (x0, y0, x1, obst)
                 changed = True
@@ -494,6 +573,8 @@ def _fill_gaps(rects, eps):
             for j, (a0, b0, a1, b1) in enumerate(rects):
                 if j != i and min(x1, a1) - max(x0, a0) > eps and b1 <= y0 + eps:
                     obst = max(obst, b1)
+            if tall is not None:
+                obst = max(obst, y1 - tall)
             if y0 - obst > eps:
                 rects[i] = (x0, obst, x1, y1)
                 changed = True
@@ -525,6 +606,7 @@ def rectangularize_output(ui):
     rewritten to the filled rectangles. Returns the surviving list.
     """
     kept = []
+    caps_broken = False
     for plan in ui.get_output_data():
         rooms = getattr(plan, "final_traversal", None) or []
         if not rooms:
@@ -542,7 +624,23 @@ def rectangularize_output(ui):
             rects.append(rect)
         if rects is None or _rects_overlap(rects, eps):
             continue
-        _fill_gaps(rects, eps)
+        # Fill within the room ceilings first, then let whatever hole is left
+        # close without them. A gapless rectangle is required; honouring every
+        # ceiling is only preferred, and running the capped pass first means
+        # the big rooms have already taken their share, so the residual a
+        # bathroom or balcony can grab is small.
+        caps = _room_size_caps(ui, len(rects))
+        if caps is not None:
+            _fill_gaps(rects, eps, caps)
+        if not _is_gapless(rects, eps):
+            _fill_gaps(rects, eps)
+            # The uncapped pass can push a room past its ceiling. That is the
+            # intended trade (a gapless rectangle is required, honouring every
+            # ceiling is preferred), but it must not be silent: the solver-side
+            # release is already reported, and a client that sent maximums has
+            # no other way to learn one was broken here.
+            if caps is not None and _exceeds_caps(rects, caps, eps):
+                caps_broken = True
         if _rects_overlap(rects, eps) or not _is_gapless(rects, eps):
             continue
         plan.final_traversal = [
@@ -558,6 +656,9 @@ def rectangularize_output(ui):
                     plan.name_coords[k] = [(x0 + x1) / 2, (y0 + y1) / 2]
         kept.append(plan)
     ui._set_output_data(kept)
+    if caps_broken:
+        ui.print_gui("Warning: Room maximum dimensions were exceeded while "
+                     "closing gaps in some floorplans.")
     return kept
 
 
@@ -1037,9 +1138,13 @@ class Documents:
                 apply_cardinal_ring(graph, len(nodes_list), edges_list,
                                     cardinal_pairs, non_adj_edge_list)
                 handle_door_connectivity(ui, graph)
-                message = 'Generated Multiple Door connectivity floorplan.'+ ui.get_message()
                 original_plans = list(ui.get_output_data())
-                if not rectangularize_output(ui) and original_plans and not cardinal_pairs:
+                # Capture ui's message AFTER the gapless pass: that pass emits
+                # its own warnings (a room pushed past its maximum to close a
+                # hole), and reading the message first dropped them silently.
+                gated_plans = rectangularize_output(ui)
+                message = 'Generated Multiple Door connectivity floorplan.'+ ui.get_message()
+                if not gated_plans and original_plans and not cardinal_pairs:
                     # The gapless gate emptied the batch - return the ungated
                     # plans with an honest note rather than nothing.
                     ui._set_output_data(original_plans)

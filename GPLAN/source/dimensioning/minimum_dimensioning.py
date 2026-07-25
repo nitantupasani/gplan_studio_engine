@@ -1,5 +1,6 @@
 from collections import defaultdict
 import json
+import os
 rooms = 0  # the total number of rooms
 
 # Opening JSON file - to read the adjacency types and the user constraints
@@ -143,6 +144,39 @@ def  tblr_rooms():
         edgesY[2 * a - 1][2*len(data['nodes'])+1] = 0
 
 
+# Slack allowed above a room's minimum when the caller gives no maximum.
+DEFAULT_UB_FACTOR = 5
+# Floor on that slack when the caller DOES give a maximum. In a gapless
+# rectangular tiling a column of small rooms must still stack to the same total
+# as a column of large ones, so a hard per-room ceiling makes almost every
+# topology infeasible and the whole catalogue collapses. The caller's ceiling is
+# therefore widened here and enforced exactly later, where the leftover area is
+# distributed (api._fill_gaps), which is where the real blow-up happened.
+SOLVER_UB_SLACK = float(os.environ.get("GPLAN_SOLVER_UB_SLACK", "2.5"))
+
+
+def upper_bound(supplied, low):
+    """Upper bound for one room axis in the longest-path solve.
+
+    Honours a caller-supplied maximum, widened to at least SOLVER_UB_SLACK x the
+    minimum so the topology search keeps its freedom, and never looser than the
+    historical DEFAULT_UB_FACTOR x the minimum. Falls back to the historical
+    bound when no maximum is given, when it is the 99999 "open" sentinel, or
+    when it is unusable.
+    """
+    low = float(low)
+    open_ub = DEFAULT_UB_FACTOR * low
+    if supplied is None:
+        return open_ub
+    try:
+        value = float(supplied)
+    except (TypeError, ValueError):
+        return open_ub
+    if value <= 0 or value >= 99999:
+        return open_ub
+    return min(open_ub, max(value, SOLVER_UB_SLACK * low))
+
+
 # populates the structures with the user constraints to be further used in the longest path caculations
 def input_constraints():
     global lb_len, ub_len, lb_width, ub_width
@@ -155,17 +189,13 @@ def input_constraints():
     ub_width.append(-1)
 
     for i in range(1, rooms + 1):
-        # print(f"For room {i}, please enter the lower and upper bounds for length and width")
-        
-        # print("Lower Length:")
-        low_len = float(data['nodes'][i-1]['min_height'])
-        # print("Upper Length:")
-        up_len = float(5*data['nodes'][i-1]['min_height'])
+        node = data['nodes'][i-1]
 
-        # print("Lower Width:")
-        low_width = float(data['nodes'][i-1]['min_width'])
-        # print("Upper Width:")
-        up_width = float(5*data['nodes'][i-1]['min_width'])
+        low_len = float(node['min_height'])
+        up_len = upper_bound(node.get('max_height'), low_len)
+
+        low_width = float(node['min_width'])
+        up_width = upper_bound(node.get('max_width'), low_width)
 
         lb_len.append(low_len)
         ub_len.append(up_len)

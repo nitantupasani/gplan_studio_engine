@@ -73,23 +73,26 @@ def _prepare(data, shape):
 
     dimensioned = data.get("dimensioned", False)
     min_dim_enabled = data.get("minDimEnabled", False)
+    max_dim_enabled = data.get("maxDimEnabled", False)
     dim_inputs = {
         "min_width": [], "max_width": [], "min_height": [], "max_height": [],
         "min_ratio": [], "max_ratio": [], "plot_width": -1, "plot_height": -1,
         "symmetric": False, "optimal_floorplan": 0, "rotation_enabled": 1,
     }
+    # minDim: client dims are minimums only, so max stays open unless the client
+    # opts in with maxDimEnabled (then the room ceilings are honoured).
+    open_max = min_dim_enabled and not max_dim_enabled
     if dimensioned or min_dim_enabled:
         for node in nodes_list:
             default_min = 0 if dimensioned else 3
             if node.get("width") is not None:
                 dim_inputs["min_width"].append(node["width"].get("min", default_min) or default_min)
-                # minDim: client dims are minimums only — max stays open.
                 dim_inputs["max_width"].append(
-                    99999 if min_dim_enabled else (node["width"].get("max", 99999) or 99999))
+                    99999 if open_max else (node["width"].get("max", 99999) or 99999))
             if node.get("height") is not None:
                 dim_inputs["min_height"].append(node["height"].get("min", default_min) or default_min)
                 dim_inputs["max_height"].append(
-                    99999 if min_dim_enabled else (node["height"].get("max", 99999) or 99999))
+                    99999 if open_max else (node["height"].get("max", 99999) or 99999))
             if node.get("ratio") is not None:
                 dim_inputs["min_ratio"].append(node["ratio"].get("min", 0.5) or 0.5)
                 dim_inputs["max_ratio"].append(node["ratio"].get("max", 2) or 2)
