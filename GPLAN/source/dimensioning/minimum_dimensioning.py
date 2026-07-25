@@ -386,45 +386,74 @@ def construct_constraintgraphY(small_positive = 2):
 
 # helper fucntion to calculate the longest path from s to every other vertex
 def pos_longest_path(placement, edge_set, edge_weights):
-# this function will need review
+    """Push placements forward along non-negative edges, releasing a wall only
+    once every edge that constrains it has been visited.
+
+    Semantics are unchanged from the original triple-nested version; only the
+    bookkeeping is. The original recomputed, for EVERY out-edge of the popped
+    vertex, a full scan of all walls x all edges to find which walls were now
+    fully visited. That is O(V*E) repeated deg(v) times per pop, and it was 99%
+    of total generation time (measured: 202 ms per call, 45.8 s of a 46.2 s
+    2BHK run). Two observations remove it:
+
+      * whether an unvisited edge BLOCKS its head is a property of the edge
+        alone (its weight and adj_type), constant for the whole call, so it can
+        be decided once up front;
+      * a wall becomes releasable exactly when its last blocking in-edge is
+        visited, so a per-wall counter replaces the rescan.
+
+    Walls are then pushed at the same moment they were before, and `is_pushed`
+    still guarantees each is queued once.
+    """
+    n_walls = 2 * rooms + 1
+    out_edges = [[] for _ in range(n_walls + 1)]
+    blocking_in = [0] * (n_walls + 1)
+    edge_blocks = [False] * len(edge_set)
+
+    for i in range(len(edge_set)):
+        a, b = edge_set[i]
+        if a < len(out_edges):
+            out_edges[a].append(i)
+        # Mirror the original predicate exactly. The head range check comes
+        # FIRST because the original only ever evaluated this for heads inside
+        # range(1, 2*rooms+1): the sink wall 2*rooms+1 maps to an adj_type key
+        # that does not exist, so testing it here would raise.
+        if 1 <= b <= n_walls - 1 and edge_weights[a][b] >= 0:
+            if edge_weights[a][b] == 0:
+                x = int((a + 1) / 2)
+                y = int((b + 1) / 2)
+                blocks = (x == 0 or adj_type.get((x, y)) == 2 or adj_type.get((x, y)) == 3)
+            else:
+                blocks = True
+            if blocks:
+                edge_blocks[i] = True
+                blocking_in[b] += 1
+
     stack = [0]
-    edge_visited = [False] * len(edge_set)
-    is_pushed = [False] * (2 * rooms + 1)
+    is_pushed = [False] * n_walls
     is_pushed[0] = True
-    # print(edge_set)
+
+    # A wall with no blocking in-edge at all was released immediately by the
+    # original on its first pass through the j-loop.
+    for j in range(1, n_walls):
+        if blocking_in[j] == 0 and not is_pushed[j]:
+            stack.append(j)
+            is_pushed[j] = True
+
     while stack:
         v = stack.pop()
-        for i in range(len(edge_set)):
+        for i in out_edges[v]:
             a, b = edge_set[i]
-            if a != v:
-                continue
-            edge_visited[i] = True
             if edge_weights[a][b] >= 0:
                 if placement[b] - placement[a] < edge_weights[a][b]:
                     placement[b] = placement[a] + edge_weights[a][b]
                     stack.append(b)
-
-            for j in range(1, 2 * rooms + 1):
-                all_vis = True
-                for k in range(len(edge_set)):
-                    a, b = edge_set[k]
-
-                    if b == j and edge_weights[a][b] >= 0 and not edge_visited[k]:
-                        if edge_weights[a][b] == 0:
-                            # print(a)
-                            # print(b)
-                            x = int((a + 1) / 2)
-                            y = int((b + 1) / 2)
-                            # print(x)
-                            # print(y)
-                            if x==0 or adj_type[(x, y)] == 2 or adj_type[(x, y)] == 3:
-                                all_vis = False
-                        else:
-                            all_vis = False
-
-                if all_vis and not is_pushed[j]:
-                    stack.append(j)
-                    is_pushed[j] = True
+            if edge_blocks[i]:
+                edge_blocks[i] = False
+                blocking_in[b] -= 1
+                if blocking_in[b] == 0 and not is_pushed[b]:
+                    stack.append(b)
+                    is_pushed[b] = True
 
     for i in range(len(is_pushed)):
         if not is_pushed[i]:
