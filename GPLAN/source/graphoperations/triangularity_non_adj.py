@@ -453,8 +453,11 @@ def triangulate(matrix, bcn_edges_added, pos, non_adj_list):
             positions = nx.planar_layout(nxgraph)
     else:
         positions = nx.planar_layout(nxgraph)
-    nx.draw_networkx(nxgraph,positions, label=None,node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
-    plt.show()
+    # Debug draw only. triangularity.py:278 keeps the same call commented out;
+    # this copy did not, so every non-adjacency request built a figure and
+    # called plt.show(), which blocks or leaks figures on a headless worker.
+    # nx.draw_networkx(nxgraph,positions, label=None,node_size=400 ,node_color='#4b8bc8',font_size=12, font_color='k', font_family='sans-serif', font_weight='normal', alpha=1, bbox=None, ax=None)
+    # plt.show()
 
     non_tri_faces = get_nontriangular_face(positions, nxgraph)
 

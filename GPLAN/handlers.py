@@ -938,7 +938,11 @@ def handle_single(ui, graph, drawGUI = False, gclass = None):
 
 def handle_letter_shape(ui, graph, drawGUI = False, gclass = None, nodes_data = None):
     assert ui.get_letter is not None
-    nodes_data = nodes_data if nodes_data is not None else gclass.app.nodes_data
+    if nodes_data is None:
+        # gclass is None on the API path (api.py passes nodes_data only for the
+        # L shape, which is the only generator that consumes it), so this must
+        # not dereference gclass unconditionally.
+        nodes_data = gclass.app.nodes_data if gclass is not None else []
     if(ui.get_isDimensioned() == 0): #Non-Dimensioned Letter Shape
         start = time.time()
         if(ui.get_letter() == "L Shape"):
@@ -966,13 +970,22 @@ def handle_letter_shape(ui, graph, drawGUI = False, gclass = None, nodes_data = 
             old_dims, ui.get_noOfNodes(), ui.get_roomNames(), gclass)
         start = time.time()
         if(ui.get_letter() == "L Shape"):
-            Lshaped.LShapedFloorplan(graph, gclass.app.nodes_data)
-        # elif(ui.get_letter() == "T Shape"):
-        #     Tshaped.TShapedFloorplan(graph)
-        # elif(ui.get_letter() == "Z Shape"):
-        #     Zshaped.ZShapedFloorplan(graph)
-        # elif(ui.get_letter() == "U Shape"):
-            Ushaped.UShapedFloorplan(graph)
+            Lshaped.LShapedFloorplan(graph, nodes_data)
+        else:
+            # The T, Z and U dimensioned generators below were commented out at
+            # some point, which left the U call dangling inside the L branch (so
+            # an L shape ran both generators) and left T/Z/U running no generator
+            # at all, dimensioning whatever matrix the graph arrived with. Fail
+            # loudly instead of returning a floorplan built from a stale matrix.
+            # elif(ui.get_letter() == "T Shape"):
+            #     Tshaped.TShapedFloorplan(graph)
+            # elif(ui.get_letter() == "Z Shape"):
+            #     Zshaped.ZShapedFloorplan(graph)
+            # elif(ui.get_letter() == "U Shape"):
+            #     Ushaped.UShapedFloorplan(graph)
+            raise ValueError(
+                "Dimensioned letter-shape floorplans are implemented for the L shape only; "
+                + str(ui.get_letter()) + " is not supported.")
         graph.rel_matrix_list.append(graph.matrix) #All rels are in it. Currently we have only 1.
 
         # Since multiple rfp are generated before calling single_floorplan, all the parameters need to be
