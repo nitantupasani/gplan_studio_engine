@@ -33,6 +33,11 @@ class DimParameters:
         self.__max_height = max_height
         self.__min_ratio = min_ratio
         self.__max_ratio = max_ratio
+        # block_checker() splits this on ',', so it has to be a string. The API
+        # layer defaults symmetric to the boolean False (views.py, and
+        # local_engine_bridge.py), so anything that is not a string is stored as
+        # the "()" no-symmetry sentinel that the GUI's Free Dimensions button uses.
+        self.__symmetric = symmetric if isinstance(symmetric, str) else "()"
 
 
     def get_isOptimalEnabled(self):

@@ -1741,7 +1741,6 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
     multiple_door = False
     ui._set_output_data([])
     ui._set_multiple_output_found(0)
-    
     if (checkPTPG):
         print("PTPG going with RFP")
         if(ui.get_isCirculation() == 1):
@@ -2031,7 +2030,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         graph.graph_list[i].room_y = room_x
                         graph.graph_list[i].room_width = room_height
                         graph.graph_list[i].room_height = room_width
-                        graph.graph_list[i].area = room_area          
+                        graph.graph_list[i].area = room_area
 
                         # If optimal area not required, display floorplan
                         if optimal_floorplan == 0:
@@ -2424,7 +2423,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         node_min_width = 1
                         node_min_height = 1
                         for itr2 in range(0,graph.graph_list[i].nodecnt):
-                            if(graph.graph_list[i].matrix[merge_node][j] == 1):
+                            if(graph.graph_list[i].matrix[merge_node][itr2] == 1):
                                 node_min_width = max(node_min_width, floorplan_data['nodes'][itr2]['min_width'])
                                 node_min_height = max(node_min_height,floorplan_data['nodes'][itr2]['min_height'])
                         floorplan_data['nodes'][merge_node]['min_width'] = node_min_width/2
