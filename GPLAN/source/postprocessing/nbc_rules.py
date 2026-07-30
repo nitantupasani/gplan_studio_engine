@@ -210,14 +210,40 @@ AREA_ORDERING = (
 )
 
 
-def plan_issues(rooms, overrides=None):
+def _band_slender_limit(aspect_band):
+    """Slenderness cap implied by a caller {"min", "max"} w/h band, or None.
+
+    The band straddles 1, so its worst legal slenderness is the larger of
+    max and 1/min. Post-processing accepts such a band as an option and works
+    toward it; without this, an issue check judging only the room type's own
+    limit scores that work neutral-or-worse.
+    """
+    if not isinstance(aspect_band, dict):
+        return None
+    try:
+        hi = float(aspect_band.get("max") or 0)
+        lo = float(aspect_band.get("min") or 0)
+    except (TypeError, ValueError):
+        return None
+    limit = None
+    if hi > 0:
+        limit = hi
+    if 0 < lo < 1:
+        limit = max(limit if limit is not None else 0.0, 1.0 / lo)
+    return limit
+
+
+def plan_issues(rooms, overrides=None, aspect_band=None):
     """Rulebook check of one plan. `rooms` = [{"name", "width", "height"}, ...].
 
-    Port of nbcRules.ts planIssues: per-room min/max area, min short side and
-    slenderness, then the cross-room area hierarchy. Returns a list of
-    {"severity", "room", "rule", "message"} dicts; severity "error" | "warning".
+    Port of nbcRules.ts planIssues: per-room min/max area, min short side,
+    max span, and slenderness, then the cross-room area hierarchy. Returns a
+    list of {"severity", "room", "rule", "message"} dicts; severity "error" |
+    "warning". `aspect_band` is an optional caller {"min", "max"} w/h band
+    that tightens (never loosens) each room type's own slenderness limit.
     """
     issues = []
+    band_limit = _band_slender_limit(aspect_band)
 
     def r1(v):
         # Math.round semantics (half away from zero for positives), NOT
@@ -251,15 +277,35 @@ def plan_issues(rooms, overrides=None):
                            "message": "%s is %s ft on its short side, below the"
                                       " %s ft minimum width."
                                       % (room["name"], r1(short), min_short)})
-        if short > 0 and long_ / short > rule["max_aspect"] * 1.02:
+        # Span ceilings, orientation-agnostic like the trim path's
+        # (cap_short, cap_long). Without this a trim done purely to satisfy
+        # a span cap earns zero credit and can only be reverted.
+        cap_long = max(rule["max_width"], rule["max_height"])
+        cap_short = min(rule["max_width"], rule["max_height"])
+        if long_ > cap_long * 1.02:
+            issues.append({"severity": "warning", "room": room["name"],
+                           "rule": "max_width",
+                           "message": "%s is %s ft on its long side, above the"
+                                      " %s ft maximum for its type."
+                                      % (room["name"], r1(long_), cap_long)})
+        elif short > cap_short * 1.02:
+            issues.append({"severity": "warning", "room": room["name"],
+                           "rule": "max_width",
+                           "message": "%s is %s ft on its short side, above the"
+                                      " %s ft maximum for its type."
+                                      % (room["name"], r1(short), cap_short)})
+        max_aspect = rule["max_aspect"]
+        if band_limit is not None:
+            max_aspect = min(max_aspect, band_limit)
+        if short > 0 and long_ / short > max_aspect * 1.02:
             # Past 10% over the slenderness limit it is a corridor, not a room.
             issues.append({
-                "severity": "error" if long_ / short > rule["max_aspect"] * 1.1
+                "severity": "error" if long_ / short > max_aspect * 1.1
                 else "warning",
                 "room": room["name"], "rule": "aspect",
                 "message": "%s is %s:1, more slender than the %s:1 limit for"
                            " its type." % (room["name"], r1(long_ / short),
-                                           rule["max_aspect"]),
+                                           max_aspect),
             })
 
     def area_of(base):
@@ -283,7 +329,7 @@ def plan_issues(rooms, overrides=None):
     return issues
 
 
-def plan_sanity_score(rooms, overrides=None):
+def plan_sanity_score(rooms, overrides=None, aspect_band=None):
     """Lower is better. Errors dominate warnings; ties keep the input order."""
     return sum(10 if issue["severity"] == "error" else 1
-               for issue in plan_issues(rooms, overrides))
+               for issue in plan_issues(rooms, overrides, aspect_band))

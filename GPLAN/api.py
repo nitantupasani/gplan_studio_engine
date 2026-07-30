@@ -488,6 +488,7 @@ def _room_bounds(ui, count):
     minh = col(params.get_min_height, 0.0)
     maxw = col(params.get_max_width, 99999.0)
     maxh = col(params.get_max_height, 99999.0)
+    minr = col(params.get_min_aspect_ratio, 0.0)
     maxr = col(params.get_max_aspect_ratio, 0.0)
     if not minw or not minh:
         return None
@@ -509,13 +510,24 @@ def _room_bounds(ui, count):
             hw = _INF
         if hh <= 0 or hh >= 99999:
             hh = _INF
+        # max_ratio is a slenderness cap (long/short <= ratio) applied
+        # symmetrically by _axis_targets. min_ratio is honoured only as a
+        # genuine sub-1 lower w/h band; the wire carries sentinels here
+        # (designer sends min=1, one legacy default sends min=3) that must
+        # not be read as "force landscape".
         ratio = at(maxr, i, 0.0)
-        bounds.append({
+        aspect = ratio if ratio and 1.0 <= ratio < 99999 else _INF
+        lo_ratio = at(minr, i, 0.0)
+        entry = {
             "minw": lw, "minh": lh, "maxw": hw, "maxh": hh,
             "minarea": lw * lh,
             "maxarea": (hw * hh) if (hw < _INF and hh < _INF) else _INF,
-            "aspect": ratio if ratio and 1.0 <= ratio < 99999 else _INF,
-        })
+            "aspect": aspect,
+        }
+        if aspect < _INF and 0.0 < lo_ratio < 1.0:
+            entry["ar_lo"] = lo_ratio
+            entry["ar_hi"] = aspect
+        bounds.append(entry)
     return bounds if any(b is not None for b in bounds) else None
 
 
@@ -855,17 +867,12 @@ def rectangularize_output(ui):
         caps = _room_size_caps(ui, len(rects))
         if caps is not None:
             _fill_gaps(rects, eps, caps)
+        ran_uncapped = False
         if not _is_gapless(rects, eps):
             # Ceilings off, priority ordering still on: the hole must close, but
             # the room that closes it should be one that can carry the area.
             _fill_gaps(rects, eps, caps, enforce=False)
-            # The uncapped pass can push a room past its ceiling. That is the
-            # intended trade (a gapless rectangle is required, honouring every
-            # ceiling is preferred), but it must not be silent: the solver-side
-            # release is already reported, and a client that sent maximums has
-            # no other way to learn one was broken here.
-            if caps is not None and _exceeds_caps(rects, caps, eps):
-                caps_broken = True
+            ran_uncapped = True
         if _rects_overlap(rects, eps) or not _is_gapless(rects, eps):
             continue
         # The tiling is now correct but the MEASUREMENTS are not: min-dim only
@@ -877,6 +884,14 @@ def rectangularize_output(ui):
         repaired = repair_dimensions(rects, _room_bounds(ui, len(rects)))
         if not _rects_overlap(repaired, eps) and _is_gapless(repaired, eps):
             rects = repaired
+        # The uncapped pass can push a room past its ceiling. That is the
+        # intended trade (a gapless rectangle is required, honouring every
+        # ceiling is preferred), but it must not be silent. Judged on the
+        # FINAL geometry: repair_dimensions often shrinks the offender back
+        # inside its band, and warning about a plan that ends up compliant
+        # taught clients to ignore the warning.
+        if ran_uncapped and caps is not None and _exceeds_caps(rects, caps, eps):
+            caps_broken = True
         plan.final_traversal = [
             [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
             for (x0, y0, x1, y1) in rects
@@ -1250,7 +1265,10 @@ class Documents:
         message = ""
         dim_parameters: DimParameters = None
         if minDimEnabled:
-            dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'],max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], isOptimalEnabled=dim_inputs['optimal_floorplan'],isRotationAllowed = dim_inputs['rotation_enabled'])
+            # min_ratio/max_ratio ride along for the post-solve band
+            # (_room_bounds / repair_dimensions / post-processing). The min-dim
+            # SOLVER still ignores them; see minimum_dimensioning.input_constraints.
+            dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'],max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], min_ratio=dim_inputs.get('min_ratio', []), max_ratio=dim_inputs.get('max_ratio', []), plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], isOptimalEnabled=dim_inputs['optimal_floorplan'],isRotationAllowed = dim_inputs['rotation_enabled'])
         elif dimensioned:
             dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'], max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], min_ratio=dim_inputs['min_ratio'], max_ratio=dim_inputs['max_ratio'], plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], symmetric=dim_inputs['symmetric'], isOptimalEnabled=dim_inputs['optimal_floorplan'])
         ui = GuiParameters(graph=graph).set_isDimensioned(dimensioned).set_isDimensionedCirculation(

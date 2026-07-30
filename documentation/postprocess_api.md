@@ -52,8 +52,10 @@ in `GPLAN/source/postprocessing/postprocess.py`; NBC rule table in
    to `max_passes` times.
 
 Every phase is validated afterwards (no overlaps, no interior holes, doors
-kept, footprint growth bounded); a phase that breaks an invariant is rolled
-back for that plan and noted in the report.
+kept, footprint growth bounded, all rooms still mutually reachable through
+shared walls); a phase that breaks an invariant is rolled back for that plan
+and noted in the report. A trim+absorb round whose residual notches exceed
+`max_notch_ratio` of the bounding box also rolls back.
 
 ### Hard guarantees vs best effort
 
@@ -64,7 +66,16 @@ Guaranteed on every processed plan:
 - every requested adjacency keeps >= 2 ft of shared wall (door survives);
 - room minimums (user + NBC floors) are never violated by the processor;
 - the footprint never grows beyond the configured margin;
-- the rulebook score never gets worse (a failing phase rolls back).
+- **aspect is monotone**: no phase leaves any room more slender than where
+  it started or its band, whichever is looser. The aspect band is a floor as
+  well as a ceiling in `_axis_ceilings`, so a trim can no longer take a
+  room's short axis below `long/ar_hi` (the measured 12x7 -> 12x5.667
+  bathroom regression);
+- **no room regresses on any rulebook limit**: a per-room quality vector
+  (aspect band, min area, min width, area ceiling, span ceiling) is compared
+  before/after, and any component flipping healthy -> broken reverts the
+  whole plan. The plan-wide integer score (10*errors + warnings) remains as
+  a tiebreak for what the vector cannot see (the cross-room area hierarchy).
 
 Best effort, with honest reporting when unreachable:
 
@@ -165,12 +176,27 @@ All optional; defaults in `postprocess.DEFAULT_OPTIONS`.
 | `rules` | `null` | per-type overrides, e.g. `{"Bathroom": {"max_area": 60, "max_aspect": 1.8}}` (keys of `nbc_rules.NBC_RULES` entries) |
 | `tolerance` | `0.02` | fraction past a limit before the processor acts |
 | `max_bbox_growth` | `0.03` | per-axis footprint growth allowed to the repair phase |
+| `max_notch_ratio` | `0.25` | a trim+absorb round leaving notches beyond this fraction of the bounding box rolls back. Measured on a 7-room/12-plan live batch (2026-07-30): real trims open 0.08-0.24, median ~0.13, so the plan's suggested 0.12 would have reverted half the batch |
 
 Aspect semantics: each room type carries a slenderness cap from the rulebook
 (`max_aspect`, long/short - bedroom 1.8, bathroom 2.0, balcony 3.5 ...),
 applied as the symmetric band `[1/cap, cap]` on w/h. The `aspect` option
 intersects an additional global band, so `{"min": 0.5, "max": 1.5}`
 tightens every room toward squareness but never loosens a type's own cap.
+The band is also visible to the objective: `nbc_rules.plan_issues` accepts
+the caller band (so work toward it earns credit instead of scoring
+neutral-or-worse) and now scores span-ceiling breaches (`rule:
+"max_width"`, warning), which previously earned a span-motivated trim zero
+credit.
+
+Related plumbing (2026-07-30): the min-dim `DimParameters` construction in
+`api.get_floorplans` now carries `min_ratio`/`max_ratio` through, so
+`_room_bounds` emits a real aspect cap for `repair_dimensions` on the
+GENERATION path too (previously the ratio the client sent was discarded and
+every room's band was infinite). `max_ratio` is honoured as a slenderness
+cap when `1 <= max_ratio < 99999`; `min_ratio` only as a genuine sub-1 w/h
+lower band - the wire carries sentinels (designer sends `min: 1`, one
+legacy default sends `min: 3`) that must not be read as "force landscape".
 
 ## The per-plan report
 

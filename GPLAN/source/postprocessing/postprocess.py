@@ -50,6 +50,13 @@ DEFAULT_OPTIONS = {
                              # most this fraction per axis, else it rolls back
                              # (NBC minimum floors must rebalance the tiling,
                              # not balloon the footprint)
+    "max_notch_ratio": 0.25, # a trim+absorb round that leaves notches beyond
+                             # this fraction of the bounding box rolls back:
+                             # past it the outline is a shape nobody would
+                             # build. Provisional default pending measurement
+                             # on live batches (plan open question 5); the
+                             # synthetic worst-case fixture (a bathroom 2.4x
+                             # over its ceiling) legitimately needs ~0.15.
 }
 
 
@@ -339,10 +346,28 @@ def _doors_ok(rects, door_reqs, eps):
 # phase 2: exterior trimming
 # ---------------------------------------------------------------------------
 
-def _axis_ceilings(bounds, w, h):
-    """(ceiling_w, ceiling_h) given the current spans, orientation-aware."""
-    cap_w = bounds["cap_long"] if w >= h else bounds["cap_short"]
-    cap_h = bounds["cap_long"] if h > w else bounds["cap_short"]
+def _axis_ceilings(bounds, w, h, aspect_floors=True):
+    """(ceiling_w, ceiling_h) given the current spans, orientation-aware.
+
+    With `aspect_floors` (the trim/violation callers) the LOWER side of the
+    aspect band is a floor too: a trim may not leave a room more slender than
+    its band allows, which is how a 12x7 bathroom used to end up 12x5.7 (2.1:1
+    against a 2.0 band) because only the ceiling side was applied. The absorb
+    caller passes aspect_floors=False: growth exists to fill notches within
+    ceilings, and a floor must never DRIVE growth (clients assert that
+    post-processing does not grow rooms past their pre-trim spans).
+
+    At w == h the span caps deliberately allow cap_long on BOTH axes rather
+    than forcing an arbitrary landscape trim on a square room; the pair cap
+    binds again as soon as the room actually elongates, and the area ceiling
+    keeps a square room from exploiting the tie.
+    """
+    if w > h:
+        cap_w, cap_h = bounds["cap_long"], bounds["cap_short"]
+    elif h > w:
+        cap_w, cap_h = bounds["cap_short"], bounds["cap_long"]
+    else:
+        cap_w = cap_h = bounds["cap_long"]
     floor_w = bounds.get("floor_long", bounds["minw"]) if w >= h \
         else bounds.get("floor_short", bounds["minw"])
     floor_h = bounds.get("floor_long", bounds["minh"]) if h > w \
@@ -355,10 +380,84 @@ def _axis_ceilings(bounds, w, h):
              w / bounds["ar_lo"])
     # floors win over ceilings; a conflict is reported, never silently forced
     tw = max(tw, floor_w,
-             bounds["minarea"] / h if h > 0 else 0.0)
+             bounds["minarea"] / h if h > 0 else 0.0,
+             bounds["ar_lo"] * h if aspect_floors else 0.0)
     th = max(th, floor_h,
-             bounds["minarea"] / w if w > 0 else 0.0)
+             bounds["minarea"] / w if w > 0 else 0.0,
+             w / bounds["ar_hi"] if aspect_floors else 0.0)
     return tw, th
+
+
+def _aspect_of(rect):
+    w, h = rect[2] - rect[0], rect[3] - rect[1]
+    return max(w, h) / max(min(w, h), 1e-9)
+
+
+def _slender_limit(bounds):
+    """Slenderness cap (long/short) implied by the room's w/h band."""
+    if bounds is None:
+        return _INF
+    ar_lo = bounds.get("ar_lo") or 0.0
+    ar_hi = bounds.get("ar_hi") or _INF
+    return max(ar_hi, (1.0 / ar_lo) if ar_lo > 0 else _INF)
+
+
+def _aspect_allowances(rects, bounds, eps_ratio=1e-6):
+    """Per-room hard ceiling on slenderness for every phase: no phase may
+    leave a room more slender than where it STARTED or its band, whichever
+    is looser. The band alone is not enough - a room that entered at 2.4
+    against a 2.2 band must not drift to 2.6 just because it was already
+    past the limit."""
+    return [max(_aspect_of(r), _slender_limit(b)) * (1.0 + eps_ratio) + 1e-9
+            for r, b in zip(rects, bounds)]
+
+
+def _rooms_connected(rects, eps):
+    """True when every room is reachable from every other through shared
+    walls. Trims sever walls; only explicitly protected door pairs are
+    length-checked, so a plan could otherwise split into islands."""
+    n = len(rects)
+    if n <= 1:
+        return True
+    touch = eps * 10
+    seen = [False] * n
+    stack = [0]
+    seen[0] = True
+    found = 1
+    while stack:
+        i = stack.pop()
+        for j in range(n):
+            if not seen[j] and _shared_wall(rects[i], rects[j], touch) > eps:
+                seen[j] = True
+                found += 1
+                stack.append(j)
+    return found == n
+
+
+def _quality_vector(rect, bounds):
+    """Per-room booleans, True = defect. Tolerances mirror plan_issues so the
+    gate and the report cannot disagree about whether a limit is crossed.
+    Components: (aspect past band, below minimum area, below minimum width,
+    over area ceiling, over span ceiling)."""
+    if bounds is None:
+        return (False, False, False, False, False)
+    w, h = rect[2] - rect[0], rect[3] - rect[1]
+    short, long_ = min(w, h), max(w, h)
+    area = w * h
+    limit = _slender_limit(bounds)
+    minarea = bounds.get("minarea") or 0.0
+    maxarea = bounds.get("maxarea", _INF)
+    floor_short = bounds.get("floor_short", bounds.get("minw", 0.0))
+    cap_short = bounds.get("cap_short", _INF)
+    cap_long = bounds.get("cap_long", _INF)
+    return (
+        limit < _INF and short > 0 and long_ / short > limit * 1.02,
+        minarea > 0 and area < minarea * 0.98,
+        floor_short > 0 and short < floor_short * 0.98,
+        maxarea < _INF and area > maxarea * 1.02,
+        (cap_long < _INF and long_ > cap_long * 1.02)
+        or (cap_short < _INF and short > cap_short * 1.02),
+    )
 
 
 def _door_trim_limit(rects, door_reqs, i, side, eps):
@@ -398,7 +497,8 @@ def _door_trim_limit(rects, door_reqs, i, side, eps):
     return limit
 
 
-def _trim_pass(rects, bounds, names, door_reqs, eps, tolerance, actions):
+def _trim_pass(rects, bounds, names, door_reqs, eps, tolerance, actions,
+               allowances=None):
     """One sweep of exterior trims. Returns True when anything moved."""
     progressed = False
     order = sorted(
@@ -437,6 +537,20 @@ def _trim_pass(rects, bounds, names, door_reqs, eps, tolerance, actions):
                                                    eps))
                     if allowed < 0.05:
                         continue
+                    # Monotonicity: a trim may never leave the room more
+                    # slender than it started or its band allows. The aspect
+                    # floors in _axis_ceilings make this unreachable in
+                    # theory; the check stays because a partial (door-limited)
+                    # trim recomputes nothing and the promise is per-commit.
+                    if axis == "x":
+                        candidate = (x0, y0, x1 - allowed, y1) if side == "E" \
+                            else (x0 + allowed, y0, x1, y1)
+                    else:
+                        candidate = (x0, y0 + allowed, x1, y1) if side == "N" \
+                            else (x0, y0, x1, y1 - allowed)
+                    if allowances is not None \
+                            and _aspect_of(candidate) > allowances[i]:
+                        continue
                     x0, y0, x1, y1 = rects[i]
                     if side == "E":
                         rects[i] = (x0, y0, x1 - allowed, y1)
@@ -472,7 +586,7 @@ def _violation_ratio(rect, bounds):
 # phase 3: capped absorption
 # ---------------------------------------------------------------------------
 
-def _absorb_pass(rects, bounds, eps, actions):
+def _absorb_pass(rects, bounds, eps, actions, allowances=None):
     """Grow rooms into empty space, hardest-capped last, never past their own
     ceilings or aspect band. The aspect-aware twin of api._fill_gaps with
     `enforce` permanently on. Returns True when anything moved.
@@ -482,6 +596,10 @@ def _absorb_pass(rects, bounds, eps, actions):
     would let the next direction push it past maxarea (found in review: a
     5x7 bathroom absorbing east then south ended at 80 sqft against a 68
     ceiling because th was built from the pre-growth width).
+
+    aspect_floors=False on the ceilings: a floor must never DRIVE growth
+    (the aspect floor of a slender room can exceed its area ceiling, and
+    clients assert post-processing does not grow rooms).
     """
     bx0, by0, bx1, by1 = _bbox(rects)
 
@@ -496,7 +614,12 @@ def _absorb_pass(rects, bounds, eps, actions):
     def ceilings(i, w, h):
         if bounds[i] is None:
             return _INF, _INF
-        return _axis_ceilings(bounds[i], w, h)
+        return _axis_ceilings(bounds[i], w, h, aspect_floors=False)
+
+    def aspect_ok(i, candidate):
+        # Growth along the long axis raises slenderness; the band ceilings
+        # above already cap it, this guards the promise per-commit.
+        return allowances is None or _aspect_of(candidate) <= allowances[i]
 
     progressed = False
     changed = True
@@ -514,7 +637,7 @@ def _absorb_pass(rects, bounds, eps, actions):
                 if j != i and min(y1, b1) - max(y0, b0) > eps and a0 >= x1 - eps:
                     obst = min(obst, a0)
             obst = min(obst, x0 + tw)
-            if obst - x1 > 0.05:
+            if obst - x1 > 0.05 and aspect_ok(i, (x0, y0, obst, y1)):
                 rects[i] = (x0, y0, obst, y1)
                 actions.setdefault(i, []).append(
                     "absorbed %.1f ft toward E" % (obst - x1))
@@ -527,7 +650,7 @@ def _absorb_pass(rects, bounds, eps, actions):
                 if j != i and min(y1, b1) - max(y0, b0) > eps and a1 <= x0 + eps:
                     obst = max(obst, a1)
             obst = max(obst, x1 - tw)
-            if x0 - obst > 0.05:
+            if x0 - obst > 0.05 and aspect_ok(i, (obst, y0, x1, y1)):
                 rects[i] = (obst, y0, x1, y1)
                 actions.setdefault(i, []).append(
                     "absorbed %.1f ft toward W" % (x0 - obst))
@@ -540,7 +663,7 @@ def _absorb_pass(rects, bounds, eps, actions):
                 if j != i and min(x1, a1) - max(x0, a0) > eps and b0 >= y1 - eps:
                     obst = min(obst, b0)
             obst = min(obst, y0 + th)
-            if obst - y1 > 0.05:
+            if obst - y1 > 0.05 and aspect_ok(i, (x0, y0, x1, obst)):
                 rects[i] = (x0, y0, x1, obst)
                 actions.setdefault(i, []).append(
                     "absorbed %.1f ft toward S" % (obst - y1))
@@ -553,7 +676,7 @@ def _absorb_pass(rects, bounds, eps, actions):
                 if j != i and min(x1, a1) - max(x0, a0) > eps and b1 <= y0 + eps:
                     obst = max(obst, b1)
             obst = max(obst, y1 - th)
-            if y0 - obst > 0.05:
+            if y0 - obst > 0.05 and aspect_ok(i, (x0, obst, x1, y1)):
                 rects[i] = (x0, obst, x1, y1)
                 actions.setdefault(i, []).append(
                     "absorbed %.1f ft toward N" % (y0 - obst))
@@ -590,18 +713,33 @@ def postprocess_plan(rects, names, options=None, edges=None,
     eps = _plan_eps(rects)
     tolerance = float(opts["tolerance"])
     work = [tuple(map(float, r)) for r in rects]
+    start = list(work)
     bounds = build_bounds(names, opts, user_min_w, user_min_h,
                           user_max_w, user_max_h)
     door_reqs = build_door_requirements(
         work, names, edges, float(opts["min_door_overlap"]), eps)
 
     issues_before = nbc_rules.plan_issues(_room_snapshot(work, names),
-                                          opts.get("rules"))
+                                          opts.get("rules"),
+                                          aspect_band=opts.get("aspect"))
     score_before = sum(10 if i["severity"] == "error" else 1
                        for i in issues_before)
     bbox_before = _bbox(work)
     actions = {}
     phase_notes = []
+
+    def note(text):
+        # A rolled-back phase retried on unchanged geometry produces the
+        # identical note; one entry carries the information.
+        if not phase_notes or phase_notes[-1] != text:
+            phase_notes.append(text)
+
+    # No phase may leave any room more slender than it started or its band
+    # allows, and the per-room quality vector may not regress on any
+    # component. Both are judged against the ORIGINAL geometry.
+    allowances = _aspect_allowances(work, bounds)
+    connected_before = _rooms_connected(work, eps)
+    vec_before = [_quality_vector(r, b) for r, b in zip(work, bounds)]
 
     # -- phase 1: in-tile repair (only meaningful on a gapless tiling) -------
     notch0, hole0 = _void_metrics(work)
@@ -618,67 +756,111 @@ def postprocess_plan(rects, names, options=None, edges=None,
             or (cand_bbox[3] - cand_bbox[1])
             > (bbox_before[3] - bbox_before[1]) * growth)
         if grew_too_much:
-            phase_notes.append("repair rolled back (would grow the plan"
-                               " footprint beyond the allowed margin)")
-        elif (not _rects_overlap(candidate, eps)
-                and _doors_ok(candidate, door_reqs, eps)
-                and _void_metrics(candidate)[1] <= eps):
+            note("repair rolled back (would grow the plan"
+                 " footprint beyond the allowed margin)")
+        elif (_rects_overlap(candidate, eps)
+                or not _doors_ok(candidate, door_reqs, eps)
+                or _void_metrics(candidate)[1] > eps):
+            note("repair rolled back (invariant check failed)")
+        elif any(_aspect_of(r) > a for r, a in zip(candidate, allowances)):
+            # Most measured aspect drift came from this phase, inside the
+            # band but away from where the room started; the repair is
+            # all-or-nothing, so the whole candidate goes.
+            note("repair rolled back (would leave a room more slender"
+                 " than it started or its band allows)")
+        else:
             for i, (old, new) in enumerate(zip(work, candidate)):
                 if any(abs(a - b) > 1e-4 for a, b in zip(old, new)):
                     actions.setdefault(i, []).append("repaired in-tile")
             work = list(candidate)
-        else:
-            phase_notes.append("repair rolled back (invariant check failed)")
 
     # -- phases 2+3: trim to ceilings, absorb what is allowed back ----------
     # Both the geometry AND the action log are snapshotted per phase: a
     # rolled-back phase must not leave phantom "trimmed ..." entries claiming
     # changes that never shipped.
+    max_notch = float(opts["max_notch_ratio"])
     for _ in range(int(opts["max_passes"])):
-        moved = False
+        round_start = list(work)
+        round_actions = copy.deepcopy(actions)
         if opts["trim"]:
             snapshot = list(work)
             action_snapshot = copy.deepcopy(actions)
             if _trim_pass(work, bounds, names, door_reqs, eps, tolerance,
-                          actions):
-                if _doors_ok(work, door_reqs, eps) \
-                        and not _rects_overlap(work, eps):
-                    moved = True
-                else:
+                          actions, allowances=allowances):
+                why = None
+                if _rects_overlap(work, eps) \
+                        or not _doors_ok(work, door_reqs, eps):
+                    why = "door check failed"
+                elif _void_metrics(work)[1] > eps:
+                    why = "would open an interior hole"
+                elif connected_before and not _rooms_connected(work, eps):
+                    why = "would disconnect the plan"
+                if why is not None:
                     work[:] = snapshot
                     actions.clear()
                     actions.update(action_snapshot)
-                    phase_notes.append("trim rolled back (door check failed)")
+                    note("trim rolled back (%s)" % why)
         if opts["absorb"]:
             snapshot = list(work)
             action_snapshot = copy.deepcopy(actions)
-            if _absorb_pass(work, bounds, eps, actions):
+            if _absorb_pass(work, bounds, eps, actions,
+                            allowances=allowances):
                 if (_rects_overlap(work, eps)
                         or _void_metrics(work)[1] > eps
                         or not _doors_ok(work, door_reqs, eps)):
                     work[:] = snapshot
                     actions.clear()
                     actions.update(action_snapshot)
-                    phase_notes.append(
-                        "absorb rolled back (invariant check failed)")
-                else:
-                    moved = True
-        if not moved:
+                    note("absorb rolled back (invariant check failed)")
+        # The notch budget is judged AFTER absorb: trims transiently open
+        # space that absorption is meant to reclaim, and a plan may only
+        # keep a round whose residual notches stay buildable.
+        r_notch, _ = _void_metrics(work)
+        r_bbox = _bbox(work)
+        r_area = max((r_bbox[2] - r_bbox[0]) * (r_bbox[3] - r_bbox[1]), 1e-9)
+        if r_notch > r_area * max_notch:
+            work[:] = round_start
+            actions.clear()
+            actions.update(round_actions)
+            note("round rolled back (notches would exceed %d%% of the plan)"
+                 % round(max_notch * 100))
+            break
+        # Progress is a geometry question, not a bookkeeping one: a round
+        # whose phases were all rolled back must stop, or the next round
+        # re-attempts the identical doomed work.
+        if all(abs(a - b) <= 1e-9
+               for r0, r1 in zip(round_start, work)
+               for a, b in zip(r0, r1)):
             break
 
     issues_after = nbc_rules.plan_issues(_room_snapshot(work, names),
-                                         opts.get("rules"))
+                                         opts.get("rules"),
+                                         aspect_band=opts.get("aspect"))
     score_after = sum(10 if i["severity"] == "error" else 1
                       for i in issues_after)
 
-    # The one promise that outranks all heuristics: post-processing never
-    # makes a plan score worse. If the phases collectively did, ship the
-    # original geometry and say so.
-    if score_after > score_before:
-        work = [tuple(map(float, r)) for r in rects]
+    # The promise that outranks all heuristics: post-processing never makes
+    # any single room worse on any rulebook dimension, and never makes the
+    # plan-wide score worse. The per-room vector is the real gate (a plan
+    # total can improve while one room crosses its band); the integer score
+    # stays as a tiebreak for what the vector cannot see (area hierarchy).
+    vec_after = [_quality_vector(r, b) for r, b in zip(work, bounds)]
+    regressed = sorted({
+        str(names[i]) for i in range(len(names))
+        if any((not before) and after
+               for before, after in zip(vec_before[i], vec_after[i]))
+    })
+    if regressed or score_after > score_before:
+        work = list(start)
         actions.clear()
-        phase_notes.append("all changes reverted (rulebook score would have"
-                           " worsened %s -> %s)" % (score_before, score_after))
+        if regressed:
+            phase_notes.append(
+                "all changes reverted (%s would have regressed on a"
+                " rulebook limit)" % ", ".join(regressed))
+        else:
+            phase_notes.append(
+                "all changes reverted (rulebook score would have"
+                " worsened %s -> %s)" % (score_before, score_after))
         issues_after = list(issues_before)
         score_after = score_before
     notch_after, hole_after = _void_metrics(work)

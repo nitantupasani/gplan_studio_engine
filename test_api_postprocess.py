@@ -216,6 +216,24 @@ def t2_engine_inline():
     else:
         check("T2 no plan got worse", True)
 
+    # Aspect monotonicity: no phase may leave any room more slender than
+    # where it started or its type's band, whichever is looser.
+    monotone = True
+    for idx, report in enumerate(reports or []):
+        if report is None:
+            continue
+        for entry in report["rooms"]:
+            rule = nbc_rules.rule_for(entry["name"])
+            band = rule["max_aspect"] if rule else 3.0
+            allowed = max(entry["before"]["aspect"], band) * 1.02 + 1e-6
+            if entry["after"]["aspect"] > allowed:
+                monotone = False
+                print("     plan %d: %s aspect %.3f -> %.3f past %.3f"
+                      % (idx, entry["name"], entry["before"]["aspect"],
+                         entry["after"]["aspect"], allowed))
+    check("T2 no room ends more slender than it started or its band",
+          monotone)
+
     # Ceilings are best-effort: a room whose requested doors pin both ends of
     # its long side at the 2 ft minimum cannot shrink without severing a door,
     # and the post-processor must prefer the door. The contract is therefore:
@@ -346,6 +364,87 @@ def t6_door_requirements_duplicates():
           len(unresolvable) > 0, str(unresolvable))
 
 
+def t7_aspect_floors():
+    """Plan change A (2026-07-30): _axis_ceilings applied the aspect band on
+    the ceiling side only, so a trim could take the SHORT axis of a room and
+    leave it more slender than it started (measured: a 12x7 bathroom, over
+    area only, trimmed to 12x5.667 = 2.118:1 against a 2.0 band)."""
+    print("\nT7: aspect floors in _axis_ceilings and the short-axis trim")
+    from GPLAN.source.postprocessing.postprocess import (
+        _axis_ceilings, build_bounds)
+
+    # The documented 5x13 Toilet: the width floor must be 13/2.2 = 5.909,
+    # not the 3.5 NBC minimum, so the short-axis trim is unreachable.
+    bounds = build_bounds(["Toilet"], {"rules": None})[0]
+    tw, th = _axis_ceilings(bounds, 5, 13)
+    check("T7 toilet width floor is the aspect floor",
+          abs(tw - 13 / 2.2) < 1e-6, "tw=%s" % tw)
+    check("T7 toilet height ceiling is the area ceiling",
+          abs(th - 6.8) < 1e-6, "th=%s" % th)
+
+    # Square rooms: the span caps must not encode a landscape preference.
+    tw_sq, th_sq = _axis_ceilings(bounds, 6, 6)
+    check("T7 square room ceilings are symmetric", tw_sq == th_sq,
+          "%s vs %s" % (tw_sq, th_sq))
+
+    # The measured regression, as a fixture: Bathroom 12x7 pinched between
+    # neighbours E and W, open to the outside on its short axis only. Its
+    # sole violation is max_area; the trim must stop at the aspect floor
+    # (12x6, exactly the 2.0 band), never below it.
+    rects = [(10, 0, 22, 7), (0, 0, 10, 20), (22, 0, 32, 20), (10, 7, 22, 20)]
+    names = ["Bathroom", "Living Room", "Bedroom", "Kitchen"]
+    edges = [(0, 3), (1, 3), (2, 3)]
+    new_rects, report = postprocess_plan(rects, names, edges=edges)
+    bw = new_rects[0][2] - new_rects[0][0]
+    bh = new_rects[0][3] - new_rects[0][1]
+    aspect = max(bw, bh) / min(bw, bh)
+    check("T7 bathroom aspect never crosses its 2.0 band",
+          aspect <= 2.0 * 1.02, "%sx%s = %.3f:1" % (bw, bh, aspect))
+    created = [i for i in report["issues_after"]
+               if i["rule"] == "aspect" and i["room"] == "Bathroom"]
+    check("T7 no aspect issue was created for the bathroom", not created,
+          str(created))
+    check("T7 no interior holes", report["interior_hole_area"] <= 0.01)
+    check("T7 doors preserved", report["doors_preserved"])
+
+    # With repair off, only the trim path acts: the short-axis trim must
+    # stop at the 12/2.0 = 6.0 aspect floor, never at the 5.667 area target
+    # that produced the measured 2.118:1 bathroom.
+    trim_rects, trim_report = postprocess_plan(
+        rects, names, options={"repair": False}, edges=edges)
+    tw_ = trim_rects[0][2] - trim_rects[0][0]
+    th_ = trim_rects[0][3] - trim_rects[0][1]
+    check("T7 trim-only short axis stopped at the aspect floor",
+          min(tw_, th_) >= 6.0 - 1e-6, "%sx%s" % (tw_, th_))
+    check("T7 trim-only aspect at or inside the band",
+          max(tw_, th_) / min(tw_, th_) <= 2.0 + 1e-6,
+          "%sx%s" % (tw_, th_))
+
+
+def t8_rulebook_gaps():
+    """plan_issues gaps closed by change A: span ceilings now score, and a
+    caller-tightened aspect band is visible to the objective."""
+    print("\nT8: plan_issues span ceilings and caller aspect band")
+    span_issues = nbc_rules.plan_issues(
+        [{"name": "Toilet", "width": 5, "height": 13}])
+    check("T8 span ceiling breach is scored",
+          any(i["rule"] == "max_width" for i in span_issues),
+          str([i["rule"] for i in span_issues]))
+    inside = nbc_rules.plan_issues(
+        [{"name": "Toilet", "width": 4, "height": 6}])
+    check("T8 legal room raises no span issue",
+          not any(i["rule"] == "max_width" for i in inside), str(inside))
+
+    rooms = [{"name": "Study", "width": 7, "height": 13.3}]
+    base = nbc_rules.plan_issues(rooms)
+    tightened = nbc_rules.plan_issues(
+        rooms, aspect_band={"min": 1 / 1.8, "max": 1.8})
+    check("T8 1.9:1 study is legal against its own 2.0 band",
+          not any(i["rule"] == "aspect" for i in base), str(base))
+    check("T8 caller band 1.8 makes the same study score",
+          any(i["rule"] == "aspect" for i in tightened), str(tightened))
+
+
 def main():
     print("=" * 70)
     print("NBC post-processing tests")
@@ -356,6 +455,8 @@ def main():
     t4_options()
     t5_absorb_ceiling_regression()
     t6_door_requirements_duplicates()
+    t7_aspect_floors()
+    t8_rulebook_gaps()
     print("\n" + "=" * 70)
     print("%d passed, %d failed" % (len(PASSED), len(FAILED)))
     for name, detail in FAILED:
