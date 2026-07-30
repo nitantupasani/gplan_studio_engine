@@ -66,6 +66,8 @@ and dimensioning half of the engine, which is what keeps room sizes exact.
     ],
 
     "floorplans_per_variant": 5,
+    "max_floorplans": 30,              // TOTAL over every arrangement (default 30);
+                                       //   0 or negative lifts it
     "strictness": "relaxed",           // exact | relaxed | best_effort
     "max_boundaries_per_variant": 48,
     "time_budget_seconds": 900,
@@ -267,7 +269,8 @@ error dicts so the Celery state stays `SUCCESS`.
 | Interior/exterior constraints reject everything | `status: ok`, `variant_count: 0`, warning naming the pre-filter count |
 | A variant admits no layout at the exact sizes | that variant gets `status: "no_floorplan"` and a reason; the others still return |
 | Layout exceeds `plot_width`/`plot_height` | folds into the above. A tight plot is the **slowest** case, not the fastest, since every candidate is built and then rejected |
-| Wall-clock budget exhausted | remaining variants get `status: "skipped"`, `stats.truncated: true` |
+| Wall-clock budget exhausted | remaining variants get `status: "skipped"` with reason `"time budget exhausted"`, `stats.truncated: true` |
+| `max_floorplans` reached | arrangements past the cap get `status: "skipped"` with a cap reason, `stats.floorplan_cap_hit: true`, plus a warning. Counted separately from the time skips so the two are never confused |
 | Exception inside one variant | that variant gets `status: "error"` with the message; the others still return |
 
 ---
@@ -283,6 +286,7 @@ expensive part and it runs per candidate boundary.
 | `max_variants` | A backstop, not a display cap. Set it above the closure size or the BFS stops MID-LEVEL and returns an arbitrary slice of one depth. `stats.variant_cap_hit` plus a warning fires whenever it binds |
 | `max_boundaries_per_variant` | The boundary enumeration is `O(k^4)` in outer-cycle length when the CIP machinery finds no shortcuts; this caps it |
 | `floorplans_per_variant` | Stops each variant early once it has enough plans |
+| `max_floorplans` | Hard cap on the TOTAL, default 30, the same size catalogue `door_connectivity` returns. Spent breadth-first: every arrangement gets one plan before any gets a second, so it costs depth before it costs arrangements. Arrangements past the cap are never dimensioned at all, which is where it buys time back on a 4BHK. `stats.floorplan_cap_hit` plus a warning naming the emptied arrangements fires whenever it binds; set it to 0 for the whole set |
 | `time_budget_seconds` | Hard wall-clock stop, and the *real* bound at depth 2 for large programs. Variants are dimensioned base-first then by depth, so what gets skipped is always the most-mutated end of the set. Keep it at or below 900 so the Celery soft limit (1500 s) never fires first |
 
 ### Measured closure sizes (2026-07-30)

@@ -337,13 +337,71 @@ def test_variant_cap_is_reported():
         print(f"     skipped cap assertions: closure is only {total} variants")
 
 
+def test_total_floorplan_cap():
+    print("\nT9: the total floorplan cap binds, spreads, and is reported")
+    base = {"nodes": SIX_ROOM_NODES, "edges": SIX_ROOM_EDGES,
+            "preserve_input_edges": False, "max_depth": 2, "max_variants": 200,
+            "floorplans_per_variant": 5, "strictness": "best_effort"}
+
+    uncapped = call({**base, "max_floorplans": 0})["data"]
+    check("T9 uncapped run does not report a cap",
+          uncapped["stats"]["floorplan_cap_hit"] is False)
+    check("T9 uncapped run warns about no cap",
+          not any("max_floorplans" in w for w in uncapped["warnings"]),
+          "; ".join(uncapped["warnings"]))
+    available = uncapped["floorplan_count"]
+    producing = sum(1 for v in uncapped["variants"] if v["floorplan_count"] > 0)
+
+    if available <= 4:
+        print(f"     skipped cap assertions: only {available} plans available")
+        return
+
+    cap = max(2, producing // 2)
+    capped = call({**base, "max_floorplans": cap})["data"]
+    check("T9 a binding cap is reported in stats",
+          capped["stats"]["floorplan_cap_hit"] is True)
+    check("T9 a binding cap is warned about",
+          any("max_floorplans" in w or "floorplans in total" in w
+              for w in capped["warnings"]),
+          "; ".join(capped["warnings"]))
+    check("T9 the cap actually bounds the batch",
+          capped["floorplan_count"] <= cap,
+          f"got {capped['floorplan_count']} for a cap of {cap}")
+    check("T9 floorplan_count matches what was returned",
+          capped["floorplan_count"] == sum(len(v["floorplans"]) for v in capped["variants"]))
+    check("T9 every variant's count matches its list",
+          all(v["floorplan_count"] == len(v["floorplans"]) for v in capped["variants"]))
+
+    # The point of the round robin: spend the cap on breadth, not on every
+    # option of the first arrangement. Counts differing by at most one means no
+    # arrangement was left on zero while another kept a spare.
+    kept = [v["floorplan_count"] for v in capped["variants"] if v["floorplan_count"] > 0]
+    check("T9 the cap is spent breadth-first",
+          bool(kept) and max(kept) - min(kept) <= 1,
+          f"kept counts {sorted(kept, reverse=True)[:8]}")
+    check("T9 the cap fills as many arrangements as it can",
+          len(kept) == min(cap, producing),
+          f"{len(kept)} arrangements kept, cap {cap}, {producing} could produce")
+
+    # Time skips and cap skips share a status, so they must not share a reason:
+    # telling a user to raise time_budget_seconds for a cap is a dead end.
+    dropped = [v for v in capped["variants"] if v["floorplan_count"] == 0]
+    check("T9 dropped arrangements blame the cap, not the clock",
+          all("cap" in (v.get("reason") or "") or v["status"] != "skipped"
+              for v in dropped),
+          "; ".join(f"{v['status']}:{v.get('reason')}" for v in dropped[:3]))
+    check("T9 the cap does not report a time truncation",
+          capped["stats"]["truncated"] is False)
+
+
 def main():
     print("=" * 70)
     print("multi-PTPG pipeline tests")
     print("=" * 70)
     for test in (test_five_room_exact, test_variants_multiply, test_protected_edges,
                  test_strictness_ladder, test_validation_errors, test_plot_constraint,
-                 test_cardinal_constraints, test_variant_cap_is_reported):
+                 test_cardinal_constraints, test_variant_cap_is_reported,
+                 test_total_floorplan_cap):
         try:
             test()
         except Exception:

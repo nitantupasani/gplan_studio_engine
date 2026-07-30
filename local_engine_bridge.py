@@ -171,6 +171,7 @@ def generate_multi_ptpg():
               f"strictness={params.get('strictness', 'relaxed')} "
               f"max_variants={params.get('max_variants', 'default')} "
               f"max_depth={params.get('max_depth', 'default')} "
+              f"max_floorplans={params.get('max_floorplans', 'default')} "
               f"pins={len(pins)}")
         result = Documents.get_multi_ptpg_floorplans(body)
         data = result.get("data") or {}

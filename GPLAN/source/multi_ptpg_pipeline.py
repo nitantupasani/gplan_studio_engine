@@ -48,11 +48,65 @@ from GPLAN.source import ptpg_floorplanner as pfp
 
 DEFAULT_TIME_BUDGET = 900.0          # seconds; below the 1500 s Celery soft limit
 DEFAULT_FLOORPLANS_PER_VARIANT = 5
+# Total floorplans across ALL arrangements, matching door_connectivity's
+# FLOORPLAN_LIMIT so both generators hand the client the same size catalogue.
+# Set max_floorplans to 0 or a negative number to lift it.
+DEFAULT_MAX_FLOORPLANS = 30
 MAX_NODES = 40
 
 
 class MultiPTPGError(Exception):
     """Input that the pipeline cannot process at all."""
+
+
+def _apply_floorplan_cap(payloads, cap):
+    """Trim the batch to ``cap`` floorplans total, breadth-first.
+
+    Round-robin across arrangements, never first-come. One arrangement's FIRST
+    plan outranks another's second, so the cap costs depth inside an arrangement
+    before it costs whole arrangements: a 30-plan cap over 26 arrangements
+    returns all 26, four of them twice. Slicing the concatenated list instead
+    would return every option of the first handful and silently drop the rest of
+    the gallery, which is the same failure the old max_variants cap had.
+
+    Returns ``(total_kept, cap_hit, variants_emptied)``.
+    """
+    total = sum(len(p.get("floorplans") or []) for p in payloads)
+    if cap <= 0 or total <= cap:
+        return total, False, 0
+
+    keep = [0] * len(payloads)
+    remaining = cap
+    depth = 0
+    while remaining > 0:
+        progressed = False
+        for i, payload in enumerate(payloads):
+            plans = payload.get("floorplans") or []
+            if depth >= len(plans):
+                continue
+            progressed = True
+            keep[i] += 1
+            remaining -= 1
+            if remaining == 0:
+                break
+        if not progressed:
+            break
+        depth += 1
+
+    emptied = 0
+    for i, payload in enumerate(payloads):
+        plans = payload.get("floorplans") or []
+        if not plans or keep[i] == len(plans):
+            continue
+        payload["floorplans"] = plans[:keep[i]]
+        payload["floorplan_count"] = keep[i]
+        if keep[i] == 0:
+            emptied += 1
+            payload["status"] = "skipped"
+            payload["reason"] = (
+                f"the {cap}-floorplan cap was filled by other arrangements"
+            )
+    return cap - remaining, True, emptied
 
 
 def _positions_from_embedding(G, outer_cycle=None, scale=100.0):
@@ -212,6 +266,7 @@ def generate_multi_ptpg_floorplans(params):
     max_variants = int(params.get("max_variants", mptpg.DEFAULT_MAX_VARIANTS))
     max_depth = int(params.get("max_depth", mptpg.DEFAULT_MAX_DEPTH))
     per_variant = int(params.get("floorplans_per_variant", DEFAULT_FLOORPLANS_PER_VARIANT))
+    max_floorplans = int(params.get("max_floorplans", DEFAULT_MAX_FLOORPLANS))
     max_boundaries = int(params.get("max_boundaries_per_variant", pfp.DEFAULT_MAX_BOUNDARIES))
     strictness = params.get("strictness", "relaxed")
     if strictness not in pfp.STRICTNESS_LEVELS:
@@ -371,15 +426,33 @@ def generate_multi_ptpg_floorplans(params):
     node_ids = sorted(G_base.nodes())
 
     def dimension_all(pins):
-        """Dimension every variant, honouring ``pins``. Returns (payloads, plans, truncated)."""
+        """Dimension every variant, honouring ``pins``.
+
+        Returns ``(payloads, plans, truncated, cap_info)``.
+        """
         payloads = []
-        plan_total = 0
         cut_short = False
+        placed = 0          # arrangements that produced at least one floorplan
+        cap_skipped = 0     # arrangements never attempted because the cap was full
         for variant_id, var in enumerate(variants):
             H = var["graph"]
             positions = _positions_from_embedding(H, outer_cycle=var.get("outer_cycle"))
             payload = _variant_payload(var, base_edges, variant_id, positions)
             payload["cardinal_satisfied"] = None if not pins else False
+
+            # Once that many arrangements have a plan each, the round-robin cap
+            # is already full at depth 1 and nothing a further arrangement
+            # produces could survive it. Skipping the dimensioning outright is
+            # where the cap buys its time back: a 4BHK enumerates 107
+            # arrangements and only the first 30 are worth laying out.
+            if 0 < max_floorplans <= placed:
+                payload.update(status="skipped",
+                               reason=(f"the {max_floorplans}-floorplan cap was already "
+                                       "filled by earlier arrangements"),
+                               floorplan_count=0, floorplans=[])
+                payloads.append(payload)
+                cap_skipped += 1
+                continue
 
             if time.monotonic() > deadline:
                 payload.update(status="skipped", reason="time budget exhausted",
@@ -411,7 +484,8 @@ def generate_multi_ptpg_floorplans(params):
 
             serialized = [p.to_dict(edges=variant_edges, room_names=room_names)
                           for p in plans]
-            plan_total += len(serialized)
+            if serialized:
+                placed += 1
             # generate_floorplans gates on the pins, so anything it returned
             # satisfies them; say so per plan rather than making the client
             # re-derive it from geometry.
@@ -430,19 +504,26 @@ def generate_multi_ptpg_floorplans(params):
                 floorplans=serialized,
             )
             payloads.append(payload)
-        return payloads, plan_total, cut_short
 
-    variant_payloads, total_plans, truncated = dimension_all(cardinal_pairs)
+        plan_total, fp_cap_hit, cap_emptied = _apply_floorplan_cap(payloads, max_floorplans)
+        cap_info = {
+            "hit": fp_cap_hit or cap_skipped > 0,
+            "variants_emptied": cap_emptied,
+            "variants_skipped": cap_skipped,
+        }
+        return payloads, plan_total, cut_short, cap_info
+
+    variant_payloads, total_plans, truncated, cap_info = dimension_all(cardinal_pairs)
 
     # Relaxation ladder, mirroring door_connectivity's: pins outrank nothing if
     # they make the whole request empty. Retry unpinned and SAY the pins were
     # ignored, rather than returning an empty gallery or pretending they held.
     cardinal_ignored = False
     if cardinal_pairs and total_plans == 0 and time.monotonic() < deadline:
-        retry_payloads, retry_plans, retry_truncated = dimension_all([])
+        retry_payloads, retry_plans, retry_truncated, retry_cap = dimension_all([])
         if retry_plans > 0:
-            variant_payloads, total_plans, truncated = (
-                retry_payloads, retry_plans, retry_truncated or truncated)
+            variant_payloads, total_plans, truncated, cap_info = (
+                retry_payloads, retry_plans, retry_truncated or truncated, retry_cap)
             cardinal_ignored = True
             asked = ", ".join(f"{c['name']} {c['direction']}"
                               for c in _cardinal_payload(cardinal_pairs, room_names))
@@ -456,13 +537,30 @@ def generate_multi_ptpg_floorplans(params):
     # out of it is a normal outcome and must be stated. Variants are dimensioned
     # base-first then by depth, so what gets skipped is always the most-mutated
     # end of the set - the arrangements furthest from what the user drew.
-    skipped = sum(1 for p in variant_payloads if p.get("status") == "skipped")
+    # Count only the arrangements TIME dropped: the cap marks its own skips with
+    # the same status, and blaming those on the clock would send the user off to
+    # raise time_budget_seconds for a limit that has nothing to do with it.
+    skipped = sum(1 for p in variant_payloads
+                  if p.get("status") == "skipped"
+                  and p.get("reason") == "time budget exhausted")
     if truncated and skipped:
         warnings.append(
             f"the {time_budget:.0f}s time budget ran out with {skipped} of "
             f"{len(variant_payloads)} arrangements not yet laid out; they are the "
             "ones furthest from the graph you drew. Raise time_budget_seconds or "
             "lower max_depth to cover them"
+        )
+
+    # No silent caps on this endpoint. Say the batch was cut and to what, so a
+    # 30-plan catalogue never reads as everything the brief admits.
+    cap_lost = cap_info["variants_emptied"] + cap_info["variants_skipped"]
+    if cap_info["hit"]:
+        warnings.append(
+            f"the batch was capped at {max_floorplans} floorplans in total"
+            + (f", so {cap_lost} of {len(variant_payloads)} arrangements returned "
+               "none; plans are spread one per arrangement before any arrangement "
+               "gets a second" if cap_lost else "")
+            + ". Raise max_floorplans, or set it to 0, for the whole set"
         )
 
     return {
@@ -504,6 +602,10 @@ def generate_multi_ptpg_floorplans(params):
             "max_variants": max_variants,
             "max_depth": max_depth,
             "variant_cap_hit": bool(cap_hit),
+            "max_floorplans": max_floorplans,
+            "floorplan_cap_hit": bool(cap_info["hit"]),
+            "variants_emptied_by_floorplan_cap": cap_info["variants_emptied"],
+            "variants_skipped_by_floorplan_cap": cap_info["variants_skipped"],
             "elapsed_seconds": round(time.monotonic() - started, 3),
             "truncated": truncated,
         },
