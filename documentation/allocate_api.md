@@ -143,14 +143,23 @@ min-dim solver reads exactly four lengths per room and cannot use area:
 - NBC post-processing: a request area cap tightens (never loosens) the
   rulebook's own cap via `build_bounds(user_min_a, user_max_a)`.
 
-The designer sends the ALLOCATED `target_width`/`target_height` as the
-per-node minimums (the solver minimises, so the minimums are what size
-rooms), the allocation's rect ceilings as maxima, the allocation's
-`min_area`/`max_area`, and `postProcessEnabled: true`, so cap and aspect
-enforcement runs engine-side on the whole batch.
+**Correction to the plan's mechanism, from measurement (2026-07-30).**
+Section 4.7 of the plan proposed sending the ALLOCATED targets as the
+solver minimums. Measured on the shipped 2BHK against the bridge, that is
+worse on every axis: 12 plans with bounding boxes 1.26x-1.88x of the plot,
+because a gapless tiling needs slack over the sum of its minimums (the
+same stacking argument as plan Section 2.5 correction 2) and budget-sized
+minimums double-count that slack. What the designer actually sends is its
+existing band() minimums plus the allocation's ENVELOPE: area-capped rect
+ceilings as the per-node maxima, `min_area`/`max_area`, the aspect cap,
+and `postProcessEnabled: true`. The tier hierarchy still holds because
+`_fill_gaps` hands slack to the largest headroom first and the real area
+caps stop every room at its NBC ceiling.
 
 Measured on the shipped defaults against the bridge (2026-07-30, baseline
-= pre-allocator): 2BHK engine batch holds at 30 plans with **12 free of
-any hard rulebook error** (baseline 0 of 30); 3BHK 9 -> 2 plans (its
-sparse 10-room/10-edge graph is the known out-of-scope root cause); 4BHK
-25 plans, 0 error-free (same graph problem).
+= pre-allocator): 2BHK **29 plans shown, all 29 free of any hard rulebook
+error, at 0.91x-1.22x of the plot** (baseline 30 shown, 0 error-free;
+allocated-targets-as-minimums variant: 12 shown, 12 error-free, 1.26x-1.88x
+oversized). 3BHK 9 -> 2 plans (its sparse 10-room/10-edge graph is the
+known out-of-scope root cause); 4BHK 25 plans, 0 error-free (same graph
+problem).
