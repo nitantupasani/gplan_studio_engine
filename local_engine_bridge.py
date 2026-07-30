@@ -78,7 +78,8 @@ def _prepare(data, shape):
     max_dim_enabled = data.get("maxDimEnabled", False)
     dim_inputs = {
         "min_width": [], "max_width": [], "min_height": [], "max_height": [],
-        "min_ratio": [], "max_ratio": [], "plot_width": -1, "plot_height": -1,
+        "min_ratio": [], "max_ratio": [], "min_area": [], "max_area": [],
+        "plot_width": -1, "plot_height": -1,
         "symmetric": False, "optimal_floorplan": 0, "rotation_enabled": 1,
     }
     # minDim: client dims are minimums only, so max stays open unless the client
@@ -91,6 +92,11 @@ def _prepare(data, shape):
                 dim_inputs["min_width"].append(node["width"].get("min", default_min) or default_min)
                 dim_inputs["max_width"].append(
                     99999 if open_max else (node["width"].get("max", 99999) or 99999))
+                # explicit per-room area rule, index-aligned with the width
+                # arrays; same maxDimEnabled opt-in as the span ceilings
+                dim_inputs["min_area"].append(node.get("min_area") or 0)
+                dim_inputs["max_area"].append(
+                    0 if open_max else (node.get("max_area") or 0))
             if node.get("height") is not None:
                 dim_inputs["min_height"].append(node["height"].get("min", default_min) or default_min)
                 dim_inputs["max_height"].append(

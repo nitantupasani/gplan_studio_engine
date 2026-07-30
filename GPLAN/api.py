@@ -490,6 +490,8 @@ def _room_bounds(ui, count):
     maxh = col(params.get_max_height, 99999.0)
     minr = col(params.get_min_aspect_ratio, 0.0)
     maxr = col(params.get_max_aspect_ratio, 0.0)
+    mina = col(lambda: params.get_min_area() if hasattr(params, "get_min_area") else [], 0.0)
+    maxa = col(lambda: params.get_max_area() if hasattr(params, "get_max_area") else [], 0.0)
     if not minw or not minh:
         return None
 
@@ -518,10 +520,20 @@ def _room_bounds(ui, count):
         ratio = at(maxr, i, 0.0)
         aspect = ratio if ratio and 1.0 <= ratio < 99999 else _INF
         lo_ratio = at(minr, i, 0.0)
+        # Explicit area rule when the request carries one; the span product
+        # is only the fallback (it runs 1.04x-1.42x looser than NBC for
+        # every room type, which is why max_area exists as its own field).
+        span_area_cap = (hw * hh) if (hw < _INF and hh < _INF) else _INF
+        req_max_area = at(maxa, i, 0.0)
+        max_area = min(span_area_cap, req_max_area) \
+            if 0 < req_max_area < 99999 else span_area_cap
+        req_min_area = at(mina, i, 0.0)
+        min_area = max(lw * lh, req_min_area) \
+            if 0 < req_min_area < 99999 else lw * lh
         entry = {
             "minw": lw, "minh": lh, "maxw": hw, "maxh": hh,
-            "minarea": lw * lh,
-            "maxarea": (hw * hh) if (hw < _INF and hh < _INF) else _INF,
+            "minarea": min_area,
+            "maxarea": max(max_area, min_area),
             "aspect": aspect,
         }
         if aspect < _INF and 0.0 < lo_ratio < 1.0:
@@ -685,6 +697,8 @@ def _room_size_caps(ui, count):
         return None
     max_w = params.get_max_width() or []
     max_h = params.get_max_height() or []
+    max_a = (params.get_max_area() or []) \
+        if hasattr(params, "get_max_area") else []
     if not max_w or not max_h:
         return None
 
@@ -700,8 +714,17 @@ def _room_size_caps(ui, count):
     caps = []
     for i in range(count):
         w, h = value(max_w, i), value(max_h, i)
-        # Dummy rooms from separating-triangle removal have no entry: leave open.
-        caps.append(None if w is None or h is None else (max(w, h), w * h))
+        if w is None or h is None:
+            # Dummy rooms from separating-triangle removal have no entry:
+            # leave open.
+            caps.append(None)
+            continue
+        # The explicit per-room area rule wins over the span product when
+        # the request carries one (the product is 1.04x-1.42x looser than
+        # NBC for every room type).
+        area_cap = value(max_a, i)
+        caps.append((max(w, h),
+                     min(w * h, area_cap) if area_cap else w * h))
     return caps if any(c is not None for c in caps) else None
 
 
@@ -1268,7 +1291,7 @@ class Documents:
             # min_ratio/max_ratio ride along for the post-solve band
             # (_room_bounds / repair_dimensions / post-processing). The min-dim
             # SOLVER still ignores them; see minimum_dimensioning.input_constraints.
-            dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'],max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], min_ratio=dim_inputs.get('min_ratio', []), max_ratio=dim_inputs.get('max_ratio', []), plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], isOptimalEnabled=dim_inputs['optimal_floorplan'],isRotationAllowed = dim_inputs['rotation_enabled'])
+            dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'],max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], min_ratio=dim_inputs.get('min_ratio', []), max_ratio=dim_inputs.get('max_ratio', []), min_area=dim_inputs.get('min_area', []), max_area=dim_inputs.get('max_area', []), plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], isOptimalEnabled=dim_inputs['optimal_floorplan'],isRotationAllowed = dim_inputs['rotation_enabled'])
         elif dimensioned:
             dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'], max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], min_ratio=dim_inputs['min_ratio'], max_ratio=dim_inputs['max_ratio'], plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], symmetric=dim_inputs['symmetric'], isOptimalEnabled=dim_inputs['optimal_floorplan'])
         ui = GuiParameters(graph=graph).set_isDimensioned(dimensioned).set_isDimensionedCirculation(

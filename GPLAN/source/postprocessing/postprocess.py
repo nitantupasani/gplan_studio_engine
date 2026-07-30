@@ -192,13 +192,16 @@ def _void_metrics(rects):
 # ---------------------------------------------------------------------------
 
 def build_bounds(names, opts, user_min_w=None, user_min_h=None,
-                 user_max_w=None, user_max_h=None):
+                 user_max_w=None, user_max_h=None,
+                 user_min_a=None, user_max_a=None):
     """Per-room bound dicts driving all three phases.
 
     Orientation-agnostic on purpose: the engine's rotation pass may have
     swapped a plan's axes, so NBC W x H pairs are applied as (short, long)
     ceilings/floors, and user per-axis minimums collapse to their smaller
-    value as the trim floor.
+    value as the trim floor. `user_min_a`/`user_max_a` are the request's
+    explicit per-room area rule; a user area cap tightens the NBC one,
+    never loosens it.
     """
     overrides = opts.get("rules")
     aspect_override = opts.get("aspect") or {}
@@ -247,6 +250,13 @@ def build_bounds(names, opts, user_min_w=None, user_min_h=None,
         cap_long = max(cap_long, cap_short, floor_long)
         max_area = float(rule["max_area"])
         min_area = float(rule["min_area"]) if known else 0.0
+        uxa = user_at(user_max_a, i)
+        if uxa is not None:
+            max_area = min(max_area, uxa)
+        uma = user_at(user_min_a, i)
+        if uma is not None:
+            min_area = max(min_area, uma)
+        max_area = max(max_area, min_area)
         bounds.append({
             # keys consumed by api._axis_targets / repair_dimensions:
             "minw": floor_short, "minh": floor_short,
@@ -701,7 +711,8 @@ def _room_snapshot(rects, names):
 
 def postprocess_plan(rects, names, options=None, edges=None,
                      user_min_w=None, user_min_h=None,
-                     user_max_w=None, user_max_h=None):
+                     user_max_w=None, user_max_h=None,
+                     user_min_a=None, user_max_a=None):
     """Post-process one plan. Returns (new_rects, report).
 
     rects  : [(x0, y0, x1, y1), ...] axis-aligned, non-overlapping, feet.
@@ -715,7 +726,8 @@ def postprocess_plan(rects, names, options=None, edges=None,
     work = [tuple(map(float, r)) for r in rects]
     start = list(work)
     bounds = build_bounds(names, opts, user_min_w, user_min_h,
-                          user_max_w, user_max_h)
+                          user_max_w, user_max_h,
+                          user_min_a, user_max_a)
     door_reqs = build_door_requirements(
         work, names, edges, float(opts["min_door_overlap"]), eps)
 
@@ -964,6 +976,10 @@ def postprocess_ui_output(ui, nodes_list, edges_list, options, plan_count,
     user_min_h = col(lambda: params.get_min_height())
     user_max_w = col(lambda: params.get_max_width())
     user_max_h = col(lambda: params.get_max_height())
+    user_min_a = col(lambda: params.get_min_area()
+                     if hasattr(params, "get_min_area") else None)
+    user_max_a = col(lambda: params.get_max_area()
+                     if hasattr(params, "get_max_area") else None)
 
     reports = []
     for index in range(min(plan_count, len(plans))):
@@ -988,7 +1004,8 @@ def postprocess_ui_output(ui, nodes_list, edges_list, options, plan_count,
         new_rects, report = postprocess_plan(
             rects, names, options, edges=door_edges,
             user_min_w=user_min_w, user_min_h=user_min_h,
-            user_max_w=user_max_w, user_max_h=user_max_h)
+            user_max_w=user_max_w, user_max_h=user_max_h,
+            user_min_a=user_min_a, user_max_a=user_max_a)
         if report["changed"]:
             saved = (plan.final_traversal, plan.room_width, plan.room_height,
                      plan.area,

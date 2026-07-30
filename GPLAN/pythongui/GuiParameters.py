@@ -17,12 +17,14 @@ class DimParameters:
     __max_height: list
     __min_ratio: list
     __max_ratio: list
+    __min_area: list
+    __max_area: list
     __plot_height: float
     __plot_width: float
     __symmetric: bool
     __isOptimalEnabled: int
     __isRotationAllowed: int
-    def __init__(self, min_width, max_width, plot_height, plot_width,isOptimalEnabled,isRotationAllowed = 1,symmetric = False, min_height = [], max_height = [], min_ratio = [], max_ratio = []):
+    def __init__(self, min_width, max_width, plot_height, plot_width,isOptimalEnabled,isRotationAllowed = 1,symmetric = False, min_height = [], max_height = [], min_ratio = [], max_ratio = [], min_area = [], max_area = []):
         self.__isOptimalEnabled = isOptimalEnabled
         self.__isRotationAllowed = isRotationAllowed
         self.__min_width = min_width
@@ -33,6 +35,14 @@ class DimParameters:
         self.__max_height = max_height
         self.__min_ratio = min_ratio
         self.__max_ratio = max_ratio
+        # Per-room area rule (sqft). The min-dim SOLVER cannot use area (it
+        # reads exactly four lengths per room); these drive the post-solve
+        # layers only: _room_size_caps (gap-fill limits), _room_bounds
+        # (repair_dimensions bands) and NBC post-processing. Without an
+        # explicit max_area the only area cap is max_width * max_height,
+        # which is 1.04x-1.42x looser than NBC for every room type.
+        self.__min_area = min_area
+        self.__max_area = max_area
         # block_checker() splits this on ',', so it has to be a string. The API
         # layer defaults symmetric to the boolean False (views.py, and
         # local_engine_bridge.py), so anything that is not a string is stored as
@@ -99,6 +109,18 @@ class DimParameters:
 
     def set_max_aspect_ratio(self, value):
         self.__max_ratio = value
+
+    def get_min_area(self):
+        return self.__min_area
+
+    def set_min_area(self, value):
+        self.__min_area = value
+
+    def get_max_area(self):
+        return self.__max_area
+
+    def set_max_area(self, value):
+        self.__max_area = value
 
     def get_symmetric(self):
         return self.__symmetric

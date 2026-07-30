@@ -124,3 +124,33 @@ product decision), and the response adds:
 `test_allocator.py` (32 checks) pins the plan 4.6 worked example to 0.1 sqft
 and the acceptance properties: totals, envelope respect, monotonicity in plot
 area, the infeasible report, tier_share, validation, speed.
+
+## Wired into generation (change B part 2, 2026-07-30)
+
+The door_connectivity generate request now accepts NEW per-node `min_area` /
+`max_area` fields (sqft, flat numbers beside the `width`/`height` bands;
+same `maxDimEnabled` opt-in as the span ceilings). They travel
+`views.py` / `local_engine_bridge.py` -> `dim_inputs` -> `DimParameters`
+(`get_min_area`/`get_max_area`) and drive the POST-SOLVE layers only - the
+min-dim solver reads exactly four lengths per room and cannot use area:
+
+- `api._room_size_caps`: the gap-fill area cap is
+  `min(max_w * max_h, max_area)` instead of the bare span product
+  (1.04x-1.42x looser than NBC for every room type);
+- `api._room_bounds`: `repair_dimensions` bands take the explicit rule
+  (`minarea = max(min_w * min_h, min_area)`, `maxarea = min(product,
+  max_area)`);
+- NBC post-processing: a request area cap tightens (never loosens) the
+  rulebook's own cap via `build_bounds(user_min_a, user_max_a)`.
+
+The designer sends the ALLOCATED `target_width`/`target_height` as the
+per-node minimums (the solver minimises, so the minimums are what size
+rooms), the allocation's rect ceilings as maxima, the allocation's
+`min_area`/`max_area`, and `postProcessEnabled: true`, so cap and aspect
+enforcement runs engine-side on the whole batch.
+
+Measured on the shipped defaults against the bridge (2026-07-30, baseline
+= pre-allocator): 2BHK engine batch holds at 30 plans with **12 free of
+any hard rulebook error** (baseline 0 of 30); 3BHK 9 -> 2 plans (its
+sparse 10-room/10-edge graph is the known out-of-scope root cause); 4BHK
+25 plans, 0 error-free (same graph problem).
