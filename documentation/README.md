@@ -18,14 +18,21 @@ Restored web-API docs:
 - [ga_optimization_api.md](ga_optimization_api.md)
 - [postprocess_api.md](postprocess_api.md) - NBC post-processing of dimensioned
   floorplans (aspect bands + service-room ceilings, notched outlines allowed)
+- [allocate_api.md](allocate_api.md) - the area-budget allocator behind
+  `POST /api/allocate`: per-room size envelopes that sum to the plot, tiered
+  surplus distribution, clear-floor-to-rectangle wall allowance
 
-Implementation plans (written, not yet built):
+Implementation plans:
 - [plans/DOOR_CONNECTIVITY_SIZING_AND_POSTPROCESS_PLAN.md](plans/DOOR_CONNECTIVITY_SIZING_AND_POSTPROCESS_PLAN.md) -
   how room size should be decided on the door_connectivity path: an area-budget
   allocator, an aspect-preserving post-processor, centre-in-plot, and a frontend
   constraints UI. Read sections 2 and 3 before touching dimensioning: they record
   measured facts that contradict several docstrings, including that 23 of 24 NBC
   ceilings are inert in the min-dim solver and that the aspect band never reaches it.
+  Implementation status (2026-07-30): change A (aspect-safe post-processing) and
+  change B part 1 (the allocator + endpoint, [allocate_api.md](allocate_api.md))
+  are built and verified; the plan's Section 9 acceptance numbers are recorded in
+  the commit messages.
 
 Handover docs for new maintainers:
 1. [contribution_workflow.md](contribution_workflow.md)

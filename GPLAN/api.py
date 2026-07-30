@@ -1598,6 +1598,48 @@ class Documents:
         return response, message
 
     @staticmethod
+    def allocate_program(request_data):
+        """Area-budget allocation preview: the size envelope generation will
+        use, without generating anything. Synchronous and pure (no solver).
+
+        Request:
+          {"rooms": [{"name", optional clear-feet overrides
+                      min_width/min_height/max_width/max_height}, ...],
+           "plot_width": 36, "plot_height": 28,
+           "wall_allowance_ft": 0.4,          # optional
+           "tier_share": [1.0, 1.0, 1.0]}     # optional
+
+        Returns (response_dict, message); response_dict is
+        {"allocation": {...}} - see source/dimensioning/allocator.allocate.
+        Raises ValueError (a 400 at the view) for a malformed program, e.g.
+        a user maximum below the NBC minimum.
+        """
+        from GPLAN.source.dimensioning.allocator import allocate
+
+        data = request_data or {}
+        allocation = allocate(
+            data.get("rooms"),
+            data.get("plot_width"),
+            data.get("plot_height"),
+            wall_allowance_ft=data.get("wall_allowance_ft"),
+            tier_share=data.get("tier_share"),
+        )
+        if allocation["fits"]:
+            message = ("Allocated %d rooms across %s sqft;"
+                       " %s sqft of surplus distributed."
+                       % (len(allocation["rooms"]),
+                          allocation["plot"]["area"],
+                          allocation["surplus"]))
+        else:
+            message = ("Program minimum %s sqft exceeds the %s sqft plot by"
+                       " %s sqft; every room is at its minimum and generation"
+                       " will overflow the plot."
+                       % (allocation["program_min_area"],
+                          allocation["plot"]["area"],
+                          allocation["shortfall_sqft"]))
+        return {"allocation": allocation}, message
+
+    @staticmethod
     def get_space_optimized_floorplan(request_data):
         """
         Generate a space-optimized floorplan using the negNew FloorPlan engine.

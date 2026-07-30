@@ -12,6 +12,7 @@ Frontend: GPLAN_LOCAL_ENGINE=1 npm run dev             (designer repo)
 Endpoints:
     POST /api/generate/<shape>       run Documents.get_floorplans, return task id
     POST /api/postprocess/floorplans NBC post-processing, synchronous 200
+    POST /api/allocate               area-budget allocation, synchronous 200
     GET  /api/task/<task_id>/        return the stored result
     POST /users/auth/token/refresh/  dummy token so the frontend auth flow passes
     POST /api/v1/authentication/login/  same
@@ -147,6 +148,30 @@ def postprocess_floorplans():
                       if r and r.get("changed"))
         print(f"[bridge] postprocess: {changed}/{len(plans)} plans adjusted")
         return jsonify({"message": message, "response": response}), 200
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({"status": "error", "data": {},
+                        "error": {"message": str(exc),
+                                  "type": type(exc).__name__}}), 500
+
+
+@app.post("/api/allocate")
+def allocate_program():
+    """Local stand-in for the Django allocation endpoint. Synchronous like
+    the real one: pure arithmetic, 200 with the result directly; semantic
+    problems (ValueError) come back as the same 400 envelope."""
+    try:
+        body = request.get_json(force=True) or {}
+        response, message = Documents.allocate_program(body)
+        alloc = response["allocation"]
+        print(f"[bridge] allocate: {len(alloc['rooms'])} rooms, "
+              f"plot {alloc['plot']['width']}x{alloc['plot']['height']}, "
+              f"fits={alloc['fits']}")
+        return jsonify({"message": message, "response": response}), 200
+    except ValueError as exc:
+        return jsonify({"status": "error", "data": {},
+                        "error": {"message": str(exc),
+                                  "type": "ValidationError"}}), 400
     except Exception as exc:
         traceback.print_exc()
         return jsonify({"status": "error", "data": {},
