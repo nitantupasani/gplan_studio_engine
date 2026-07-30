@@ -55,12 +55,15 @@ and dimensioning half of the engine, which is what keeps room sizes exact.
     "plot_width": -1,                  // -1 = unconstrained; a reject filter, not a driver
     "plot_height": -1,
 
-    "max_variants": 40,                // hard cap on variants returned
-    "max_depth": 3,                    // BFS depth over the transformations
+    "max_variants": 200,               // cap on variants returned (default 200)
+    "max_depth": 2,                    // BFS depth over the transformations
     "preserve_input_edges": true,      // protect every requested adjacency
     "protected_edges": [[0, 1]],       // overrides the flag: protect only these
     "interior_rooms": [],              // must NOT sit on the outer face
     "exterior_rooms": [],              // must sit on the outer face
+    "cardinal_constraints": [          // N/E/S/W pins, same shape as
+      {"room": 0, "direction": "N"}    //   door_connectivity's
+    ],
 
     "floorplans_per_variant": 5,
     "strictness": "relaxed",           // exact | relaxed | best_effort
@@ -103,6 +106,48 @@ edge protects everything and the search cannot leave the base graph. With
 Prefer `protected_edges`: name only the two or three adjacencies that genuinely matter
 (kitchen next to dining, say) and let the rest be rearranged. `protected_edges` takes
 precedence over `preserve_input_edges` whenever it is present.
+
+### `cardinal_constraints` (N/E/S/W pins)
+
+Same wire format as `door_connectivity`'s, normalized by the same
+`GPLAN.api.normalize_cardinal_constraints`, so a client builds one payload for both
+endpoints. Pins apply at two levels, and both are needed:
+
+1. **Variant pruning.** A pinned room must be on the outer face, so any variant that
+   buries it in the interior is dropped before it is dimensioned. This is where most of
+   the work happens: on the shipped 8-room 2BHK, pinning the Kitchen east drops 13 of
+   the 26 arrangements outright.
+2. **Geometric gating.** Every placed layout is then verified, because the boundary arcs
+   are a topological assignment and only the rectangles are the truth. The gate runs
+   inside the candidate loop, so `floorplans_per_variant` counts *satisfying* layouts
+   instead of filling with violating ones a client would have to discard.
+
+The test is "exterior-facing, and the gap to the bounds is a recess, not a void". The
+strip test alone (`GPLAN.api.plan_satisfies_cardinal`) is right for `door_connectivity`'s
+gapless tilings, but `relaxed`/`best_effort` layouts here contain real empty space, and
+across a void it passes a room nowhere near that side: a 4x6 toilet 11 ft short of the
+north edge counted as north-facing. The recess allowance is therefore the smallest room
+dimension in the layout, on the principle that a gap which could hold a room is a void.
+
+Note the frame flip. `FloorplanResult.room_rects` puts **y=0 at the bottom**, so N is the
+high-y side here, the opposite of the y-down frame `GPLAN.api.plan_satisfies_cardinal`
+reads. `GPLAN.source.ptpg_floorplanner.plan_satisfies_cardinal` is the y-up version.
+
+If nothing in the whole request can honour the pins the endpoint retries unpinned and
+returns those plans with `data.cardinal.ignored: true` plus a warning naming the pins it
+could not place. It never returns an empty gallery and never silently unpins.
+
+```jsonc
+"cardinal": {
+  "requested": [{"room": 2, "name": "Kitchen", "direction": "E"}],
+  "applied": true,      // pins were enforced on every returned plan
+  "ignored": false      // true = no arrangement could honour them
+}
+```
+
+Per variant: `cardinal_satisfied` is `true`/`false`, or `null` when no pins were sent.
+Per plan: `cardinal_satisfied` mirrors it. `stats.variants_dropped_by_cardinal` counts
+step 1's prunes.
 
 ---
 
@@ -234,14 +279,40 @@ expensive part and it runs per candidate boundary.
 
 | Knob | Effect |
 |---|---|
-| `max_variants`, `max_depth` | Linear in variants. The reachable variant set is exponential in the number of flippable 4-cycles, which is why both caps exist |
+| `max_depth` | **The lever that matters.** Each level multiplies the variant count and costs one more of the user's adjacencies. Default 2 |
+| `max_variants` | A backstop, not a display cap. Set it above the closure size or the BFS stops MID-LEVEL and returns an arbitrary slice of one depth. `stats.variant_cap_hit` plus a warning fires whenever it binds |
 | `max_boundaries_per_variant` | The boundary enumeration is `O(k^4)` in outer-cycle length when the CIP machinery finds no shortcuts; this caps it |
 | `floorplans_per_variant` | Stops each variant early once it has enough plans |
-| `time_budget_seconds` | Hard wall-clock stop. Keep it at or below 900 so the Celery soft limit (1500 s) never fires first |
+| `time_budget_seconds` | Hard wall-clock stop, and the *real* bound at depth 2 for large programs. Variants are dimensioned base-first then by depth, so what gets skipped is always the most-mutated end of the set. Keep it at or below 900 so the Celery soft limit (1500 s) never fires first |
 
-Measured: a 5-room graph completes in about 0.03 s; a 6-room graph with
-`preserve_input_edges: false`, `max_variants: 12`, `max_depth: 2` returns 9 variants and
-10 floorplans in about 2 s.
+### Measured closure sizes (2026-07-30)
+
+Node counts are after `door_connectivity`; the shipped frontend programs at
+`preserve_input_edges: false`.
+
+| Program | Rooms | Base edges | depth 1 | depth 2 | depth 3 | depth 4 |
+|---|---|---|---|---|---|---|
+| 2BHK | 8 | 15 (8 drawn + 7 added) | 6 | **26** | 111 | 351 |
+| 3BHK | 10 | 19 | 8 | **41** | 185 | 671 |
+| 4BHK | 12 | 24 | 14 | **107** | 616 | 2842 |
+
+Enumeration is nearly free (0.02-0.8 s). Dimensioning is not: 0.6 s per variant on the
+2BHK, 1.4 s on the 3BHK, 2.0 s on the 4BHK, and roughly double those when `relaxed`
+returns nothing and the `best_effort` pass also runs. Hence `max_variants: 200` and
+`max_depth: 2` as defaults: 200 covers the complete depth-2 closure for every shipped
+program, and depth 3 fits no interactive budget.
+
+End to end at the frontend's `time_budget_seconds: 240`, `best_effort`, one E pin:
+
+| Program | Arrangements | Plans | Time | Outcome |
+|---|---|---|---|---|
+| 2BHK | 13 (of 26; 13 pruned by the pin) | 18 | 14 s | complete |
+| 3BHK | 41 | 49 | 76 s | complete |
+| 4BHK | 107 | 90 | 240 s | 24 arrangements skipped, reported in `warnings` |
+
+The old defaults were `max_variants: 40`, `max_depth: 3`, and the frontend sent 12. Both
+could only ever return a truncated level, so a client showing "N arrangements" was
+presenting an arbitrary slice as though it were everything the brief admits.
 
 ---
 
@@ -249,9 +320,9 @@ Measured: a 5-room graph completes in about 0.03 s; a 6-room graph with
 
 | File | Contents |
 |---|---|
-| `GPLAN/source/multiple_ptpg.py` | Outer-face detection, the two transformations, bounded deduplicated BFS, PTPG validation, Tutte embedding, interior/exterior filter |
-| `GPLAN/source/ptpg_floorplanner.py` | The PDF placer: boundary enumeration, `_pdf_place`, compaction, the strictness ladder |
-| `GPLAN/source/multi_ptpg_pipeline.py` | Orchestration, validation, the request/response envelope |
+| `GPLAN/source/multiple_ptpg.py` | Outer-face detection, the two transformations, bounded deduplicated BFS (`stats` out-param reports why it stopped), PTPG validation, Tutte embedding, interior/exterior filter |
+| `GPLAN/source/ptpg_floorplanner.py` | The PDF placer: boundary enumeration, `_pdf_place`, compaction, the strictness ladder, and the y-up cardinal gate (`plan_satisfies_cardinal`, `order_boundaries_by_cardinal`) |
+| `GPLAN/source/multi_ptpg_pipeline.py` | Orchestration, validation, cardinal normalization and the pin relaxation ladder, the request/response envelope |
 | `GPLAN/api.py` | `Documents.get_multi_ptpg_floorplans` |
 | `local_engine_bridge.py` | Local Flask route, no Django/Redis/Celery |
 | `test_multi_ptpg.py` | Test suite; run `python test_multi_ptpg.py` from the repository root |

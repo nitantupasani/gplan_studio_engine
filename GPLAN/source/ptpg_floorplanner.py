@@ -63,6 +63,10 @@ from GPLAN.source.boundary import news as news_mod
 
 DEFAULT_MAX_BOUNDARIES = 48
 
+# Cardinal directions as boundary-arc indices, matching GPLAN.api's
+# CARDINAL_DIR_INDEX and FloorplanResult.boundary's [[N],[E],[S],[W]] order.
+CARDINAL_N, CARDINAL_E, CARDINAL_S, CARDINAL_W = 0, 1, 2, 3
+
 
 class DeadlineExceeded(Exception):
     """Raised when the caller-supplied wall-clock budget runs out."""
@@ -172,6 +176,99 @@ def _matrix_adjacencies(matrix, node_ids):
                 if v2 != -1 and v1 != v2:
                     actual.add(tuple(sorted((str(node_ids[v1]), str(node_ids[v2])))))
     return actual
+
+
+# =============================================================================
+# CARDINAL (N/E/S/W) CONSTRAINTS
+# =============================================================================
+
+def plan_satisfies_cardinal(room_rects, cardinal_pairs):
+    """True when every ``(node_id, dir_idx)`` pin faces that side of the layout.
+
+    Same idea as :func:`GPLAN.api.plan_satisfies_cardinal`, with two differences
+    that both matter:
+
+    * **y grows upward here.** ``FloorplanResult.room_rects`` puts y=0 at the
+      bottom, so N is the high-y side and S the low-y one - the opposite of the
+      y-down frame api.py reads. Getting that flip wrong silently swaps north and
+      south, which is worse than not filtering at all.
+    * **A void is not a recess.** The strip test alone ("no other room sits
+      between this wall and the layout bounds") is exactly right for a gapless
+      tiling, which is what door_connectivity returns. This endpoint's
+      ``relaxed``/``best_effort`` layouts may contain real empty space, and
+      across a void the strip test passes for a room nowhere near that side: a
+      4x6 toilet ended up 11 ft short of the north edge, with nothing above it,
+      and counted as north-facing. So the gap to the bounds must also be small
+      enough to be a recess.
+
+    The recess allowance is the smallest room dimension in the layout: a gap that
+    could hold a room is a void, and a room across a void is not on that side of
+    the plan. That is a threshold derived from the brief rather than a tuned
+    constant, and it keeps the "exterior-facing, not flush" rule the graph path
+    relies on, since min-dim recesses are far shallower than any room.
+    """
+    if not cardinal_pairs:
+        return True
+    if not room_rects:
+        return False
+    rects = {nid: (x, x + w, y, y + h) for nid, (x, y, w, h) in room_rects.items()}
+    bx0 = min(r[0] for r in rects.values())
+    bx1 = max(r[1] for r in rects.values())
+    by0 = min(r[2] for r in rects.values())
+    by1 = max(r[3] for r in rects.values())
+    # Relative tolerance: a shared wall intersects the strip with ~zero depth
+    # and must not read as a blocker at any unit scale.
+    eps = max(bx1 - bx0, by1 - by0, 1e-6) * 1e-4
+    recess_limit = min(min(w, h) for _, _, w, h in room_rects.values())
+
+    for node, dir_idx in cardinal_pairs:
+        if node not in rects:
+            return False
+        rx0, rx1, ry0, ry1 = rects[node]
+        if dir_idx == CARDINAL_N:
+            gap = by1 - ry1
+            sx0, sx1, sy0, sy1 = rx0, rx1, ry1, by1
+        elif dir_idx == CARDINAL_E:
+            gap = bx1 - rx1
+            sx0, sx1, sy0, sy1 = rx1, bx1, ry0, ry1
+        elif dir_idx == CARDINAL_S:
+            gap = ry0 - by0
+            sx0, sx1, sy0, sy1 = rx0, rx1, by0, ry0
+        else:
+            gap = rx0 - bx0
+            sx0, sx1, sy0, sy1 = bx0, rx0, ry0, ry1
+        if gap > eps and gap >= recess_limit:
+            return False
+        for other, (ox0, ox1, oy0, oy1) in rects.items():
+            if other == node:
+                continue
+            if (min(ox1, sx1) - max(ox0, sx0) > eps and
+                    min(oy1, sy1) - max(oy0, sy0) > eps):
+                return False
+    return True
+
+
+def _cardinal_boundary_score(boundary, cardinal_pairs):
+    """How many pins a boundary's own N/E/S/W arcs already place correctly.
+
+    Used to ORDER candidate boundaries, never to drop them. The arcs are what
+    drives placement, so aiming the search at boundaries that put a pinned room
+    on the right side finds satisfying layouts far sooner; but the arcs are a
+    topological assignment and the geometry is the truth, so a boundary that
+    scores 0 can still solve and must stay in the list.
+    """
+    if not cardinal_pairs:
+        return 0
+    return sum(1 for node, dir_idx in cardinal_pairs
+               if 0 <= dir_idx < len(boundary) and node in boundary[dir_idx])
+
+
+def order_boundaries_by_cardinal(boundaries, cardinal_pairs):
+    """Boundaries best-aimed at the pins first; stable, and never truncated."""
+    if not cardinal_pairs:
+        return boundaries
+    return sorted(boundaries,
+                  key=lambda b: -_cardinal_boundary_score(b, cardinal_pairs))
 
 
 # =============================================================================
@@ -819,7 +916,7 @@ STRICTNESS_LEVELS = ("exact", "relaxed", "best_effort")
 def generate_floorplans(node_ids, edges, room_widths, room_heights,
                         node_positions=None, plot_w=-1, plot_h=-1, limit=100,
                         already_ptpg=False, max_boundaries=DEFAULT_MAX_BOUNDARIES,
-                        deadline=None, strictness="relaxed"):
+                        deadline=None, strictness="relaxed", cardinal_pairs=None):
     """Dimensioned floorplans for one graph and one set of exact room sizes.
 
     Passes are tried in order and the first one that produces anything wins:
@@ -834,6 +931,14 @@ def generate_floorplans(node_ids, edges, room_widths, room_heights,
                         when exact room sizes admit no true rectangular dual.
 
     Room sizes are exact, never minimums; that is the premise of this algorithm.
+
+    ``cardinal_pairs`` is an optional list of ``(node_id, dir_idx)`` N/E/S/W
+    pins (``dir_idx`` 0..3, as :func:`GPLAN.api.normalize_cardinal_constraints`
+    produces). Every returned layout satisfies all of them; the gate runs
+    INSIDE the candidate loop so ``limit`` counts satisfying layouts rather than
+    filling up with violating ones that a caller-side filter would then throw
+    away. An empty result therefore means "this graph cannot honour these pins",
+    which is the caller's cue to relax, not a silent drop.
     """
     if not node_ids:
         return []
@@ -842,6 +947,8 @@ def generate_floorplans(node_ids, edges, room_widths, room_heights,
     plain = [(e[0], e[1]) for e in edges]
     rw = {nid: int(room_widths[nid]) for nid in node_ids}
     rh = {nid: int(room_heights[nid]) for nid in node_ids}
+    nid_set = set(node_ids)
+    pins = [(n, d) for n, d in (cardinal_pairs or []) if n in nid_set]
 
     try:
         boundaries = get_boundaries(node_ids, plain, node_positions,
@@ -852,6 +959,8 @@ def generate_floorplans(node_ids, edges, room_widths, room_heights,
         raise
     except Exception:
         return []
+
+    boundaries = order_boundaries_by_cardinal(boundaries, pins)
 
     def run_pass(is_relaxed, require_all=True):
         res_list = []
@@ -867,6 +976,8 @@ def generate_floorplans(node_ids, edges, room_widths, room_heights,
                 if result is None:
                     continue
                 room_rects, M, el = result
+                if pins and not plan_satisfies_cardinal(room_rects, pins):
+                    continue
                 key = str(M.tolist())
                 if key in seen_keys:
                     continue
@@ -913,6 +1024,10 @@ def generate_floorplans(node_ids, edges, room_widths, room_heights,
                     return res_list
                 for v, (x, y, w, h) in room_rects.items():
                     room_rects[v] = (x - min_x, y - min_y, w, h)
+                # The failsafe ignores boundary arcs entirely, so it is exactly
+                # the path most likely to violate a pin. Gate it like the rest.
+                if pins and not plan_satisfies_cardinal(room_rects, pins):
+                    return res_list
 
                 Mnp = np.full((actual_th, actual_tw), -1, dtype=int)
                 for j, v in enumerate(node_ids):

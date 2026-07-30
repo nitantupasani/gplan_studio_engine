@@ -10,6 +10,31 @@ also live at `gplan_backend\GPLAN\documentation\multi_ptpg_api.md` and
 All line anchors below were read in this session. Absolute prefix for engine files:
 `C:\Users\nitant\Documents\GPLAN_Revamp\GPLAN\GPLAN\`.
 
+> **STALE LINE ANCHORS as of 2026-07-30.** All three files were edited after this dossier
+> was written, to add N/E/S/W pins and to stop the variant cap truncating silently, so the
+> line numbers below have shifted (by roughly +75 in `ptpg_floorplanner.py`, +90 in
+> `multi_ptpg_pipeline.py`, +25 in `multiple_ptpg.py`). The *reasoning* still holds and the
+> symbol names are unchanged; only the anchors drifted, and they have NOT been
+> re-verified one by one. Search by symbol name rather than jumping to a line.
+>
+> What changed, and where the current truth lives (`documentation/multi_ptpg_api.md`
+> sections 2 and 6 are up to date):
+> - `ptpg_floorplanner.py`: new `plan_satisfies_cardinal` (y-**up** frame, plus a
+>   recess-not-void rule the y-down `GPLAN.api` version lacks), `order_boundaries_by_cardinal`,
+>   `_cardinal_boundary_score`, and a `cardinal_pairs` parameter on `generate_floorplans`
+>   that gates inside `run_pass` so `limit` counts satisfying layouts.
+> - `multi_ptpg_pipeline.py`: `cardinal_constraints` accepted and normalized through
+>   `GPLAN.api.normalize_cardinal_constraints`; pinned rooms fold into the exterior filter;
+>   stage 3 is now `dimension_all(pins)` so it can re-run unpinned as a relaxation ladder;
+>   `data.cardinal` block; warnings for cap-hit and time-truncation.
+> - `multiple_ptpg.py`: `DEFAULT_MAX_VARIANTS` 40 -> 200 and `DEFAULT_MAX_DEPTH` 3 -> 2
+>   (measured: depth-2 closure is 26/41/107 variants for the 2/3/4BHK programs), plus a
+>   `stats` out-param reporting `cap_hit` / `deadline_hit` / `depth_reached`.
+>
+> The "**Ordering / ranking**" claim below is also superseded in one respect: the *client*
+> now ranks arrangements (pins honoured, then adjacencies kept, then option count) in
+> `gplanApi.ts`. The pipeline itself still applies no quality ranking, as stated.
+
 ---
 
 ## Purpose

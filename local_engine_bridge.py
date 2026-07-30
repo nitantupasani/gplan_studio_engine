@@ -165,13 +165,20 @@ def generate_multi_ptpg():
     try:
         body = request.get_json(force=True)
         params = body.get("params", {})
+        pins = params.get("cardinal_constraints") or []
         print(f"[bridge] multi-ptpg: rooms={len(params.get('nodes', []))} "
               f"edges={len(params.get('edges', []))} "
-              f"strictness={params.get('strictness', 'relaxed')}")
+              f"strictness={params.get('strictness', 'relaxed')} "
+              f"max_variants={params.get('max_variants', 'default')} "
+              f"max_depth={params.get('max_depth', 'default')} "
+              f"pins={len(pins)}")
         result = Documents.get_multi_ptpg_floorplans(body)
         data = result.get("data") or {}
+        card = data.get("cardinal") or {}
         print(f"[bridge] multi-ptpg: done - {data.get('variant_count', 0)} variants, "
-              f"{data.get('floorplan_count', 0)} floorplans")
+              f"{data.get('floorplan_count', 0)} floorplans"
+              + (f", pins {'IGNORED' if card.get('ignored') else 'applied'}"
+                 if pins else ""))
     except Exception as exc:
         traceback.print_exc()
         result = {"status": "error", "engine": "MultiPTPG_FloorPlan",

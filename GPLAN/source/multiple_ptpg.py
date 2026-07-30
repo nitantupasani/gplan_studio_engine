@@ -38,8 +38,22 @@ import numpy as np
 import networkx as nx
 
 
-DEFAULT_MAX_VARIANTS = 40
-DEFAULT_MAX_DEPTH = 3
+# Bounds chosen so the DEFAULT returns a COMPLETE closure rather than an
+# arbitrary slice of one. Measured closure sizes on the shipped programs
+# (2BHK 8 rooms / 3BHK 10 / 4BHK 12, after door_connectivity):
+#
+#   depth 1:   6 /   8 /  14
+#   depth 2:  26 /  41 / 107      <- 200 covers all of these
+#   depth 3: 111 / 185 / 616
+#   depth 4: 351 / 671 / 2842
+#
+# Depth 2 is the last level that is both affordable to dimension (0.6-2.4 s per
+# variant) and architecturally close to what the user drew: a depth-n variant has
+# given up n of their adjacencies. The old defaults (40 / depth 3) could only
+# ever return a truncated depth-3 level, which is why max_variants now reports
+# `cap_hit` instead of quietly cutting the set in half.
+DEFAULT_MAX_VARIANTS = 200
+DEFAULT_MAX_DEPTH = 2
 
 
 def _norm_edge(u, v):
@@ -240,13 +254,23 @@ def process_ptpg_recursive(G, user_needs, forbidden_cycles):
 
 def enumerate_ptpg_variants(G, user_needs=None, max_variants=DEFAULT_MAX_VARIANTS,
                             max_depth=DEFAULT_MAX_DEPTH, include_base=True,
-                            deadline=None):
+                            deadline=None, stats=None):
     """Breadth-first closure of the two transformations, bounded and deduplicated.
 
     Returns a list of dicts ordered base-first then by depth:
     ``{'graph', 'forbidden_cycles', 'depth', 'operation', 'detail', 'is_base'}``.
+
+    Pass a dict as ``stats`` to learn WHY the search stopped. ``max_variants``
+    can cut a depth level in half, so a caller that reports a variant count
+    without this cannot tell a complete closure from an arbitrary slice of one,
+    and silently truncating reads to a user as "these are all the arrangements
+    there are". Keys: ``cap_hit``, ``deadline_hit``, ``depth_reached``,
+    ``frontier_remaining``.
     """
     import time
+
+    cap_hit = False
+    deadline_hit = False
 
     expected_nodes = G.number_of_nodes()
     user_needs_set = normalise_user_needs(user_needs)
@@ -266,13 +290,16 @@ def enumerate_ptpg_variants(G, user_needs=None, max_variants=DEFAULT_MAX_VARIANT
 
     while frontier and depth < max_depth and len(variants) < max_variants:
         if deadline is not None and time.monotonic() > deadline:
+            deadline_hit = True
             break
         depth += 1
         next_frontier = []
         for parent in frontier:
             if len(variants) >= max_variants:
+                cap_hit = True
                 break
             if deadline is not None and time.monotonic() > deadline:
+                deadline_hit = True
                 break
             for step in process_ptpg_recursive(parent['graph'], user_needs_set,
                                                parent['forbidden_cycles']):
@@ -295,8 +322,20 @@ def enumerate_ptpg_variants(G, user_needs=None, max_variants=DEFAULT_MAX_VARIANT
                 variants.append(child)
                 next_frontier.append(child)
                 if len(variants) >= max_variants:
+                    cap_hit = True
                     break
         frontier = next_frontier
+
+    # The outer condition can also stop on the cap with a live frontier, which
+    # the inner breaks never see.
+    if len(variants) >= max_variants and frontier and depth < max_depth:
+        cap_hit = True
+
+    if stats is not None:
+        stats["cap_hit"] = cap_hit
+        stats["deadline_hit"] = deadline_hit
+        stats["depth_reached"] = depth
+        stats["frontier_remaining"] = len(frontier)
 
     return variants[:max_variants]
 

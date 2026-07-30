@@ -218,12 +218,132 @@ def test_plot_constraint():
     check("T6 plans fit inside a generous plot", within)
 
 
+def _faces_side(plan, room_id, direction):
+    """Independent geometric check, in the engine's own y-UP frame (N = high y).
+
+    Deliberately not a call into ptpg_floorplanner.plan_satisfies_cardinal: a test
+    that reuses the implementation it is checking proves only self-consistency.
+    Includes the recess-not-void rule, without which a room floating well short of
+    the edge across empty space passes.
+    """
+    rects = {r["id"]: (r["x"], r["x"] + r["width"], r["y"], r["y"] + r["height"])
+             for r in plan["rooms"]}
+    if room_id not in rects:
+        return False
+    bx0 = min(v[0] for v in rects.values()); bx1 = max(v[1] for v in rects.values())
+    by0 = min(v[2] for v in rects.values()); by1 = max(v[3] for v in rects.values())
+    eps = max(bx1 - bx0, by1 - by0, 1e-6) * 1e-4
+    recess = min(min(r["width"], r["height"]) for r in plan["rooms"])
+    rx0, rx1, ry0, ry1 = rects[room_id]
+    if direction == "N":
+        strip, gap = (rx0, rx1, ry1, by1), by1 - ry1
+    elif direction == "S":
+        strip, gap = (rx0, rx1, by0, ry0), ry0 - by0
+    elif direction == "E":
+        strip, gap = (rx1, bx1, ry0, ry1), bx1 - rx1
+    else:
+        strip, gap = (bx0, rx0, ry0, ry1), rx0 - bx0
+    if gap > eps and gap >= recess:
+        return False
+    for other, (ox0, ox1, oy0, oy1) in rects.items():
+        if other == room_id:
+            continue
+        if (min(ox1, strip[1]) - max(ox0, strip[0]) > eps and
+                min(oy1, strip[3]) - max(oy0, strip[2]) > eps):
+            return False
+    return True
+
+
+def test_cardinal_constraints():
+    print("\nT7: N/E/S/W pins")
+    base = {"nodes": SIX_ROOM_NODES, "edges": SIX_ROOM_EDGES,
+            "preserve_input_edges": False, "strictness": "best_effort"}
+
+    unpinned = call(base)
+    check("T7 unpinned baseline produces plans",
+          unpinned["data"]["floorplan_count"] > 0)
+    check("T7 no pins reports none requested",
+          unpinned["data"]["cardinal"]["requested"] == []
+          and unpinned["data"]["cardinal"]["applied"] is False)
+    check("T7 no pins leaves the verdict unset, not false",
+          all(v["cardinal_satisfied"] is None for v in unpinned["data"]["variants"]),
+          "absent must never read as failed")
+
+    for direction in ("N", "E", "S", "W"):
+        res = call(dict(base, cardinal_constraints=[{"room": 0, "direction": direction}]))
+        data = res["data"]
+        check(f"T7 {direction} pin returns plans", data["floorplan_count"] > 0,
+              f"got {data['floorplan_count']}")
+        if data["cardinal"]["ignored"]:
+            # Legal outcome, but it has to be stated rather than silently unpinned.
+            check(f"T7 {direction} unsatisfiable pin is disclosed",
+                  any("ignored" in w for w in data["warnings"]))
+            continue
+        bad = [(v["variant_id"], p) for v in data["variants"] for p in v["floorplans"]
+               if not _faces_side(p, 0, direction)]
+        check(f"T7 {direction} every returned plan really faces {direction}",
+              not bad, f"{len(bad)} violate")
+        check(f"T7 {direction} variants claiming the pin hold it",
+              all(v["cardinal_satisfied"] for v in data["variants"] if v["floorplans"]))
+        check(f"T7 {direction} pinning never adds arrangements",
+              data["variant_count"] <= unpinned["data"]["variant_count"],
+              f"{data['variant_count']} vs {unpinned['data']['variant_count']}")
+
+    # Opposite pins on one room are only satisfiable by a room spanning the whole
+    # plan, so this is the relaxation ladder's path: plans still come back, and the
+    # response says the directions were dropped.
+    both = call(dict(base, cardinal_constraints=[{"room": 0, "direction": "N"},
+                                                 {"room": 0, "direction": "S"}]))
+    check("T7 contradictory pins still return plans",
+          both["data"]["floorplan_count"] > 0)
+    if both["data"]["cardinal"]["ignored"]:
+        check("T7 contradictory pins are reported ignored",
+              any("ignored" in w for w in both["data"]["warnings"]))
+    else:
+        check("T7 contradictory pins, if kept, are genuinely satisfied",
+              all(_faces_side(p, 0, "N") and _faces_side(p, 0, "S")
+                  for v in both["data"]["variants"] for p in v["floorplans"]))
+
+    # A room id outside the graph is dropped by the normalizer, so nothing is pinned.
+    junk = call(dict(base, cardinal_constraints=[{"room": 99, "direction": "N"},
+                                                 {"room": 0, "direction": "sideways"}]))
+    check("T7 invalid pins are dropped, not fatal", junk["status"] == "ok")
+    check("T7 invalid pins pin nothing", junk["data"]["cardinal"]["requested"] == [])
+
+
+def test_variant_cap_is_reported():
+    print("\nT8: the variant cap never passes for a complete closure")
+    full = call({"nodes": SIX_ROOM_NODES, "edges": SIX_ROOM_EDGES,
+                 "preserve_input_edges": False, "max_depth": 2,
+                 "max_variants": 200, "strictness": "best_effort"})
+    total = full["data"]["variant_count"]
+    check("T8 uncapped run does not report a cap",
+          full["data"]["stats"]["variant_cap_hit"] is False)
+    check("T8 uncapped run warns about no cap",
+          not any("max_variants" in w for w in full["data"]["warnings"]))
+
+    if total > 2:
+        capped = call({"nodes": SIX_ROOM_NODES, "edges": SIX_ROOM_EDGES,
+                       "preserve_input_edges": False, "max_depth": 2,
+                       "max_variants": 2, "strictness": "best_effort"})
+        check("T8 a binding cap is reported in stats",
+              capped["data"]["stats"]["variant_cap_hit"] is True)
+        check("T8 a binding cap is warned about",
+              any("max_variants" in w for w in capped["data"]["warnings"]),
+              "; ".join(capped["data"]["warnings"]))
+        check("T8 a binding cap actually bounds the set",
+              capped["data"]["variant_count"] <= 2)
+    else:
+        print(f"     skipped cap assertions: closure is only {total} variants")
+
+
 def main():
     print("=" * 70)
     print("multi-PTPG pipeline tests")
     print("=" * 70)
     for test in (test_five_room_exact, test_variants_multiply, test_protected_edges,
-                 test_strictness_ladder, test_validation_errors, test_plot_constraint):
+                 test_strictness_ladder, test_validation_errors, test_plot_constraint,
+                 test_cardinal_constraints, test_variant_cap_is_reported):
         try:
             test()
         except Exception:

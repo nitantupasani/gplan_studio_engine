@@ -120,14 +120,23 @@ FLOORPLAN_LIMIT = 30
 
 # Cardinal directions map to boundary-path indices in the 4-completion
 # (news.add_news order): N -> paths[0], E -> paths[1], S -> paths[2], W -> paths[3].
-CARDINAL_DIR_INDEX = {"N": 0, "E": 1, "S": 2, "W": 3}
+CARDINAL_DIR_INDEX = {"N": 0, "E": 1, "S": 2, "W": 3,
+                      "NORTH": 0, "EAST": 1, "SOUTH": 2, "WEST": 3}
 
 
 def normalize_cardinal_constraints(cardinal_constraints, nodecnt):
     """Normalizes user cardinal constraints into engine (node, dir_idx) pairs.
 
     Accepts entries either as {"room": <node id>, "direction": "N"|"E"|"S"|"W"}
-    or as [node, "N"] pairs. Invalid rooms/directions are dropped.
+    or as [node, "N"] pairs; the spelled-out names are accepted too. Invalid
+    rooms/directions are dropped.
+
+    The direction is matched WHOLE, not by first letter. This used to key on
+    ``str(direction).upper()[:1]``, which silently turned any typo starting with
+    one of those letters into a real pin: "sideways" pinned a room SOUTH. Dropping
+    the entry instead means the caller sees "no pins applied" (and the Django
+    endpoint rejects the payload outright), rather than a plan confidently facing
+    a direction nobody asked for.
     """
     pairs = []
     for entry in cardinal_constraints or []:
@@ -141,7 +150,7 @@ def normalize_cardinal_constraints(cardinal_constraints, nodecnt):
                 continue
         if not isinstance(room, int) or room < 0 or room >= nodecnt:
             continue
-        dir_idx = CARDINAL_DIR_INDEX.get(str(direction).upper()[:1])
+        dir_idx = CARDINAL_DIR_INDEX.get(str(direction).strip().upper())
         if dir_idx is None:
             continue
         pair = (room, dir_idx)

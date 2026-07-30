@@ -13,12 +13,25 @@ The pipeline here runs the second over every output of the first:
     adjacency graph
         -> InputGraph.door_connectivity()            (base PTPG)
         -> multiple_ptpg.enumerate_ptpg_variants()   (topological variants)
-        -> [optional interior/exterior filter]
+        -> [optional interior/exterior + cardinal filter]
         -> ptpg_floorplanner.generate_floorplans()   (per variant, exact dims)
         -> floorplans grouped by variant
 
 Everything is headless and JSON-serializable; :class:`GPLAN.api.Documents`
 exposes it as ``get_multi_ptpg_floorplans``.
+
+N/E/S/W pins (``cardinal_constraints``) apply at both levels, and they have to:
+
+* A pinned room must be ON the outer face, so any variant that buries it in the
+  interior is dropped before it is ever dimensioned. This is the cheap half and
+  it does most of the work, because a topological variant that makes the kitchen
+  interior can never face it east however it is laid out.
+* Every returned layout is then verified geometrically, because the boundary
+  arcs are a topological assignment and only the placed rectangles are the truth.
+
+The relaxation ladder mirrors ``door_connectivity``'s: pins are honoured, and if
+NOTHING in the whole request can honour them the plans are returned anyway with a
+warning saying so, never silently unpinned and never as an empty result.
 """
 
 import copy
@@ -115,6 +128,34 @@ def _room_dimensions(nodes, ptpg_node_count, dummy_width=None, dummy_height=None
     return widths, heights, names, synthetic
 
 
+def _normalize_cardinal(cardinal_constraints, node_count):
+    """``[{"room": i, "direction": "N"}]`` -> ``[(i, dir_idx)]``.
+
+    Delegates to :func:`GPLAN.api.normalize_cardinal_constraints` rather than
+    re-implementing it: ``door_connectivity`` already accepts these payloads and
+    two normalizers for one wire format is how N and E end up meaning different
+    things on two endpoints. The import is lazy only because this module is
+    reached THROUGH ``GPLAN.api``, so by call time it is already in sys.modules.
+    """
+    if not cardinal_constraints:
+        return []
+    from GPLAN.api import normalize_cardinal_constraints
+
+    return normalize_cardinal_constraints(cardinal_constraints, node_count)
+
+
+def _cardinal_payload(pins, room_names):
+    """JSON view of the pins actually applied, named for the client."""
+    return [
+        {
+            "room": int(node),
+            "name": room_names[node] if node < len(room_names) else f"Room {node}",
+            "direction": "NESW"[dir_idx],
+        }
+        for node, dir_idx in pins
+    ]
+
+
 def _variant_payload(var, base_edges, variant_id, positions):
     edges = _edge_list(var['graph'])
     base_set = set(base_edges)
@@ -181,6 +222,7 @@ def generate_multi_ptpg_floorplans(params):
     plot_h = int(params.get("plot_height", -1) or -1)
     interior_rooms = params.get("interior_rooms") or []
     exterior_rooms = params.get("exterior_rooms") or []
+    cardinal_pairs = _normalize_cardinal(params.get("cardinal_constraints"), len(nodes))
 
     # ---- stage 1: base PTPG ------------------------------------------------
     try:
@@ -249,15 +291,27 @@ def generate_multi_ptpg_floorplans(params):
         user_needs = sorted(input_pairs)
     else:
         user_needs = []
+    enum_stats = {}
     try:
         variants = mptpg.enumerate_ptpg_variants(
             G_base, user_needs=user_needs, max_variants=max_variants,
             max_depth=max_depth, include_base=True, deadline=deadline,
+            stats=enum_stats,
         )
     except Exception as exc:
         raise MultiPTPGError(f"variant enumeration failed: {exc}") from exc
 
     generated = len(variants)
+    cap_hit = bool(enum_stats.get("cap_hit"))
+    if cap_hit:
+        # Never let a truncated search read as an exhaustive one: max_variants
+        # can stop mid-level, so the returned set is then an arbitrary slice of
+        # the depth it reached rather than all of it.
+        warnings.append(
+            f"the search stopped at the max_variants cap of {max_variants} with more "
+            f"arrangements still reachable at depth {enum_stats.get('depth_reached')}; "
+            "raise max_variants or lower max_depth for a complete set"
+        )
     for var in variants:
         var["outer_cycle"] = mptpg.boundary_nodes(var["graph"])[0]
 
@@ -272,68 +326,144 @@ def generate_multi_ptpg_floorplans(params):
                     "need in protected_edges")
         warnings.append(msg)
 
-    if interior_rooms or exterior_rooms:
+    # A pinned room has to be on the outer face to face anything at all, so the
+    # pins tighten the exterior set. Filtering here is what makes the pins cheap:
+    # a variant that buries the kitchen in the interior is dropped before any
+    # dimensioning is attempted on it.
+    pinned_rooms = sorted({int(node) for node, _ in cardinal_pairs})
+    exterior_required = sorted(set(int(r) for r in exterior_rooms) | set(pinned_rooms))
+    cardinal_dropped_variants = 0
+
+    if interior_rooms or exterior_required:
         before = len(variants)
-        variants = mptpg.filter_variants_by_constraints(
+        kept = mptpg.filter_variants_by_constraints(
             variants, interior=[int(r) for r in interior_rooms],
-            exterior=[int(r) for r in exterior_rooms],
+            exterior=exterior_required,
         )
-        if not variants:
-            warnings.append(
-                f"all {before} variants were rejected by the interior/exterior "
-                "room constraints"
-            )
+        cardinal_dropped_variants = before - len(kept)
+        if not kept:
+            # Dropping every variant would return nothing at all, so keep them
+            # and let the geometric gate decide per layout. A pinned room that
+            # is interior in every topology usually still has SOME layout in
+            # which its wall reaches the boundary.
+            if pinned_rooms:
+                warnings.append(
+                    f"no arrangement puts every pinned room ({pinned_rooms}) on the "
+                    f"outer wall, so all {before} arrangements were kept and the pins "
+                    "are enforced on the placed layouts instead"
+                )
+                cardinal_dropped_variants = 0
+            else:
+                warnings.append(
+                    f"all {before} variants were rejected by the interior/exterior "
+                    "room constraints"
+                )
+                variants = kept
+        else:
+            variants = kept
+            if cardinal_dropped_variants and pinned_rooms:
+                warnings.append(
+                    f"{cardinal_dropped_variants} of {before} arrangements were dropped "
+                    "because they placed a pinned room away from the outer wall"
+                )
 
     # ---- stage 3: dimensioned floorplans per variant -----------------------
     node_ids = sorted(G_base.nodes())
-    variant_payloads = []
-    total_plans = 0
-    truncated = False
 
-    for variant_id, var in enumerate(variants):
-        H = var["graph"]
-        positions = _positions_from_embedding(H, outer_cycle=var.get("outer_cycle"))
-        payload = _variant_payload(var, base_edges, variant_id, positions)
+    def dimension_all(pins):
+        """Dimension every variant, honouring ``pins``. Returns (payloads, plans, truncated)."""
+        payloads = []
+        plan_total = 0
+        cut_short = False
+        for variant_id, var in enumerate(variants):
+            H = var["graph"]
+            positions = _positions_from_embedding(H, outer_cycle=var.get("outer_cycle"))
+            payload = _variant_payload(var, base_edges, variant_id, positions)
+            payload["cardinal_satisfied"] = None if not pins else False
 
-        if time.monotonic() > deadline:
-            payload.update(status="skipped", reason="time budget exhausted",
-                           floorplan_count=0, floorplans=[])
-            variant_payloads.append(payload)
-            truncated = True
-            continue
+            if time.monotonic() > deadline:
+                payload.update(status="skipped", reason="time budget exhausted",
+                               floorplan_count=0, floorplans=[])
+                payloads.append(payload)
+                cut_short = True
+                continue
 
-        variant_edges = [(int(u), int(v)) for u, v in H.edges()]
-        try:
-            plans = pfp.generate_floorplans(
-                node_ids, variant_edges, widths, heights,
-                node_positions=positions, plot_w=plot_w, plot_h=plot_h,
-                limit=per_variant, already_ptpg=True,
-                max_boundaries=max_boundaries, deadline=deadline,
-                strictness=strictness,
+            variant_edges = [(int(u), int(v)) for u, v in H.edges()]
+            try:
+                plans = pfp.generate_floorplans(
+                    node_ids, variant_edges, widths, heights,
+                    node_positions=positions, plot_w=plot_w, plot_h=plot_h,
+                    limit=per_variant, already_ptpg=True,
+                    max_boundaries=max_boundaries, deadline=deadline,
+                    strictness=strictness, cardinal_pairs=pins,
+                )
+            except pfp.DeadlineExceeded:
+                payload.update(status="skipped", reason="time budget exhausted",
+                               floorplan_count=0, floorplans=[])
+                payloads.append(payload)
+                cut_short = True
+                continue
+            except Exception as exc:
+                payload.update(status="error", reason=f"{type(exc).__name__}: {exc}",
+                               floorplan_count=0, floorplans=[])
+                payloads.append(payload)
+                continue
+
+            serialized = [p.to_dict(edges=variant_edges, room_names=room_names)
+                          for p in plans]
+            plan_total += len(serialized)
+            # generate_floorplans gates on the pins, so anything it returned
+            # satisfies them; say so per plan rather than making the client
+            # re-derive it from geometry.
+            for plan in serialized:
+                plan["cardinal_satisfied"] = bool(pins)
+            if pins and serialized:
+                payload["cardinal_satisfied"] = True
+            payload.update(
+                status="ok" if serialized else "no_floorplan",
+                reason=None if serialized else (
+                    "no layout puts every pinned room on the direction you asked for"
+                    if pins else
+                    "no layout realises this topology at the requested exact room sizes"
+                ),
+                floorplan_count=len(serialized),
+                floorplans=serialized,
             )
-        except pfp.DeadlineExceeded:
-            payload.update(status="skipped", reason="time budget exhausted",
-                           floorplan_count=0, floorplans=[])
-            variant_payloads.append(payload)
-            truncated = True
-            continue
-        except Exception as exc:
-            payload.update(status="error", reason=f"{type(exc).__name__}: {exc}",
-                           floorplan_count=0, floorplans=[])
-            variant_payloads.append(payload)
-            continue
+            payloads.append(payload)
+        return payloads, plan_total, cut_short
 
-        serialized = [p.to_dict(edges=variant_edges, room_names=room_names) for p in plans]
-        total_plans += len(serialized)
-        payload.update(
-            status="ok" if serialized else "no_floorplan",
-            reason=None if serialized else (
-                "no layout realises this topology at the requested exact room sizes"
-            ),
-            floorplan_count=len(serialized),
-            floorplans=serialized,
+    variant_payloads, total_plans, truncated = dimension_all(cardinal_pairs)
+
+    # Relaxation ladder, mirroring door_connectivity's: pins outrank nothing if
+    # they make the whole request empty. Retry unpinned and SAY the pins were
+    # ignored, rather than returning an empty gallery or pretending they held.
+    cardinal_ignored = False
+    if cardinal_pairs and total_plans == 0 and time.monotonic() < deadline:
+        retry_payloads, retry_plans, retry_truncated = dimension_all([])
+        if retry_plans > 0:
+            variant_payloads, total_plans, truncated = (
+                retry_payloads, retry_plans, retry_truncated or truncated)
+            cardinal_ignored = True
+            asked = ", ".join(f"{c['name']} {c['direction']}"
+                              for c in _cardinal_payload(cardinal_pairs, room_names))
+            warnings.append(
+                f"the N/E/S/W directions were ignored: no arrangement of these rooms at "
+                f"these exact sizes places {asked} on the wall you asked for. The plans "
+                "below are otherwise valid"
+            )
+
+    # Time, not max_variants, is the real bound on this endpoint now, so running
+    # out of it is a normal outcome and must be stated. Variants are dimensioned
+    # base-first then by depth, so what gets skipped is always the most-mutated
+    # end of the set - the arrangements furthest from what the user drew.
+    skipped = sum(1 for p in variant_payloads if p.get("status") == "skipped")
+    if truncated and skipped:
+        warnings.append(
+            f"the {time_budget:.0f}s time budget ran out with {skipped} of "
+            f"{len(variant_payloads)} arrangements not yet laid out; they are the "
+            "ones furthest from the graph you drew. Raise time_budget_seconds or "
+            "lower max_depth to cover them"
         )
-        variant_payloads.append(payload)
 
     return {
         "base_ptpg": {
@@ -355,6 +485,11 @@ def generate_multi_ptpg_floorplans(params):
             }
             for i in node_ids
         ],
+        "cardinal": {
+            "requested": _cardinal_payload(cardinal_pairs, room_names),
+            "applied": bool(cardinal_pairs) and not cardinal_ignored,
+            "ignored": cardinal_ignored,
+        },
         "variant_count": len(variant_payloads),
         "floorplan_count": total_plans,
         "variants": variant_payloads,
@@ -362,11 +497,13 @@ def generate_multi_ptpg_floorplans(params):
             "variants_generated": generated,
             "variants_after_filter": len(variants),
             "variants_returned": len(variant_payloads),
+            "variants_dropped_by_cardinal": cardinal_dropped_variants,
             "strictness": strictness,
             "preserve_input_edges": preserve_input_edges,
             "protected_edges": [[int(u), int(v)] for u, v in user_needs],
             "max_variants": max_variants,
             "max_depth": max_depth,
+            "variant_cap_hit": bool(cap_hit),
             "elapsed_seconds": round(time.monotonic() - started, 3),
             "truncated": truncated,
         },
