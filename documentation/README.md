@@ -19,6 +19,14 @@ Restored web-API docs:
 - [postprocess_api.md](postprocess_api.md) - NBC post-processing of dimensioned
   floorplans (aspect bands + service-room ceilings, notched outlines allowed)
 
+Implementation plans (written, not yet built):
+- [plans/DOOR_CONNECTIVITY_SIZING_AND_POSTPROCESS_PLAN.md](plans/DOOR_CONNECTIVITY_SIZING_AND_POSTPROCESS_PLAN.md) -
+  how room size should be decided on the door_connectivity path: an area-budget
+  allocator, an aspect-preserving post-processor, centre-in-plot, and a frontend
+  constraints UI. Read sections 2 and 3 before touching dimensioning: they record
+  measured facts that contradict several docstrings, including that 23 of 24 NBC
+  ceilings are inert in the min-dim solver and that the aspect band never reaches it.
+
 Handover docs for new maintainers:
 1. [contribution_workflow.md](contribution_workflow.md)
 2. [repository_handover.md](repository_handover.md)
