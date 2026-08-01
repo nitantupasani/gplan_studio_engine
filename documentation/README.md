@@ -33,6 +33,16 @@ Implementation plans:
   change B part 1 (the allocator + endpoint, [allocate_api.md](allocate_api.md))
   are built and verified; the plan's Section 9 acceptance numbers are recorded in
   the commit messages.
+- [plans/CARDINAL_CONSTRAINTS_MULTI_PTPG_PLAN.md](plans/CARDINAL_CONSTRAINTS_MULTI_PTPG_PLAN.md) -
+  bringing N/E/S/W pins on the multi-PTPG (alternative arrangements) endpoint up to
+  parity with the door_connectivity path. A first cut shipped 2026-07-30; this plans
+  the rest. Section 1 records the settled priority (a pin outranks an adjacency, an
+  adjacency outranks arrangement count) and Section 2 records the fact that decides
+  the design: porting the door path's cardinal outer ring here disables Stage 1 of
+  the variant search, because a Hamiltonian outer cycle leaves no interior room for
+  a boundary-edge removal to promote. Read both before porting anything from
+  [cardinal_constraints.md](cardinal_constraints.md). Written 2026-08-01, not yet
+  built.
 
 Handover docs for new maintainers:
 1. [contribution_workflow.md](contribution_workflow.md)

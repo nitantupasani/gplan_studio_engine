@@ -4,6 +4,21 @@ Added 2026-07-15. Lets a client require that specific rooms face specific compas
 directions in generated floorplans, and that the unit entrance lands on an exterior
 wall on a chosen side.
 
+**This document describes the `door_connectivity` path.** The multi-PTPG
+(alternative arrangements) endpoint has its own, smaller cardinal implementation
+(see [multi_ptpg_api.md](multi_ptpg_api.md) section 2) and the two are not
+interchangeable: its geometric gate is y-up and adds a recess-not-void allowance
+that this one does not have, so identical geometry can pass one engine's pin and
+fail the other's.
+
+Before porting anything from here to there, read
+[plans/CARDINAL_CONSTRAINTS_MULTI_PTPG_PLAN.md](plans/CARDINAL_CONSTRAINTS_MULTI_PTPG_PLAN.md)
+sections 1, 2 and 6. In particular the outer-ring augmentation below behaves
+differently in that engine: a Hamiltonian outer cycle leaves no interior room for
+a boundary-edge removal to promote, so it disables Stage 1 of the variant search,
+and its ring edges must be excluded from that placer's adjacency firewall because
+the placer works at exact sizes and cannot grow rooms to realize them.
+
 ## Request
 
 `POST /api/generate/<shape>` (effective for `door_connectivity` with `count > 1`,
