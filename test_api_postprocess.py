@@ -83,7 +83,11 @@ def t1_synthetic():
     rects = [(0, 0, 12, 10), (12, 0, 20, 10), (0, 10, 20, 18), (0, 18, 20, 20)]
     names = ["Living Room", "Bedroom", "Bathroom", "Balcony"]
     edges = [(0, 1), (0, 2), (2, 3)]
-    new_rects, report = postprocess_plan(rects, names, edges=edges)
+    # prefer_rectangle OFF: on this fixture the ceilings can ONLY be met by
+    # opening notches (a gapless tiling forces some room to carry the slack),
+    # so this is the notch-accepting mode. The rectangle-first default is T9.
+    new_rects, report = postprocess_plan(
+        rects, names, edges=edges, options={"prefer_rectangle": False})
 
     bath_w = new_rects[2][2] - new_rects[2][0]
     bath_h = new_rects[2][3] - new_rects[2][1]
@@ -445,6 +449,72 @@ def t8_rulebook_gaps():
           any(i["rule"] == "aspect" for i in tightened), str(tightened))
 
 
+def t9_rectangle_and_plot():
+    """Phases 4 and 5: the outline outranks the NBC ceilings, and the plot
+    outranks everything."""
+    print("\nT9: rectangle preference, plot cap, fill toward the plot")
+    rects = [(0, 0, 12, 10), (12, 0, 20, 10), (0, 10, 20, 18), (0, 18, 20, 20)]
+    names = ["Living Room", "Bedroom", "Bathroom", "Balcony"]
+    edges = [(0, 1), (0, 2), (2, 3)]
+
+    kept, report = postprocess_plan(rects, names, edges=edges)
+    notch = report["notch_area"]
+    check("T9 default keeps the outline a full rectangle",
+          report["gapless_after"] and notch <= 0.01,
+          "notch=%s" % notch)
+    check("T9 the trade is reported, not hidden",
+          report["trims_reverted_for_rectangle"]
+          and report["over_ceiling_rooms"]
+          and any("rectangular outline" in n
+                  for n in report["phase_notes"]),
+          str(report["phase_notes"]))
+    check("T9 rectangle mode never scores worse than the input",
+          report["score_after"] <= report["score_before"],
+          "%s -> %s" % (report["score_before"], report["score_after"]))
+    check("T9 no overlaps", not overlaps(kept))
+
+    # opting out returns the notch-accepting behaviour
+    notched, notched_report = postprocess_plan(
+        rects, names, edges=edges, options={"prefer_rectangle": False})
+    check("T9 prefer_rectangle=False still trims into notches",
+          notched_report["notch_area"] > 0.01
+          and notched_report["score_after"] < notched_report["score_before"],
+          "notch=%s score %s->%s" % (notched_report["notch_area"],
+                                     notched_report["score_before"],
+                                     notched_report["score_after"]))
+
+    # the plot is a hard cap on every phase
+    capped, capped_report = postprocess_plan(
+        rects, names, edges=edges,
+        options={"plot_width": 20, "plot_height": 20})
+    ext = capped_report["extent_after"]
+    check("T9 no phase pushes the plan outside the plot",
+          capped_report["plot_fit"] and ext[0] <= 20.001 and ext[1] <= 20.001,
+          str(ext))
+
+    # a plan smaller than the target grows toward it, inside the ceilings
+    # every boundary room must have ceiling headroom: a side advances by the
+    # SMALLEST headroom on it, so one room at its cap pins that whole side.
+    small = [(0, 0, 10, 10), (10, 0, 18, 10),
+             (0, 10, 10, 16), (10, 10, 18, 16)]
+    small_names = ["Living Room", "Bedroom", "Kitchen", "Bathroom"]
+    grown, grown_report = postprocess_plan(
+        small, small_names, edges=[(0, 1), (0, 2), (2, 3)],
+        options={"target_width": 22, "target_height": 20,
+                 "plot_width": 22, "plot_height": 20})
+    gx, gy = grown_report["filled_toward_plot"]
+    check("T9 a small plan is grown toward the plot",
+          gx > 0.05 or gy > 0.05,
+          "gained %s x %s -> %s" % (gx, gy, grown_report["extent_after"]))
+    check("T9 growing toward the plot keeps the rectangle",
+          grown_report["gapless_after"] and not overlaps(grown),
+          "notch=%s" % grown_report["notch_area"])
+    check("T9 the grown plan still fits the plot",
+          grown_report["extent_after"][0] <= 22.001
+          and grown_report["extent_after"][1] <= 20.001,
+          str(grown_report["extent_after"]))
+
+
 def main():
     print("=" * 70)
     print("NBC post-processing tests")
@@ -457,6 +527,7 @@ def main():
     t6_door_requirements_duplicates()
     t7_aspect_floors()
     t8_rulebook_gaps()
+    t9_rectangle_and_plot()
     print("\n" + "=" * 70)
     print("%d passed, %d failed" % (len(PASSED), len(FAILED)))
     for name, detail in FAILED:

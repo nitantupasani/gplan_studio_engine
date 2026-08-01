@@ -1,8 +1,15 @@
 # NBC Post-Processing API
 
 Post-processes dimensioned floorplans against the NBC rulebook: brings rooms
-inside their aspect bands and service-room ceilings by trading the perfect
-rectangular outline for boundary notches. Added 2026-07-25.
+inside their aspect bands and service-room ceilings. Added 2026-07-25.
+
+**Priority order changed 2026-08-01.** The outline is no longer the least
+important property: the plot cap outranks everything, a rectangular outline
+outranks the NBC ceilings, and the ceilings are enforced only as far as a
+rectangle allows. Two phases were added (4: reclose the outline, 5: grow toward
+the plot) and `prefer_rectangle: false` restores the old notch-accepting
+behaviour. What that costs is measured in "The rectangle-vs-ceilings trade"
+below; read it before flipping the default either way.
 
 ## Why this exists
 
@@ -14,11 +21,12 @@ ceilings block a topology they are released rather than failing the plan. The
 measured result (unit-defaults audit, 2026-07-25): bathrooms of 54x8 ft,
 utilities of 9x28 ft, kitchens at 3.1x their area cap.
 
-The post-processor inverts the trade. The rectangular outline is treated as
-the *least* important property of a plan: rooms are trimmed back inside their
-architectural limits, and the outline is allowed to step inward where that is
-the only way to get there. A notch in the boundary is an architectural
-feature (a recess, a light well, a setback); a 54 ft bathroom is not.
+The post-processor moves that slack back out of the service rooms: rooms are
+trimmed toward their architectural limits, and a notch in the boundary (a
+recess, a light well, a setback) is an acceptable price where nothing else
+reaches them. Since 2026-08-01 it is the LAST price paid, not the first: the
+outline is reclosed wherever the tiling allows, and the trims that cannot be
+reclosed are given back rather than shipped as notches.
 
 ## The algorithm
 
@@ -51,11 +59,59 @@ in `GPLAN/source/postprocessing/postprocess.py`; NBC rule table in
    produced the original inflation is never run. Trim and absorb alternate up
    to `max_passes` times.
 
+4. **Close (rectangle preference, 2026-08-01).** A plan that came in gapless
+   and would leave notched climbs a ladder: (a) capped absorption; (b) one
+   absorption round with the span and area ceilings widened by
+   `notch_close_slack`, the aspect band still hard, kept only if the outline
+   actually closes; (c) the trims are redone from the repaired tiling keeping
+   only the ones a neighbour can absorb, so the outline stays a rectangle and
+   the reclaimable slack still moves from the bathroom into the living room.
+   Rooms left past their ceiling by that trade are named in
+   `over_ceiling_rooms` and in the plan note. `prefer_rectangle: false` skips
+   the whole phase.
+
+5. **Fill (plot preference, 2026-08-01).** A gapless plan smaller than
+   `target_width` x `target_height` grows toward it by advancing WHOLE boundary
+   sides, each by the smallest headroom the rooms on that side have inside
+   their own ceilings, so the outline stays a rectangle and no room passes its
+   cap. One room at its ceiling pins its whole side; that is the intended
+   reading of "fill the plot within the constraints". Never shrinks.
+
+`plot_width`/`plot_height` are a HARD cap on every phase above: no phase may
+push the bounding box outside the plot, and a plan that already overflows it
+(the engine's expand fallback) is capped at its own extent rather than cut into
+its room minimums.
+
 Every phase is validated afterwards (no overlaps, no interior holes, doors
-kept, footprint growth bounded, all rooms still mutually reachable through
-shared walls); a phase that breaks an invariant is rolled back for that plan
-and noted in the report. A trim+absorb round whose residual notches exceed
-`max_notch_ratio` of the bounding box also rolls back.
+kept, footprint growth bounded, plot cap respected, all rooms still mutually
+reachable through shared walls); a phase that breaks an invariant is rolled
+back for that plan and noted in the report. A trim+absorb round whose residual
+notches exceed `max_notch_ratio` of the bounding box also rolls back.
+
+The whole sequence then faces ONE gate: no room may regress on any rulebook
+dimension and the plan score may not worsen, else every change is reverted.
+The gate moved AFTER phases 4 and 5 in the same change, because reverting the
+trims for the rectangle changes what the gate is judging.
+
+### The rectangle-vs-ceilings trade
+
+They are not both achievable. A gapless tiling forces the bounding box's slack
+into some room, so on most topologies a rectangular outline means at least one
+service room stays over its ceiling. Measured on the shipped 2BHK default (8
+rooms, 14 edges, 36x28 ft, local bridge, 2026-08-01), through the real client
+including its own hard-rulebook filter:
+
+| mode | catalogue |
+|---|---|
+| `prefer_rectangle: true` (default) | 12 plans, all 12 free of hard rulebook errors, every outline a full rectangle |
+| `prefer_rectangle: false` (old behaviour) | 29 plans, all 29 free of hard rulebook errors, every outline notched |
+
+Both extremes are honest; they answer different questions. The rectangle-first
+default is a product decision (a plan the client can draw as one rectangle),
+not a claim that it is architecturally better. The 17-plan difference is plans
+whose ONLY compliant form has notches: the client hides them because their
+kept-rectangle form breaks a hard rule (usually the area ordering, a service
+room inflated past a habitable one).
 
 ### Hard guarantees vs best effort
 
@@ -65,7 +121,10 @@ Guaranteed on every processed plan:
 - no interior holes: all empty space connects to the plan boundary;
 - every requested adjacency keeps >= 2 ft of shared wall (door survives);
 - room minimums (user + NBC floors) are never violated by the processor;
-- the footprint never grows beyond the configured margin;
+- the footprint never grows beyond the configured margin, EXCEPT toward an
+  explicit `target_*` rectangle (phase 5) and never past `plot_*`;
+- an outline that was a full rectangle stays one under the default
+  `prefer_rectangle`;
 - **aspect is monotone**: no phase leaves any room more slender than where
   it started or its band, whichever is looser. The aspect band is a floor as
   well as a ceiling in `_axis_ceilings`, so a trim can no longer take a
@@ -177,6 +236,11 @@ All optional; defaults in `postprocess.DEFAULT_OPTIONS`.
 | `tolerance` | `0.02` | fraction past a limit before the processor acts |
 | `max_bbox_growth` | `0.03` | per-axis footprint growth allowed to the repair phase |
 | `max_notch_ratio` | `0.25` | a trim+absorb round leaving notches beyond this fraction of the bounding box rolls back. Measured on a 7-room/12-plan live batch (2026-07-30): real trims open 0.08-0.24, median ~0.13, so the plan's suggested 0.12 would have reverted half the batch |
+| `plot_width` / `plot_height` | `null` | HARD cap on the plan extent, ft, orientation agnostic. Every phase respects it. On the generation path it defaults to the request's own plot |
+| `target_width` / `target_height` | `null` | the rectangle phase 5 grows toward. Send the REAL footprint, not the plot cap: the shipped client's plot carries 1.6x slack (a rejection cap), and filling toward that would oversize every plan |
+| `prefer_rectangle` | `true` | phase 4. `false` = pre-2026-08-01 behaviour, ship the notches |
+| `fill_target` | `true` | phase 5 on/off |
+| `notch_close_slack` | `0.25` | how far past its span/area ceiling a room may go **to close the outline**. The aspect band is never relaxed, so the reclose cannot reproduce the 54x8 bathroom |
 
 Aspect semantics: each room type carries a slenderness cap from the rulebook
 (`max_aspect`, long/short - bedroom 1.8, bathroom 2.0, balcony 3.5 ...),
@@ -210,6 +274,12 @@ legacy default sends `min: 3`) that must not be read as "force landscape".
   "notch_area": 76.8, "notch_ratio": 0.192,      // empty area inside the bbox / bbox area
   "interior_hole_area": 0.0,                     // always ~0 by construction
   "doors_preserved": true,
+  "rectangle_restored": false,                   // phase 4 closed the notches by growth
+  "trims_reverted_for_rectangle": true,          // phase 4 kept the rectangle instead
+  "over_ceiling_rooms": ["Bathroom", "Kitchen"], // what that trade left over-cap
+  "plot_fit": true,
+  "filled_toward_plot": [2.0, 0.0],              // phase 5 gain per axis, ft
+  "extent_before": [23.0, 30.0], "extent_after": [25.0, 30.0],
   "phase_notes": ["repair rolled back (would grow the plan footprint ...)"],
   "rooms": [
     { "name": "Bathroom",

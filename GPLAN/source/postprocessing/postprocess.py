@@ -21,6 +21,23 @@ Three phases, all pure geometry on (x0, y0, x1, y1) rects in feet, y-down:
 3. ABSORB (new, capped): rooms grow into the notches left by trimming, but
    only within their own ceilings and aspect band - the uncapped fill that
    caused the original inflation is never run.
+4. CLOSE (rectangle preference): a plan that entered gapless and leaves notched
+   gets one more absorption round with the SPAN and AREA ceilings relaxed by
+   `notch_close_slack`; the aspect band stays hard, so nothing can become a
+   corridor. Kept only when it actually closes the outline back to a rectangle.
+   When even that cannot close it, the trims are REVERTED to the last gapless
+   state (the repaired tiling): a rectangular outline outranks the NBC
+   ceilings, and every room left over its ceiling is named in the report.
+   `prefer_rectangle: False` restores the old behaviour (ship the notches).
+5. FILL (plot preference): a gapless plan smaller than the requested plot grows
+   toward it by advancing WHOLE boundary sides, each by the smallest headroom
+   its rooms have inside their own ceilings - so the outline stays a rectangle
+   and no room passes its cap. `plot_width`/`plot_height` are a HARD cap on
+   every phase: no phase may push the plan outside the plot.
+
+Priority order, highest first: plot cap, room floors + doors + no overlap/hole,
+rectangular outline, NBC ceilings. Phases 4 and 5 are what makes the outline
+outrank the ceilings, and both report exactly what they traded.
 
 Every phase is validated (no overlaps, no interior holes, door overlaps kept);
 a phase that breaks an invariant is rolled back for that plan and reported.
@@ -57,6 +74,23 @@ DEFAULT_OPTIONS = {
                              # on live batches (plan open question 5); the
                              # synthetic worst-case fixture (a bathroom 2.4x
                              # over its ceiling) legitimately needs ~0.15.
+    # -- plot and outline (phases 4 and 5) ---------------------------------
+    "plot_width": None,      # HARD cap on the plan extent, ft. No phase may
+    "plot_height": None,     # push the bounding box outside it. Orientation
+                             # agnostic: a plan fitting the plot rotated fits.
+    "target_width": None,    # the extent to GROW toward when the plan is
+    "target_height": None,   # smaller (the real unit footprint, not the
+                             # rejection cap). None disables phase 5.
+    "prefer_rectangle": True,# phase 4: reclose the outline of a plan that was
+                             # gapless before post-processing
+    "fill_target": True,     # phase 5: grow a gapless plan to the target
+    "notch_close_slack": 0.25,
+                             # phase 4 only: how far past its span/area ceiling
+                             # a room may go to close the outline. The aspect
+                             # band is NOT relaxed, so the reclose can never
+                             # reproduce the 54x8 bathroom this module exists
+                             # to prevent; every room that uses the slack is
+                             # named in the report.
 }
 
 
@@ -185,6 +219,42 @@ def _void_metrics(rects):
             if not reached[ix][iy]:
                 interior += cell
     return notch, interior
+
+
+def _dim_pair(opts, key_w, key_h):
+    """(w, h) from two options, or None when either is missing/non-positive."""
+    try:
+        w = float(opts.get(key_w) or 0)
+        h = float(opts.get(key_h) or 0)
+    except (TypeError, ValueError):
+        return None
+    if w <= 0 or h <= 0 or w >= 99999 or h >= 99999:
+        return None
+    return (w, h)
+
+
+def _oriented(pair, rects):
+    """`pair` reoriented so its longer side lies on the plan's longer axis.
+
+    The engine's rotation pass may have swapped a plan's axes, so a 36x28 plot
+    constrains a 28x36 plan exactly as well; comparing raw w-to-w would reject
+    or shrink a plan that fits perfectly turned a quarter.
+    """
+    if pair is None:
+        return None
+    w, h = pair
+    x0, y0, x1, y1 = _bbox(rects)
+    if (x1 - x0) >= (y1 - y0):
+        return (max(w, h), min(w, h))
+    return (min(w, h), max(w, h))
+
+
+def _within_limits(rects, limits, eps):
+    """True when the plan's extent fits `limits` (already oriented)."""
+    if limits is None:
+        return True
+    x0, y0, x1, y1 = _bbox(rects)
+    return (x1 - x0) <= limits[0] + eps and (y1 - y0) <= limits[1] + eps
 
 
 # ---------------------------------------------------------------------------
@@ -631,6 +701,51 @@ def _absorb_pass(rects, bounds, eps, actions, allowances=None):
         # above already cap it, this guards the promise per-commit.
         return allowances is None or _aspect_of(candidate) <= allowances[i]
 
+    def grow(i, side):
+        """One directional growth of room i. Returns True when it moved."""
+        x0, y0, x1, y1 = rects[i]
+        tw, th = ceilings(i, x1 - x0, y1 - y0)
+        if side in ("E", "W"):
+            obst = bx1 if side == "E" else bx0
+            for j, (a0, b0, a1, b1) in enumerate(rects):
+                if j == i or min(y1, b1) - max(y0, b0) <= eps:
+                    continue
+                if side == "E" and a0 >= x1 - eps:
+                    obst = min(obst, a0)
+                elif side == "W" and a1 <= x0 + eps:
+                    obst = max(obst, a1)
+            if side == "E":
+                obst = min(obst, x0 + tw)
+                candidate = (x0, y0, obst, y1)
+                delta = obst - x1
+            else:
+                obst = max(obst, x1 - tw)
+                candidate = (obst, y0, x1, y1)
+                delta = x0 - obst
+        else:
+            obst = by1 if side == "S" else by0
+            for j, (a0, b0, a1, b1) in enumerate(rects):
+                if j == i or min(x1, a1) - max(x0, a0) <= eps:
+                    continue
+                if side == "S" and b0 >= y1 - eps:
+                    obst = min(obst, b0)
+                elif side == "N" and b1 <= y0 + eps:
+                    obst = max(obst, b1)
+            if side == "S":
+                obst = min(obst, y0 + th)
+                candidate = (x0, y0, x1, obst)
+                delta = obst - y1
+            else:
+                obst = max(obst, y1 - th)
+                candidate = (x0, obst, x1, y1)
+                delta = y0 - obst
+        if delta <= 0.05 or not aspect_ok(i, candidate):
+            return False
+        rects[i] = candidate
+        actions.setdefault(i, []).append(
+            "absorbed %.1f ft toward %s" % (delta, side))
+        return True
+
     progressed = False
     changed = True
     guard = 0
@@ -639,60 +754,294 @@ def _absorb_pass(rects, bounds, eps, actions, allowances=None):
         guard += 1
         order = sorted(range(len(rects)), key=lambda i: (-headroom(i), i))
         for i in order:
+            # SHORT axis first. Growing the long axis of an already slender
+            # room fails the aspect check, and the check is per-step: a
+            # bathroom that could legally regrow to 15x7 was refused at the
+            # intermediate 15x6 and stayed 12x6, leaving the notch open.
             x0, y0, x1, y1 = rects[i]
-            # East
-            tw, th = ceilings(i, x1 - x0, y1 - y0)
-            obst = bx1
-            for j, (a0, b0, a1, b1) in enumerate(rects):
-                if j != i and min(y1, b1) - max(y0, b0) > eps and a0 >= x1 - eps:
-                    obst = min(obst, a0)
-            obst = min(obst, x0 + tw)
-            if obst - x1 > 0.05 and aspect_ok(i, (x0, y0, obst, y1)):
-                rects[i] = (x0, y0, obst, y1)
-                actions.setdefault(i, []).append(
-                    "absorbed %.1f ft toward E" % (obst - x1))
-                x1 = obst
-                changed = progressed = True
-            # West
-            tw, th = ceilings(i, x1 - x0, y1 - y0)
-            obst = bx0
-            for j, (a0, b0, a1, b1) in enumerate(rects):
-                if j != i and min(y1, b1) - max(y0, b0) > eps and a1 <= x0 + eps:
-                    obst = max(obst, a1)
-            obst = max(obst, x1 - tw)
-            if x0 - obst > 0.05 and aspect_ok(i, (obst, y0, x1, y1)):
-                rects[i] = (obst, y0, x1, y1)
-                actions.setdefault(i, []).append(
-                    "absorbed %.1f ft toward W" % (x0 - obst))
-                x0 = obst
-                changed = progressed = True
-            # South (larger y)
-            tw, th = ceilings(i, x1 - x0, y1 - y0)
-            obst = by1
-            for j, (a0, b0, a1, b1) in enumerate(rects):
-                if j != i and min(x1, a1) - max(x0, a0) > eps and b0 >= y1 - eps:
-                    obst = min(obst, b0)
-            obst = min(obst, y0 + th)
-            if obst - y1 > 0.05 and aspect_ok(i, (x0, y0, x1, obst)):
-                rects[i] = (x0, y0, x1, obst)
-                actions.setdefault(i, []).append(
-                    "absorbed %.1f ft toward S" % (obst - y1))
-                y1 = obst
-                changed = progressed = True
-            # North (smaller y)
-            tw, th = ceilings(i, x1 - x0, y1 - y0)
-            obst = by0
-            for j, (a0, b0, a1, b1) in enumerate(rects):
-                if j != i and min(x1, a1) - max(x0, a0) > eps and b1 <= y0 + eps:
-                    obst = max(obst, b1)
-            obst = max(obst, y1 - th)
-            if y0 - obst > 0.05 and aspect_ok(i, (x0, obst, x1, y1)):
-                rects[i] = (x0, obst, x1, y1)
-                actions.setdefault(i, []).append(
-                    "absorbed %.1f ft toward N" % (y0 - obst))
-                y0 = obst
-                changed = progressed = True
+            sides = (("S", "N", "E", "W") if (x1 - x0) >= (y1 - y0)
+                     else ("E", "W", "S", "N"))
+            for side in sides:
+                if grow(i, side):
+                    changed = progressed = True
     return progressed
+
+
+# ---------------------------------------------------------------------------
+# phase 4: reclose the outline / phase 5: grow to the plot
+# ---------------------------------------------------------------------------
+
+def _relaxed_bounds(bounds, slack):
+    """Copy of `bounds` with the SPAN and AREA ceilings widened by `slack`.
+
+    The aspect band (ar_lo/ar_hi) and every floor are copied untouched: the
+    reclose may make a room bigger than the rulebook prefers, never more
+    slender than the rulebook allows.
+    """
+    factor = 1.0 + max(0.0, float(slack))
+    out = []
+    for b in bounds:
+        if b is None:
+            out.append(None)
+            continue
+        nb = dict(b)
+        for key in ("cap_short", "cap_long", "maxw", "maxh"):
+            if nb.get(key, _INF) < _INF:
+                nb[key] = nb[key] * factor
+        if nb.get("maxarea", _INF) < _INF:
+            nb["maxarea"] = nb["maxarea"] * factor
+        out.append(nb)
+    return out
+
+
+def _over_ceiling_rooms(rects, bounds, names, eps_ratio=0.02):
+    """Names of rooms past their own span or area ceiling."""
+    over = []
+    for r, b, name in zip(rects, bounds, names):
+        if b is None:
+            continue
+        w, h = r[2] - r[0], r[3] - r[1]
+        short, long_ = min(w, h), max(w, h)
+        if (long_ > b.get("cap_long", _INF) * (1 + eps_ratio)
+                or short > b.get("cap_short", _INF) * (1 + eps_ratio)
+                or w * h > b.get("maxarea", _INF) * (1 + eps_ratio)):
+            over.append(str(name))
+    return sorted(set(over))
+
+
+def _rectangle_safe_trims(base, bounds, door_reqs, eps, tolerance,
+                          allowances, plot_limits, max_rounds=3):
+    """Redo the trimming, keeping ONLY the trims the tiling can close again.
+
+    The plain trim pass is greedy: it cuts every over-cap room from an exterior
+    side and leaves whatever notch that opens. Most of those notches cannot be
+    absorbed (the neighbour that could grow does not span the void), so the
+    rectangle-first policy would throw the whole pass away - including the
+    trims a neighbour CAN swallow, which are exactly the ones that move slack
+    from a bathroom into a living room.
+
+    Each candidate trim is therefore committed only if a capped absorption
+    round closes the outline right back to a rectangle. Returns
+    (rects, actions).
+    """
+    work = list(base)
+    actions = {}
+
+    def gapless(rects):
+        return _void_metrics(rects)[0] <= max(_bbox_area(rects), 1e-9) * 1e-3
+
+    def valid(rects):
+        return (not _rects_overlap(rects, eps)
+                and _void_metrics(rects)[1] <= eps
+                and _doors_ok(rects, door_reqs, eps)
+                and _within_limits(rects, plot_limits, eps)
+                and all(_aspect_of(r) <= a for r, a in zip(rects, allowances)))
+
+    for _ in range(max_rounds):
+        order = sorted(range(len(work)),
+                       key=lambda k: -_violation_ratio(work[k], bounds[k]))
+        moved = False
+        for i in order:
+            if bounds[i] is None or _violation_ratio(work[i], bounds[i]) <= tolerance:
+                continue
+            x0, y0, x1, y1 = work[i]
+            w, h = x1 - x0, y1 - y0
+            tw, th = _axis_ceilings(bounds[i], w, h)
+            for side in ("E", "W", "S", "N"):
+                need = (w - tw) if side in ("E", "W") else (h - th)
+                if need <= 0 or not _fully_exterior(work, i, side, eps):
+                    continue
+                allowed = min(need,
+                              _door_trim_limit(work, door_reqs, i, side, eps))
+                if allowed < 0.05:
+                    continue
+                trial = list(work)
+                if side == "E":
+                    trial[i] = (x0, y0, x1 - allowed, y1)
+                elif side == "W":
+                    trial[i] = (x0 + allowed, y0, x1, y1)
+                elif side == "N":
+                    trial[i] = (x0, y0 + allowed, x1, y1)
+                else:
+                    trial[i] = (x0, y0, x1, y1 - allowed)
+                trial_actions = copy.deepcopy(actions)
+                trial_actions.setdefault(i, []).append(
+                    "trimmed %.1f ft from %s" % (allowed, side))
+                _absorb_pass(trial, bounds, eps, trial_actions,
+                             allowances=allowances)
+                if valid(trial) and gapless(trial):
+                    work = trial
+                    actions = trial_actions
+                    moved = True
+                    break
+        if not moved:
+            break
+    return work, actions
+
+
+def _close_notches(work, bounds, door_reqs, eps, opts, actions,
+                   allowances, plot_limits, fallback, fallback_actions):
+    """Phase 4. Turn a notched outline back into a full rectangle.
+
+    Ladder, cheapest first:
+      A. capped absorption (within every ceiling),
+      B. one relaxed round inside `notch_close_slack` (aspect band still hard),
+      C. revert to `fallback` - the last geometry that WAS a rectangle.
+
+    A and B are all-or-nothing: the geometry is kept only if the plan comes out
+    gapless, so a room never trades its ceiling for a partial improvement
+    nobody can see. C is what makes the outline outrank the ceilings; the
+    rooms it leaves over-cap are named by the caller.
+
+    Returns (closed_by_growth, slack_used, reverted).
+    """
+    def gapless(rects):
+        return _void_metrics(rects)[0] <= max(_bbox_area(rects), 1e-9) * 1e-3
+
+    def valid(rects):
+        return (not _rects_overlap(rects, eps)
+                and _void_metrics(rects)[1] <= eps
+                and _doors_ok(rects, door_reqs, eps)
+                and _within_limits(rects, plot_limits, eps))
+
+    if gapless(work):
+        return False, False, False
+    # tier A: within every ceiling
+    snapshot = list(work)
+    action_snapshot = copy.deepcopy(actions)
+    _absorb_pass(work, bounds, eps, actions, allowances=allowances)
+    if valid(work) and gapless(work):
+        return True, False, False
+    work[:] = snapshot
+    actions.clear()
+    actions.update(action_snapshot)
+    # tier B: ceilings relaxed by the slack, aspect band still hard
+    slack = float(opts.get("notch_close_slack") or 0)
+    if slack > 0:
+        relaxed = _relaxed_bounds(bounds, slack)
+        _absorb_pass(work, relaxed, eps, actions, allowances=allowances)
+        if valid(work) and gapless(work):
+            return True, True, False
+        work[:] = snapshot
+        actions.clear()
+        actions.update(action_snapshot)
+    # tier C: redo the trims, keeping only the reclosable ones
+    if fallback is None or not gapless(fallback):
+        return False, False, False
+    safe, safe_actions = _rectangle_safe_trims(
+        fallback, bounds, door_reqs, eps, float(opts["tolerance"]),
+        allowances, plot_limits)
+    work[:] = list(safe)
+    actions.clear()
+    merged = copy.deepcopy(fallback_actions)
+    for i, entries in safe_actions.items():
+        merged.setdefault(i, []).extend(entries)
+    actions.update(merged)
+    return False, False, True
+
+
+def _bbox_area(rects):
+    x0, y0, x1, y1 = _bbox(rects)
+    return (x1 - x0) * (y1 - y0)
+
+
+def _side_growth_limit(rects, bounds, i, side, allowances):
+    """How far room i may push `side` outward inside its own ceilings."""
+    if bounds[i] is None:
+        return _INF
+    x0, y0, x1, y1 = rects[i]
+    w, h = x1 - x0, y1 - y0
+    tw, th = _axis_ceilings(bounds[i], w, h, aspect_floors=False)
+    room = (tw - w) if side in ("E", "W") else (th - h)
+    if room <= 0:
+        return 0.0
+    if allowances is not None:
+        # binary-search-free check: the grown rect's slenderness must stay
+        # inside the allowance, and growth is monotone in the delta.
+        if side in ("E", "W"):
+            candidate = (x0, y0, x1 + room, y1)
+        else:
+            candidate = (x0, y0, x1, y1 + room)
+        if _aspect_of(candidate) > allowances[i]:
+            # shrink the step until it fits (10 halvings is plenty at ft scale)
+            step = room
+            for _ in range(10):
+                step /= 2.0
+                trial = ((x0, y0, x1 + step, y1) if side in ("E", "W")
+                         else (x0, y0, x1, y1 + step))
+                if _aspect_of(trial) <= allowances[i]:
+                    return step
+            return 0.0
+    return room
+
+
+def _expand_to_target(work, bounds, door_reqs, eps, target,
+                      plot_limits, actions, allowances):
+    """Phase 5. Grow a gapless plan toward `target` (already oriented).
+
+    A whole boundary side advances at once, by the SMALLEST headroom among the
+    rooms on it, so the outline stays a rectangle and no room passes its own
+    ceiling. Never shrinks (the min-dim minimums are floors) and never crosses
+    the plot cap. Returns the feet gained per axis.
+    """
+    if target is None:
+        return (0.0, 0.0)
+    limit_w, limit_h = target
+    if plot_limits is not None:
+        limit_w = min(limit_w, plot_limits[0])
+        limit_h = min(limit_h, plot_limits[1])
+    gained_x = gained_y = 0.0
+    sides = ("E", "S", "W", "N")
+    for _ in range(6):
+        moved = False
+        for side in sides:
+            bx0, by0, bx1, by1 = _bbox(work)
+            gap = (limit_w - (bx1 - bx0)) if side in ("E", "W") \
+                else (limit_h - (by1 - by0))
+            if gap <= 0.05:
+                continue
+            if side == "E":
+                idxs = [i for i, r in enumerate(work) if r[2] >= bx1 - eps]
+            elif side == "W":
+                idxs = [i for i, r in enumerate(work) if r[0] <= bx0 + eps]
+            elif side == "S":
+                idxs = [i for i, r in enumerate(work) if r[3] >= by1 - eps]
+            else:
+                idxs = [i for i, r in enumerate(work) if r[1] <= by0 + eps]
+            if not idxs:
+                continue
+            advance = min([gap] + [_side_growth_limit(work, bounds, i, side,
+                                                      allowances)
+                                   for i in idxs])
+            if advance <= 0.05:
+                continue
+            snapshot = list(work)
+            for i in idxs:
+                x0, y0, x1, y1 = work[i]
+                if side == "E":
+                    work[i] = (x0, y0, x1 + advance, y1)
+                elif side == "W":
+                    work[i] = (x0 - advance, y0, x1, y1)
+                elif side == "S":
+                    work[i] = (x0, y0, x1, y1 + advance)
+                else:
+                    work[i] = (x0, y0 - advance, x1, y1)
+            if (_rects_overlap(work, eps) or _void_metrics(work)[0] > eps
+                    or not _doors_ok(work, door_reqs, eps)
+                    or not _within_limits(work, plot_limits, eps)):
+                work[:] = snapshot
+                continue
+            for i in idxs:
+                actions.setdefault(i, []).append(
+                    "grew %.1f ft toward %s to fill the plot" % (advance, side))
+            if side in ("E", "W"):
+                gained_x += advance
+            else:
+                gained_y += advance
+            moved = True
+        if not moved:
+            break
+    return (gained_x, gained_y)
 
 
 # ---------------------------------------------------------------------------
@@ -753,6 +1102,16 @@ def postprocess_plan(rects, names, options=None, edges=None,
     connected_before = _rooms_connected(work, eps)
     vec_before = [_quality_vector(r, b) for r, b in zip(work, bounds)]
 
+    # The plot is the highest-priority constraint: it caps every phase below.
+    # A plan that ALREADY overflows the plot (the engine's expand fallback) is
+    # not cut down here - trimming it to the cap would break room minimums -
+    # so the cap is applied from whichever extent is larger.
+    plot_limits = _oriented(_dim_pair(opts, "plot_width", "plot_height"), work)
+    if plot_limits is not None:
+        plot_limits = (max(plot_limits[0], bbox_before[2] - bbox_before[0]),
+                       max(plot_limits[1], bbox_before[3] - bbox_before[1]))
+    target = _oriented(_dim_pair(opts, "target_width", "target_height"), work)
+
     # -- phase 1: in-tile repair (only meaningful on a gapless tiling) -------
     notch0, hole0 = _void_metrics(work)
     bbox_area = (bbox_before[2] - bbox_before[0]) * (bbox_before[3] - bbox_before[1])
@@ -762,14 +1121,29 @@ def postprocess_plan(rects, names, options=None, edges=None,
         candidate = _api.repair_dimensions([tuple(r) for r in work], bounds)
         growth = 1.0 + float(opts["max_bbox_growth"])
         cand_bbox = _bbox(candidate)
+        # The margin exists so NBC floors rebalance the tiling instead of
+        # ballooning the footprint. A plot makes that judgement exactly: any
+        # extent the PLOT still contains is not a balloon, whatever the margin
+        # says, and growing into the plot is what the caller asked for.
+        # Judged against the TARGET when the caller sent one, not the plot:
+        # generation's plot carries deliberate slack (a rejection cap, 1.6x the
+        # footprint on the shipped client), and letting the repair grow into
+        # that slack would oversize every plan. With no target the plot is the
+        # only rectangle available and stands in for it.
+        growth_limits = target if target is not None else plot_limits
+        fits_plot = (growth_limits is not None
+                     and _within_limits(candidate, growth_limits, eps))
         grew_too_much = (
-            (cand_bbox[2] - cand_bbox[0])
-            > (bbox_before[2] - bbox_before[0]) * growth
-            or (cand_bbox[3] - cand_bbox[1])
-            > (bbox_before[3] - bbox_before[1]) * growth)
+            ((cand_bbox[2] - cand_bbox[0])
+             > (bbox_before[2] - bbox_before[0]) * growth
+             or (cand_bbox[3] - cand_bbox[1])
+             > (bbox_before[3] - bbox_before[1]) * growth)
+            and not fits_plot)
         if grew_too_much:
             note("repair rolled back (would grow the plan"
                  " footprint beyond the allowed margin)")
+        elif not _within_limits(candidate, plot_limits, eps):
+            note("repair rolled back (would push the plan outside the plot)")
         elif (_rects_overlap(candidate, eps)
                 or not _doors_ok(candidate, door_reqs, eps)
                 or _void_metrics(candidate)[1] > eps):
@@ -785,6 +1159,11 @@ def postprocess_plan(rects, names, options=None, edges=None,
                 if any(abs(a - b) > 1e-4 for a, b in zip(old, new)):
                     actions.setdefault(i, []).append("repaired in-tile")
             work = list(candidate)
+
+    # The last state known to be a full rectangle. Phase 4 falls back to it
+    # when the trims below cannot be reclosed.
+    rect_state = list(work) if gapless_before else None
+    rect_actions = copy.deepcopy(actions)
 
     # -- phases 2+3: trim to ceilings, absorb what is allowed back ----------
     # Both the geometry AND the action log are snapshotted per phase: a
@@ -819,7 +1198,8 @@ def postprocess_plan(rects, names, options=None, edges=None,
                             allowances=allowances):
                 if (_rects_overlap(work, eps)
                         or _void_metrics(work)[1] > eps
-                        or not _doors_ok(work, door_reqs, eps)):
+                        or not _doors_ok(work, door_reqs, eps)
+                        or not _within_limits(work, plot_limits, eps)):
                     work[:] = snapshot
                     actions.clear()
                     actions.update(action_snapshot)
@@ -845,17 +1225,51 @@ def postprocess_plan(rects, names, options=None, edges=None,
                for a, b in zip(r0, r1)):
             break
 
-    issues_after = nbc_rules.plan_issues(_room_snapshot(work, names),
-                                         opts.get("rules"),
-                                         aspect_band=opts.get("aspect"))
-    score_after = sum(10 if i["severity"] == "error" else 1
-                      for i in issues_after)
+    # -- phase 4: reclose the outline ---------------------------------------
+    # Runs BEFORE the quality gate below, unlike phases 1-3 in the first
+    # version of this module: the gate is what decides whether the whole
+    # sequence was worth shipping, and reverting the trims for the rectangle
+    # changes that answer.
+    rectangle_restored = False
+    reclose_slack_used = False
+    trims_reverted = False
+    if opts["prefer_rectangle"] and gapless_before:
+        rectangle_restored, reclose_slack_used, trims_reverted = \
+            _close_notches(work, bounds, door_reqs, eps, opts, actions,
+                           allowances, plot_limits, rect_state, rect_actions)
+        if rectangle_restored:
+            note("outline reclosed to a rectangle"
+                 + (" (a room was allowed past its ceiling to do it)"
+                    if reclose_slack_used else ""))
+        elif trims_reverted:
+            over = _over_ceiling_rooms(work, bounds, names)
+            note("trims reverted to keep a rectangular outline"
+                 + ((" (%s stay past their NBC ceiling)" % ", ".join(over))
+                    if over else ""))
 
+    # -- phase 5: fill the plot ---------------------------------------------
+    filled = (0.0, 0.0)
+    if opts["fill_target"] and target is not None \
+            and _void_metrics(work)[0] <= max(_bbox_area(work), 1e-9) * 1e-3:
+        filled = _expand_to_target(work, bounds, door_reqs, eps,
+                                   target, plot_limits, actions, allowances)
+        if filled[0] > 0.05 or filled[1] > 0.05:
+            note("grown %.1f x %.1f ft toward the plot within the room"
+                 " ceilings" % filled)
+
+    # -- the gate: is the whole sequence worth shipping? ---------------------
     # The promise that outranks all heuristics: post-processing never makes
     # any single room worse on any rulebook dimension, and never makes the
     # plan-wide score worse. The per-room vector is the real gate (a plan
     # total can improve while one room crosses its band); the integer score
     # stays as a tiebreak for what the vector cannot see (area hierarchy).
+    # `start` is itself the original rectangle whenever gapless_before, so
+    # reverting here never costs the outline.
+    issues_after = nbc_rules.plan_issues(_room_snapshot(work, names),
+                                         opts.get("rules"),
+                                         aspect_band=opts.get("aspect"))
+    score_after = sum(10 if i["severity"] == "error" else 1
+                      for i in issues_after)
     vec_after = [_quality_vector(r, b) for r, b in zip(work, bounds)]
     regressed = sorted({
         str(names[i]) for i in range(len(names))
@@ -865,6 +1279,10 @@ def postprocess_plan(rects, names, options=None, edges=None,
     if regressed or score_after > score_before:
         work = list(start)
         actions.clear()
+        rectangle_restored = False
+        trims_reverted = False
+        reclose_slack_used = False
+        filled = (0.0, 0.0)
         if regressed:
             phase_notes.append(
                 "all changes reverted (%s would have regressed on a"
@@ -875,6 +1293,7 @@ def postprocess_plan(rects, names, options=None, edges=None,
                 " worsened %s -> %s)" % (score_before, score_after))
         issues_after = list(issues_before)
         score_after = score_before
+
     notch_after, hole_after = _void_metrics(work)
     bbox_after = _bbox(work)
     bbox_after_area = max((bbox_after[2] - bbox_after[0])
@@ -894,6 +1313,16 @@ def postprocess_plan(rects, names, options=None, edges=None,
         "notch_ratio": round(notch_after / bbox_after_area, 4),
         "interior_hole_area": round(hole_after, 2),
         "doors_preserved": _doors_ok(work, door_reqs, eps),
+        "rectangle_restored": rectangle_restored,
+        "trims_reverted_for_rectangle": trims_reverted,
+        "over_ceiling_rooms": (_over_ceiling_rooms(work, bounds, names)
+                               if reclose_slack_used or trims_reverted else []),
+        "plot_fit": _within_limits(work, plot_limits, eps),
+        "filled_toward_plot": [round(filled[0], 2), round(filled[1], 2)],
+        "extent_before": [round(bbox_before[2] - bbox_before[0], 2),
+                          round(bbox_before[3] - bbox_before[1], 2)],
+        "extent_after": [round(bbox_after[2] - bbox_after[0], 2),
+                         round(bbox_after[3] - bbox_after[1], 2)],
         "phase_notes": phase_notes,
         "rooms": [
             {"name": names[i], "before": before_rooms[i],
@@ -934,8 +1363,20 @@ def _summary_line(reports):
     if total == 0 and skipped == 0:
         return ""
     line = (" Post-processing adjusted %d of %d floorplans toward NBC room"
-            " limits and aspect bands; plan outlines may carry notches."
-            % (changed, total))
+            " limits and aspect bands." % (changed, total))
+    notched = sum(1 for r in reports
+                  if r and r.get("gapless_before")
+                  and not r.get("gapless_after"))
+    if notched:
+        line += (" %d floorplan(s) kept boundary notches: the outline could"
+                 " not be reclosed inside the room limits." % notched)
+    else:
+        line += " Every outline stayed a full rectangle."
+    filled = sum(1 for r in reports
+                 if r and any(v > 0.05
+                              for v in (r.get("filled_toward_plot") or [0, 0])))
+    if filled:
+        line += " %d were grown toward the plot." % filled
     if skipped:
         line += (" %d floorplan(s) with non-rectangular rooms were left"
                  " untouched." % skipped)
@@ -980,6 +1421,19 @@ def postprocess_ui_output(ui, nodes_list, edges_list, options, plan_count,
                      if hasattr(params, "get_min_area") else None)
     user_max_a = col(lambda: params.get_max_area()
                      if hasattr(params, "get_max_area") else None)
+
+    # The plot the request already carries is the default hard cap, so a caller
+    # gets plot-aware post-processing without sending it twice. An explicit
+    # postprocess_options value still wins (the request's plot is a deliberately
+    # slack REJECTION cap on this path; a client that knows the real footprint
+    # sends it as target_width/target_height).
+    options = dict(options or {})
+    for key, getter in (("plot_width", "get_plot_width"),
+                        ("plot_height", "get_plot_height")):
+        if options.get(key) is None:
+            value = col(lambda g=getter: getattr(params, g)())
+            if value:
+                options[key] = value
 
     reports = []
     for index in range(min(plan_count, len(plans))):

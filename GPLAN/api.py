@@ -1427,10 +1427,17 @@ class Documents:
                                           if e is not None and len(e) >= 2
                                           and int(e[0]) < len(nodes_list)
                                           and int(e[1]) < len(nodes_list)]
+                            # Same plot priority as the ui path: the request's
+                            # plot is the hard cap unless the caller sent one.
+                            stacked_options = dict(postprocess_options or {})
+                            for key in ("plot_width", "plot_height"):
+                                if stacked_options.get(key) is None \
+                                        and dim_inputs.get(key):
+                                    stacked_options[key] = dim_inputs[key]
                             new_plans, pp_reports, pp_note = \
                                 postprocess_serialized_plans(
                                     response.floorplans,
-                                    postprocess_options,
+                                    stacked_options,
                                     edges=door_edges)
                             response.floorplans = new_plans
                             response.postprocess = pp_reports

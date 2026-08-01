@@ -672,6 +672,10 @@ This is the last code that touches client geometry. It runs after the solver, af
 
 `python test_max_dimensions.py`, which reaches this code through the door-connectivity path but pins only the warning strings and the per-room minimum (`:208-217`). Nothing pins the gapless property itself, the repair band, or the `REPAIR_DIMENSIONS` gate. See [section 8](#8-verifying-a-change-tests-and-what-they-actually-pin).
 
+**What runs after it (2026-08-01)**
+
+`GPLAN/source/postprocessing/postprocess.py` is invoked from api.py:1515 when the request sets `postProcessEnabled`, so it, not this pass, is now the last code to touch client geometry. It used to hand the gapless rectangle this pass just built away for boundary notches; since 2026-08-01 its priority order is plot cap > rectangular outline > NBC ceilings, so a plan that leaves `rectangularize_output` as a rectangle stays one. Contract, options and the measured rectangle-vs-ceilings trade: [postprocess_api.md](../postprocess_api.md). Tests: `python test_api_postprocess.py` (T9 pins the outline, the plot cap and the fill).
+
 ---
 
 ## 5. Global invariants
