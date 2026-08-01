@@ -276,12 +276,31 @@ def order_boundaries_by_cardinal(boundaries, cardinal_pairs):
 # =============================================================================
 
 def get_boundaries(node_ids, edges, node_positions=None, already_ptpg=False,
-                   max_boundaries=DEFAULT_MAX_BOUNDARIES, deadline=None):
+                   max_boundaries=DEFAULT_MAX_BOUNDARIES, deadline=None,
+                   cardinal_pairs=None, stats=None):
     """Enumerate feasible N/E/S/W boundary splits for the graph.
 
     ``already_ptpg=True`` promises the caller's graph is internally
     triangulated with a simple-cycle outer face - the biconnectivity and
     triangulation passes are then skipped so variant topology survives intact.
+
+    ``max_boundaries`` counts RAW boundaries (distinct 4-splits before symmetry),
+    and every kept raw boundary is emitted with its complete 8-element dihedral
+    orbit (4 rotations x 2 orientations). It used to slice the flat list AFTER
+    all orbits were appended behind all raw entries, which cut orbit-first: on a
+    10-node outer cycle the default kept 0 of 371 orbit members, so whole
+    symmetry families (including every reflection) vanished and an 8-room ring
+    returned 5 plans where the uncapped run returns 13 - with a reason string
+    blaming the room sizes. The cap exists to bound the O(k^4) 4-split blowup,
+    which lives entirely in the raw list, so that is what it counts now.
+
+    ``cardinal_pairs`` aims the cap: raw boundaries are ordered by the best pin
+    score across their orbit BEFORE truncation, so the kept slice is the
+    pin-relevant one. Ordering only - no boundary is dropped for scoring 0.
+
+    ``stats`` (optional dict) reports ``raw_total``, ``raw_kept`` and
+    ``truncated`` so a caller can say when the cap bound instead of blaming
+    the room sizes.
     """
     n = len(node_ids)
     idx = {nid: i for i, nid in enumerate(node_ids)}
@@ -377,31 +396,56 @@ def get_boundaries(node_ids, edges, node_positions=None, already_ptpg=False,
                     out.append(nid)
         return out
 
-    bdys = [[to_ids(arc) for arc in b] for b in raw_list]
-
-    # Rotations and mirrors, so a layout is not missed purely by orientation.
-    seen = {str(b) for b in bdys}
-
-    def add(b):
+    raw_bdys = []
+    seen_raw = set()
+    for b in (
+        [[to_ids(arc) for arc in bb] for bb in raw_list]
+    ):
         key = str(b)
-        if key not in seen:
-            seen.add(key)
-            bdys.append(b)
+        if key not in seen_raw:
+            seen_raw.add(key)
+            raw_bdys.append(b)
 
-    for b in list(bdys):
+    def orbit(b):
+        """Full dihedral orbit: 4 rotations of b and 4 of its reflection."""
+        out = [b]
         cur = b
         for _ in range(3):
             cur = [cur[1], cur[2], cur[3], cur[0]]
-            add(cur)
+            out.append(cur)
         for rot in range(4):
             rb = b
             for _ in range(rot):
                 rb = [rb[1], rb[2], rb[3], rb[0]]
-            add([list(reversed(rb[3])), list(reversed(rb[2])),
-                 list(reversed(rb[1])), list(reversed(rb[0]))])
+            out.append([list(reversed(rb[3])), list(reversed(rb[2])),
+                        list(reversed(rb[1])), list(reversed(rb[0]))])
+        return out
 
-    if max_boundaries is not None and max_boundaries > 0:
-        bdys = bdys[:max_boundaries]
+    pins = list(cardinal_pairs or [])
+    if pins:
+        # Best pin score anywhere in the orbit decides which raw boundaries
+        # survive the cap; stable sort keeps the enumeration order among ties.
+        raw_bdys.sort(key=lambda b: -max(
+            _cardinal_boundary_score(m, pins) for m in orbit(b)))
+
+    raw_total = len(raw_bdys)
+    truncated = max_boundaries is not None and 0 < max_boundaries < raw_total
+    if truncated:
+        raw_bdys = raw_bdys[:max_boundaries]
+
+    bdys = []
+    seen = set()
+    for b in raw_bdys:
+        for m in orbit(b):
+            key = str(m)
+            if key not in seen:
+                seen.add(key)
+                bdys.append(m)
+
+    if stats is not None:
+        stats["raw_total"] = raw_total
+        stats["raw_kept"] = len(raw_bdys)
+        stats["truncated"] = bool(truncated)
     return bdys
 
 
@@ -916,7 +960,8 @@ STRICTNESS_LEVELS = ("exact", "relaxed", "best_effort")
 def generate_floorplans(node_ids, edges, room_widths, room_heights,
                         node_positions=None, plot_w=-1, plot_h=-1, limit=100,
                         already_ptpg=False, max_boundaries=DEFAULT_MAX_BOUNDARIES,
-                        deadline=None, strictness="relaxed", cardinal_pairs=None):
+                        deadline=None, strictness="relaxed", cardinal_pairs=None,
+                        stats=None):
     """Dimensioned floorplans for one graph and one set of exact room sizes.
 
     Passes are tried in order and the first one that produces anything wins:
@@ -954,7 +999,8 @@ def generate_floorplans(node_ids, edges, room_widths, room_heights,
         boundaries = get_boundaries(node_ids, plain, node_positions,
                                     already_ptpg=already_ptpg,
                                     max_boundaries=max_boundaries,
-                                    deadline=deadline)
+                                    deadline=deadline,
+                                    cardinal_pairs=pins, stats=stats)
     except DeadlineExceeded:
         raise
     except Exception:

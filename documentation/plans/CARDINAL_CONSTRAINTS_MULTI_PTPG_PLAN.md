@@ -3,6 +3,16 @@
 Implementation plan, written 2026-08-01 against engine `9d971447`
 (`nitantupasani/gplan_engine` main), designer `6dbd927`, backend `gplan_backend` main.
 
+**STATUS 2026-08-01: Phase 1 (Section 4) is BUILT and verified**, engine battery
+99/99 (`python test_multi_ptpg.py`, new T10/T11) and designer `check:generators`
+29/29 against the bridge. Also landed from later phases, because the user asked
+for adjacency and pin reporting now: named missing adjacencies per plan
+(client), the per-plan client-side re-check of 4.6 via the shared
+`rectsSatisfyCardinalRecess` predicate (battery and client share it), the 4.4
+copy fixes, and `cardinal.attempted`/`cardinal.undetermined` response fields.
+Phases 2, 3, 5 (the rest), 6 and 7 remain open; the per-plan
+`cardinal_satisfied` value is still the batch constant until Phase 2 lands.
+
 Scope: the **multi-PTPG endpoint only** (`POST /api/generate/multi-ptpg`, the
 "alternative arrangements" engine). The `door_connectivity` path is the reference
 implementation here, not the subject: it is touched only where a helper moves or a

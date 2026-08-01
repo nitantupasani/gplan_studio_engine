@@ -41,8 +41,10 @@ Implementation plans:
   the design: porting the door path's cardinal outer ring here disables Stage 1 of
   the variant search, because a Hamiltonian outer cycle leaves no interior room for
   a boundary-edge removal to promote. Read both before porting anything from
-  [cardinal_constraints.md](cardinal_constraints.md). Written 2026-08-01, not yet
-  built.
+  [cardinal_constraints.md](cardinal_constraints.md). **Phase 1 (correctness:
+  orbit-safe pin-aware boundary cap, arc-order variant filter, pin sanitation,
+  honest reporting, disconnected-input rejection) built 2026-08-01**; Phases 2-7
+  open.
 
 Handover docs for new maintainers:
 1. [contribution_workflow.md](contribution_workflow.md)

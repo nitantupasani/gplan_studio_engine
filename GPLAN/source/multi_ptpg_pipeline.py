@@ -29,9 +29,16 @@ N/E/S/W pins (``cardinal_constraints``) apply at both levels, and they have to:
 * Every returned layout is then verified geometrically, because the boundary
   arcs are a topological assignment and only the placed rectangles are the truth.
 
-The relaxation ladder mirrors ``door_connectivity``'s: pins are honoured, and if
-NOTHING in the whole request can honour them the plans are returned anyway with a
-warning saying so, never silently unpinned and never as an empty result.
+The relaxation ladder here is SHALLOWER than ``door_connectivity``'s: it has one
+rung. Pins are honoured on every returned plan, and if NOTHING in the whole
+request honours them the plans are returned unpinned with a warning saying so,
+never silently and never as an empty result. The door path additionally spends
+adjacencies to keep the pins (its spanning-tree rung) before it ever unpins;
+this endpoint does not yet, so a pin that the arrangements cannot hold is given
+up sooner than the settled priority (pins outrank adjacencies, adjacencies
+outrank arrangement count) wants. The graded ladder is planned in
+``documentation/plans/CARDINAL_CONSTRAINTS_MULTI_PTPG_PLAN.md``; do not describe
+this one as mirroring the door path's.
 """
 
 import copy
@@ -198,6 +205,65 @@ def _normalize_cardinal(cardinal_constraints, node_count):
     return normalize_cardinal_constraints(cardinal_constraints, node_count)
 
 
+def _sanitize_pins(raw_entries, pairs, room_names, warnings):
+    """Up-front pin hygiene; returns the pairs that are worth attempting.
+
+    Three things used to be discovered only after two full dimensioning passes
+    (or never):
+
+    * entries normalization dropped (room index out of range - e.g. a pin on a
+      room ``door_connectivity`` invented, which is not a client room - or an
+      unrecognised direction) were silent;
+    * a room pinned to OPPOSITE directions (N+S or E+W) is unsatisfiable by
+      construction, yet ran the full pinned pass and the full unpinned retry
+      before answering ``ignored`` with a message blaming the room sizes;
+    * three or more directions on one room can never all hold (a corner room
+      occupies exactly two adjacent arcs).
+
+    Contradictory rooms lose their pins HERE, each with a warning naming the
+    room, so the remaining pins still get their honest attempt.
+    """
+    normalized_count = len(pairs)
+    raw_count = 0
+    for entry in raw_entries or []:
+        if isinstance(entry, dict) or (hasattr(entry, "__len__") and len(entry) >= 2):
+            raw_count += 1
+    # Duplicates collapse in normalization too, so this is a lower bound; it
+    # still catches the silent-drop cases worth naming.
+    if raw_count > normalized_count:
+        warnings.append(
+            f"{raw_count - normalized_count} cardinal pin(s) were dropped during "
+            "normalization: the room index is not one of the request's rooms "
+            "(pins on engine-added rooms are not supported) or the direction "
+            "was not one of N/E/S/W, or the pin was a duplicate"
+        )
+
+    by_room = {}
+    for node, dir_idx in pairs:
+        by_room.setdefault(node, []).append(dir_idx)
+
+    keep = []
+    for node, dirs in by_room.items():
+        name = room_names[node] if node < len(room_names) else f"Room {node}"
+        dir_names = "+".join("NESW"[d] for d in sorted(dirs))
+        if len(dirs) > 2:
+            warnings.append(
+                f"the pins on {name} ({dir_names}) were dropped: a room can face "
+                "at most two adjacent directions (a corner)"
+            )
+            continue
+        if len(dirs) == 2 and (dirs[1] - dirs[0]) % 4 == 2:
+            warnings.append(
+                f"the pins on {name} ({dir_names}) were dropped: opposite "
+                "directions on one room can never both hold"
+            )
+            continue
+        keep.append(node)
+
+    keep_set = set(keep)
+    return [(n, d) for n, d in pairs if n in keep_set]
+
+
 def _cardinal_payload(pins, room_names):
     """JSON view of the pins actually applied, named for the client."""
     return [
@@ -259,6 +325,32 @@ def generate_multi_ptpg_floorplans(params):
     black_edges = [e for e in edges if e.get("color", "black") != "red"]
     if not black_edges:
         raise MultiPTPGError("no black (adjacency) edges in params.edges")
+    for e in black_edges:
+        s, t = int(e.get("source", -1)), int(e.get("target", -1))
+        if not (0 <= s < len(nodes)) or not (0 <= t < len(nodes)):
+            raise MultiPTPGError(
+                f"edge ({s}, {t}) names a room outside 0..{len(nodes) - 1}"
+            )
+
+    # door_connectivity has no deadline hook and runs effectively unbounded on
+    # disconnected input (a 9-node forest was observed running past four
+    # minutes), so reject it up front with a fixable message instead of letting
+    # the worker hang before any deadline is ever consulted.
+    conn = nx.Graph()
+    conn.add_nodes_from(range(len(nodes)))
+    conn.add_edges_from((int(e["source"]), int(e["target"])) for e in black_edges)
+    if not nx.is_connected(conn):
+        comps = sorted((sorted(c) for c in nx.connected_components(conn)),
+                       key=len, reverse=True)
+        label = lambda i: nodes[i].get("label") or f"Room {i}"
+        isolated = "; ".join(
+            ", ".join(label(i) for i in comp) for comp in comps[1:4]
+        )
+        raise MultiPTPGError(
+            f"the adjacency graph is disconnected ({len(comps)} separate groups). "
+            f"Rooms not connected to the main group: {isolated}. Add adjacencies "
+            "linking every room before generating arrangements"
+        )
 
     time_budget = float(params.get("time_budget_seconds") or DEFAULT_TIME_BUDGET)
     deadline = started + max(5.0, time_budget)
@@ -278,6 +370,29 @@ def generate_multi_ptpg_floorplans(params):
     interior_rooms = params.get("interior_rooms") or []
     exterior_rooms = params.get("exterior_rooms") or []
     cardinal_pairs = _normalize_cardinal(params.get("cardinal_constraints"), len(nodes))
+
+    warnings = []
+    client_names = [n.get("label") or f"Room {i}" for i, n in enumerate(nodes)]
+    # ``requested`` in the response reports what the CLIENT asked for; the
+    # sanitized list is what the pipeline attempts.
+    requested_pairs = list(cardinal_pairs)
+    cardinal_pairs = _sanitize_pins(
+        params.get("cardinal_constraints"), cardinal_pairs, client_names, warnings)
+
+    # A room in both interior_rooms and cardinal_constraints is unsatisfiable by
+    # construction (a pinned room must reach the outer wall). The pin outranks
+    # the interior mark - cardinal constraints have priority - and the response
+    # says which one won rather than letting the filter empty and blame the pins.
+    pinned_set = {n for n, _ in cardinal_pairs}
+    interior_conflicts = sorted(pinned_set & {int(r) for r in interior_rooms})
+    if interior_conflicts:
+        named = ", ".join(client_names[i] for i in interior_conflicts)
+        warnings.append(
+            f"{named} appeared in both interior_rooms and cardinal_constraints; "
+            "a pinned room must reach the outer wall, so the pin won and the "
+            "interior mark was dropped for it"
+        )
+        interior_rooms = [r for r in interior_rooms if int(r) not in pinned_set]
 
     # ---- stage 1: base PTPG ------------------------------------------------
     try:
@@ -305,7 +420,6 @@ def generate_multi_ptpg_floorplans(params):
     input_pairs = {mptpg._norm_edge(int(e["source"]), int(e["target"])) for e in black_edges}
     added_by_dc = sorted(set(base_edges) - input_pairs)
 
-    warnings = []
     if synthetic:
         warnings.append(
             f"door_connectivity added {len(synthetic)} room(s) not present in the "
@@ -368,7 +482,9 @@ def generate_multi_ptpg_floorplans(params):
             "raise max_variants or lower max_depth for a complete set"
         )
     for var in variants:
-        var["outer_cycle"] = mptpg.boundary_nodes(var["graph"])[0]
+        cyc, is_cyc = mptpg.boundary_nodes(var["graph"])
+        var["outer_cycle"] = cyc
+        var["outer_is_cycle"] = is_cyc
 
     if generated == 1 and outer_is_cycle:
         msg = ("no topological variant of the base PTPG survived validation; every "
@@ -388,6 +504,7 @@ def generate_multi_ptpg_floorplans(params):
     pinned_rooms = sorted({int(node) for node, _ in cardinal_pairs})
     exterior_required = sorted(set(int(r) for r in exterior_rooms) | set(pinned_rooms))
     cardinal_dropped_variants = 0
+    cardinal_filter_emptied = False
 
     if interior_rooms or exterior_required:
         before = len(variants)
@@ -400,14 +517,16 @@ def generate_multi_ptpg_floorplans(params):
             # Dropping every variant would return nothing at all, so keep them
             # and let the geometric gate decide per layout. A pinned room that
             # is interior in every topology usually still has SOME layout in
-            # which its wall reaches the boundary.
+            # which its wall reaches the boundary. The drop count is KEPT: it
+            # is the funnel metric, and zeroing it in exactly the case where
+            # the filter was most aggressive hid what happened.
             if pinned_rooms:
                 warnings.append(
                     f"no arrangement puts every pinned room ({pinned_rooms}) on the "
                     f"outer wall, so all {before} arrangements were kept and the pins "
                     "are enforced on the placed layouts instead"
                 )
-                cardinal_dropped_variants = 0
+                cardinal_filter_emptied = True
             else:
                 warnings.append(
                     f"all {before} variants were rejected by the interior/exterior "
@@ -421,6 +540,57 @@ def generate_multi_ptpg_floorplans(params):
                     f"{cardinal_dropped_variants} of {before} arrangements were dropped "
                     "because they placed a pinned room away from the outer wall"
                 )
+
+    # Arc-order feasibility, the stronger half of the topological pre-filter.
+    # Membership says every pinned room is somewhere on the outer cycle; with
+    # two or more pins the cyclic ORDER must also admit a rotation/reflection
+    # that puts each pin inside its own N/E/S/W arc, which is exactly the
+    # predicate the door path uses to order its ring (api._ring_order_satisfies,
+    # pure, both orientations, all rotations - the same 8 symmetries the
+    # boundary filter downstream can accept). A variant that fails it walks
+    # every boundary through every strictness pass and can never satisfy, so
+    # pruning here is pure savings.
+    if cardinal_pairs and variants and not cardinal_filter_emptied:
+        from GPLAN.api import _ring_order_satisfies
+
+        pins_map = {}
+        for node, dir_idx in cardinal_pairs:
+            pins_map.setdefault(node, set()).add(dir_idx)
+
+        def order_admits_pins(var):
+            # An open-path boundary (outer face not a simple cycle) is unknown
+            # territory, not a proof of impossibility: never prune on it.
+            if not var.get("outer_is_cycle"):
+                return True
+            order = list(var.get("outer_cycle") or [])
+            if len(order) < 3:
+                return True
+            try:
+                return _ring_order_satisfies(order, pins_map)
+            except ValueError:
+                # 3+ directions on one room; _sanitize_pins rejects that
+                # upstream, but never let a predicate error drop a variant.
+                return True
+
+        before_arc = len(variants)
+        arc_kept = [v for v in variants if order_admits_pins(v)]
+        arc_dropped = before_arc - len(arc_kept)
+        if arc_kept:
+            variants = arc_kept
+            if arc_dropped:
+                cardinal_dropped_variants += arc_dropped
+                warnings.append(
+                    f"{arc_dropped} more arrangement(s) were dropped because their "
+                    "outer-wall order cannot put every pinned room on its own "
+                    "direction, whatever the room sizes"
+                )
+        elif arc_dropped:
+            cardinal_filter_emptied = True
+            warnings.append(
+                "no arrangement's outer-wall order can put every pinned room on "
+                f"its own direction, so all {before_arc} arrangements were kept "
+                "and the pins are enforced on the placed layouts instead"
+            )
 
     # ---- stage 3: dimensioned floorplans per variant -----------------------
     node_ids = sorted(G_base.nodes())
@@ -462,6 +632,7 @@ def generate_multi_ptpg_floorplans(params):
                 continue
 
             variant_edges = [(int(u), int(v)) for u, v in H.edges()]
+            boundary_stats = {}
             try:
                 plans = pfp.generate_floorplans(
                     node_ids, variant_edges, widths, heights,
@@ -469,6 +640,7 @@ def generate_multi_ptpg_floorplans(params):
                     limit=per_variant, already_ptpg=True,
                     max_boundaries=max_boundaries, deadline=deadline,
                     strictness=strictness, cardinal_pairs=pins,
+                    stats=boundary_stats,
                 )
             except pfp.DeadlineExceeded:
                 payload.update(status="skipped", reason="time budget exhausted",
@@ -493,13 +665,27 @@ def generate_multi_ptpg_floorplans(params):
                 plan["cardinal_satisfied"] = bool(pins)
             if pins and serialized:
                 payload["cardinal_satisfied"] = True
-            payload.update(
-                status="ok" if serialized else "no_floorplan",
-                reason=None if serialized else (
+            truncated_here = bool(boundary_stats.get("truncated"))
+            payload["boundaries_truncated"] = truncated_here
+            reason = None
+            if not serialized:
+                reason = (
                     "no layout puts every pinned room on the direction you asked for"
                     if pins else
                     "no layout realises this topology at the requested exact room sizes"
-                ),
+                )
+                if truncated_here:
+                    # Do not blame the room sizes for a truncation: the cap cut
+                    # the boundary list before every candidate was tried.
+                    reason += (
+                        f" within the first {boundary_stats.get('raw_kept')} of "
+                        f"{boundary_stats.get('raw_total')} candidate boundaries; "
+                        "raise max_boundaries_per_variant (0 lifts the cap) to "
+                        "try the rest"
+                    )
+            payload.update(
+                status="ok" if serialized else "no_floorplan",
+                reason=reason,
                 floorplan_count=len(serialized),
                 floorplans=serialized,
             )
@@ -515,23 +701,50 @@ def generate_multi_ptpg_floorplans(params):
 
     variant_payloads, total_plans, truncated, cap_info = dimension_all(cardinal_pairs)
 
-    # Relaxation ladder, mirroring door_connectivity's: pins outrank nothing if
-    # they make the whole request empty. Retry unpinned and SAY the pins were
-    # ignored, rather than returning an empty gallery or pretending they held.
+    # Relaxation ladder, ONE rung (shallower than door_connectivity's; the
+    # graded ladder is planned): when the pinned pass returns nothing at all,
+    # retry unpinned and SAY the pins were ignored, rather than returning an
+    # empty gallery or pretending they held.
     cardinal_ignored = False
-    if cardinal_pairs and total_plans == 0 and time.monotonic() < deadline:
-        retry_payloads, retry_plans, retry_truncated, retry_cap = dimension_all([])
-        if retry_plans > 0:
-            variant_payloads, total_plans, truncated, cap_info = (
-                retry_payloads, retry_plans, retry_truncated or truncated, retry_cap)
-            cardinal_ignored = True
-            asked = ", ".join(f"{c['name']} {c['direction']}"
-                              for c in _cardinal_payload(cardinal_pairs, room_names))
+    cardinal_retry_failed = False
+    cardinal_retry_skipped = False
+    if cardinal_pairs and total_plans == 0:
+        if time.monotonic() >= deadline:
+            cardinal_retry_skipped = True
             warnings.append(
-                f"the N/E/S/W directions were ignored: no arrangement of these rooms at "
-                f"these exact sizes places {asked} on the wall you asked for. The plans "
-                "below are otherwise valid"
+                "the time budget expired before the unpinned retry could run: no "
+                "plans were produced and whether the pins are satisfiable was "
+                "never determined. Raise time_budget_seconds"
             )
+        else:
+            retry_payloads, retry_plans, retry_truncated, retry_cap = dimension_all([])
+            if retry_plans > 0:
+                variant_payloads, total_plans, truncated, cap_info = (
+                    retry_payloads, retry_plans, retry_truncated or truncated, retry_cap)
+                cardinal_ignored = True
+                asked = ", ".join(f"{c['name']} {c['direction']}"
+                                  for c in _cardinal_payload(cardinal_pairs, room_names))
+                warnings.append(
+                    f"the N/E/S/W directions were ignored: no arrangement of these rooms at "
+                    f"these exact sizes places {asked} on the wall you asked for. The plans "
+                    "below are otherwise valid"
+                )
+            else:
+                # The retry just proved the pins were NOT the cause; the kept
+                # payloads still blame them, so correct each reason.
+                cardinal_retry_failed = True
+                for payload in variant_payloads:
+                    if payload.get("status") == "no_floorplan":
+                        payload["reason"] = (
+                            "no layout realises this topology at the requested "
+                            "exact room sizes; the unpinned retry failed too, so "
+                            "the pins are not the cause"
+                        )
+                warnings.append(
+                    "no arrangement produced a layout with OR without the N/E/S/W "
+                    "pins: the exact room sizes admit no rectangular layout for "
+                    "any arrangement. Adjust the room dimensions"
+                )
 
     # Time, not max_variants, is the real bound on this endpoint now, so running
     # out of it is a normal outcome and must be stated. Variants are dimensioned
@@ -584,9 +797,19 @@ def generate_multi_ptpg_floorplans(params):
             for i in node_ids
         ],
         "cardinal": {
-            "requested": _cardinal_payload(cardinal_pairs, room_names),
-            "applied": bool(cardinal_pairs) and not cardinal_ignored,
+            "requested": _cardinal_payload(requested_pairs, room_names),
+            "attempted": _cardinal_payload(cardinal_pairs, room_names),
+            # From evidence, not from the absence of the ignore flag: every
+            # returned plan passed the geometric gate, so "applied" is true
+            # exactly when pinned plans exist. A zero-plan response used to
+            # claim applied: true over an empty gallery.
+            "applied": bool(cardinal_pairs) and not cardinal_ignored and total_plans > 0,
             "ignored": cardinal_ignored,
+            # Third state the binary pair could not express: the pins were
+            # neither held nor proven unsatisfiable (sizes fail everywhere, or
+            # the clock ran out before the retry).
+            "undetermined": bool(cardinal_pairs) and total_plans == 0
+                and (cardinal_retry_failed or cardinal_retry_skipped),
         },
         "variant_count": len(variant_payloads),
         "floorplan_count": total_plans,
@@ -596,6 +819,9 @@ def generate_multi_ptpg_floorplans(params):
             "variants_after_filter": len(variants),
             "variants_returned": len(variant_payloads),
             "variants_dropped_by_cardinal": cardinal_dropped_variants,
+            "variants_kept_by_cardinal_fallback": bool(cardinal_filter_emptied),
+            "variants_with_boundary_cap_truncation": sum(
+                1 for p in variant_payloads if p.get("boundaries_truncated")),
             "strictness": strictness,
             "preserve_input_edges": preserve_input_edges,
             "protected_edges": [[int(u), int(v)] for u, v in user_needs],

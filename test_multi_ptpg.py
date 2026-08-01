@@ -289,26 +289,173 @@ def test_cardinal_constraints():
               data["variant_count"] <= unpinned["data"]["variant_count"],
               f"{data['variant_count']} vs {unpinned['data']['variant_count']}")
 
-    # Opposite pins on one room are only satisfiable by a room spanning the whole
-    # plan, so this is the relaxation ladder's path: plans still come back, and the
-    # response says the directions were dropped.
+    # Opposite pins on one room can never both hold. They are rejected UP FRONT
+    # with a warning naming the room, not discovered after two full dimensioning
+    # passes and blamed on the room sizes (the old behaviour).
     both = call(dict(base, cardinal_constraints=[{"room": 0, "direction": "N"},
                                                  {"room": 0, "direction": "S"}]))
     check("T7 contradictory pins still return plans",
           both["data"]["floorplan_count"] > 0)
-    if both["data"]["cardinal"]["ignored"]:
-        check("T7 contradictory pins are reported ignored",
-              any("ignored" in w for w in both["data"]["warnings"]))
-    else:
-        check("T7 contradictory pins, if kept, are genuinely satisfied",
-              all(_faces_side(p, 0, "N") and _faces_side(p, 0, "S")
-                  for v in both["data"]["variants"] for p in v["floorplans"]))
+    check("T7 contradictory pins are dropped up front, naming the room",
+          any("opposite" in w and "R0" in w for w in both["data"]["warnings"]),
+          f"warnings: {both['data']['warnings']}")
+    check("T7 contradictory pins are not reported as ignored",
+          both["data"]["cardinal"]["ignored"] is False)
+    check("T7 contradictory pins stay visible in requested",
+          len(both["data"]["cardinal"]["requested"]) == 2)
+    check("T7 contradictory pins are not attempted",
+          both["data"]["cardinal"]["attempted"] == [])
 
-    # A room id outside the graph is dropped by the normalizer, so nothing is pinned.
+    # A room id outside the graph is dropped by the normalizer, so nothing is
+    # pinned - and the drop is now disclosed in warnings instead of silent.
     junk = call(dict(base, cardinal_constraints=[{"room": 99, "direction": "N"},
                                                  {"room": 0, "direction": "sideways"}]))
     check("T7 invalid pins are dropped, not fatal", junk["status"] == "ok")
     check("T7 invalid pins pin nothing", junk["data"]["cardinal"]["requested"] == [])
+    check("T7 invalid pins are disclosed",
+          any("dropped during normalization" in w for w in junk["data"]["warnings"]),
+          f"warnings: {junk['data']['warnings']}")
+
+
+def test_phase1_hardening():
+    """Phase 1 of CARDINAL_CONSTRAINTS_MULTI_PTPG_PLAN.md: correctness fixes."""
+    print("\nT10: boundary-cap symmetry, arc-order filter, honest reporting")
+
+    # -- G2: the boundary cap counts raw boundaries and keeps whole orbits, so
+    # the default cap and no cap agree on an 8-room ring. Before the fix the
+    # flat-list cap cut every orbit member past position 48 and this graph
+    # returned 5 plans against 13 uncapped, with a reason blaming room sizes.
+    ring_nodes = [node(i, 0, 0, 10, 10) for i in range(8)]
+    ring_edges = [edge(i, (i + 1) % 8) for i in range(8)]
+    ring = {"nodes": ring_nodes, "edges": ring_edges,
+            "preserve_input_edges": False, "strictness": "best_effort",
+            "max_floorplans": 0, "time_budget_seconds": 300}
+    capped = call(ring)
+    uncapped = call(dict(ring, max_boundaries_per_variant=0))
+    check("T10 default boundary cap loses no plans vs uncapped",
+          capped["data"]["floorplan_count"] == uncapped["data"]["floorplan_count"],
+          f"{capped['data']['floorplan_count']} vs "
+          f"{uncapped['data']['floorplan_count']}")
+    check("T10 variant statuses agree with the uncapped run",
+          [v["status"] for v in capped["data"]["variants"]]
+          == [v["status"] for v in uncapped["data"]["variants"]])
+
+    # -- Orbit completeness at the placer level: every raw boundary's full
+    # 8-element dihedral orbit survives the cap (reflections are load-bearing:
+    # on a 6-ring, all placeable boundaries were reflections).
+    from GPLAN.source import ptpg_floorplanner as pfp
+    stats = {}
+    node_ids = list(range(6))
+    hexagon = [(i, (i + 1) % 6) for i in range(6)] + [(0, 2), (0, 3), (3, 5)]
+    bdys = pfp.get_boundaries(node_ids, hexagon, already_ptpg=False,
+                              max_boundaries=4, stats=stats)
+    check("T10 truncation is reported by get_boundaries", stats["truncated"] is True)
+    check("T10 raw_kept respects the cap", stats["raw_kept"] == 4,
+          f"kept {stats['raw_kept']}")
+    keys = {str(b) for b in bdys}
+
+    def orbit_of(b):
+        out = [b]
+        cur = b
+        for _ in range(3):
+            cur = [cur[1], cur[2], cur[3], cur[0]]
+            out.append(cur)
+        for rot in range(4):
+            rb = b
+            for _ in range(rot):
+                rb = [rb[1], rb[2], rb[3], rb[0]]
+            out.append([list(reversed(rb[3])), list(reversed(rb[2])),
+                        list(reversed(rb[1])), list(reversed(rb[0]))])
+        return out
+    orbit_complete = all(str(m) in keys for b in bdys for m in orbit_of(b))
+    check("T10 every kept boundary carries its whole orbit", orbit_complete)
+
+    # -- Arc-order filter: four pins whose N,E,W,S order contradicts every
+    # rotation AND the reflection of the outer cycle. Membership alone passes
+    # (all four rooms are on the cycle); the order predicate must catch it,
+    # keep-all must fire, and the outcome must be disclosed.
+    sq_nodes = [node(i, 0, 0, 10, 10) for i in range(4)]
+    sq_edges = [edge(0, 1), edge(1, 2), edge(2, 3), edge(3, 0), edge(0, 2)]
+    impossible = call({"nodes": sq_nodes, "edges": sq_edges,
+                       "preserve_input_edges": False, "strictness": "best_effort",
+                       "cardinal_constraints": [
+                           {"room": 0, "direction": "N"}, {"room": 1, "direction": "E"},
+                           {"room": 2, "direction": "W"}, {"room": 3, "direction": "S"}]})
+    d = impossible["data"]
+    check("T10 impossible arc order still returns plans", d["floorplan_count"] > 0)
+    check("T10 keep-all fallback is flagged in stats",
+          d["stats"]["variants_kept_by_cardinal_fallback"] is True
+          or d["cardinal"]["ignored"] is True,
+          f"stats: {d['stats']}")
+    # The arc order is impossible on a GAPLESS boundary, but relaxed layouts
+    # with voids can genuinely face all four pins (that is what the keep-all
+    # fallback is for). So the contract is: either the pins were ignored and
+    # disclosed, or every returned plan really faces every pin.
+    if d["cardinal"]["ignored"]:
+        check("T10 impossible pins are disclosed when dropped",
+              any("ignored" in w for w in d["warnings"]))
+    else:
+        four = [(0, "N"), (1, "E"), (2, "W"), (3, "S")]
+        bad = [p for v in d["variants"] for p in v["floorplans"]
+               if not all(_faces_side(p, r, dr) for r, dr in four)]
+        check("T10 kept pins are geometrically true on every plan", not bad,
+              f"{len(bad)} violate")
+
+    # -- applied is evidence, not the absence of a flag: with pins and zero
+    # returned plans the response must not claim applied: true.
+    tiny = call({"nodes": sq_nodes, "edges": sq_edges,
+                 "preserve_input_edges": False, "strictness": "exact",
+                 "cardinal_constraints": [{"room": 0, "direction": "N"}]})
+    dd = tiny["data"]
+    if dd["floorplan_count"] == 0:
+        check("T10 zero plans never report applied: true",
+              dd["cardinal"]["applied"] is False)
+        check("T10 zero plans set the undetermined state",
+              dd["cardinal"]["undetermined"] is True or dd["cardinal"]["ignored"] is True)
+    else:
+        check("T10 plans returned with pins report applied: true",
+              dd["cardinal"]["applied"] is True)
+
+    # -- interior_rooms vs a pin on the same room: the pin wins, and the
+    # response says so instead of blaming the pins for an emptied filter.
+    conflict = call({"nodes": SIX_ROOM_NODES, "edges": SIX_ROOM_EDGES,
+                     "preserve_input_edges": False, "strictness": "best_effort",
+                     "interior_rooms": [0],
+                     "cardinal_constraints": [{"room": 0, "direction": "N"}]})
+    check("T10 interior+pin conflict is disclosed and the pin wins",
+          any("pin won" in w for w in conflict["data"]["warnings"]),
+          f"warnings: {conflict['data']['warnings']}")
+
+    # -- 1.4: disconnected input is rejected up front with a fixable message,
+    # not run unbounded through door_connectivity.
+    started = time.time()
+    disc = call({"nodes": [node(i, 0, 0, 10, 10) for i in range(6)],
+                 "edges": [edge(0, 1), edge(1, 2), edge(3, 4), edge(4, 5)],
+                 "strictness": "best_effort"})
+    elapsed = time.time() - started
+    check("T10 disconnected input is a validation error", disc["status"] == "error")
+    check("T10 disconnected error names the problem",
+          "disconnected" in str(disc.get("error", {}).get("message", "")))
+    check("T10 disconnected input fails fast", elapsed < 5, f"{elapsed:.1f}s")
+
+
+def test_must_hold_pin():
+    """A pin the base arrangement demonstrably satisfies must hold, with no
+    ignored-escape: this is the assertion that fails if pins regress."""
+    print("\nT11: a satisfiable pin is never dropped")
+    for direction in ("N", "E", "S", "W"):
+        res = call({"nodes": FIVE_ROOM_NODES, "edges": FIVE_ROOM_EDGES,
+                    "strictness": "best_effort", "preserve_input_edges": False,
+                    "cardinal_constraints": [{"room": 2, "direction": direction}]})
+        data = res["data"]
+        check(f"T11 {direction} pin on room 2 is applied, not ignored",
+              data["cardinal"]["ignored"] is False
+              and data["cardinal"]["applied"] is True,
+              f"cardinal: {data['cardinal']}")
+        bad = [p for v in data["variants"] for p in v["floorplans"]
+               if not _faces_side(p, 2, direction)]
+        check(f"T11 {direction} every plan faces {direction}", not bad,
+              f"{len(bad)} violate")
 
 
 def test_variant_cap_is_reported():
@@ -400,8 +547,8 @@ def main():
     print("=" * 70)
     for test in (test_five_room_exact, test_variants_multiply, test_protected_edges,
                  test_strictness_ladder, test_validation_errors, test_plot_constraint,
-                 test_cardinal_constraints, test_variant_cap_is_reported,
-                 test_total_floorplan_cap):
+                 test_cardinal_constraints, test_phase1_hardening, test_must_hold_pin,
+                 test_variant_cap_is_reported, test_total_floorplan_cap):
         try:
             test()
         except Exception:

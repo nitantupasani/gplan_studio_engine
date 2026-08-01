@@ -113,13 +113,27 @@ precedence over `preserve_input_edges` whenever it is present.
 
 Same wire format as `door_connectivity`'s, normalized by the same
 `GPLAN.api.normalize_cardinal_constraints`, so a client builds one payload for both
-endpoints. Pins apply at two levels, and both are needed:
+endpoints. Pins are sanitized up front (Phase 1 of
+`plans/CARDINAL_CONSTRAINTS_MULTI_PTPG_PLAN.md`, built 2026-08-01): entries the
+normalizer drops (out-of-range room, unknown direction) are disclosed in `warnings`;
+a room pinned to opposite directions (N+S / E+W) or to three or more directions loses
+its pins with a warning naming the room, instead of running two full dimensioning
+passes and blaming the room sizes; a room in both `interior_rooms` and
+`cardinal_constraints` keeps the PIN (cardinal outranks interior) and says so.
 
-1. **Variant pruning.** A pinned room must be on the outer face, so any variant that
-   buries it in the interior is dropped before it is dimensioned. This is where most of
-   the work happens: on the shipped 8-room 2BHK, pinning the Kitchen east drops 13 of
-   the 26 arrangements outright.
-2. **Geometric gating.** Every placed layout is then verified, because the boundary arcs
+Surviving pins apply at three levels:
+
+1. **Variant pruning, membership.** A pinned room must be on the outer face, so any
+   variant that buries it in the interior is dropped before it is dimensioned. On the
+   shipped 8-room 2BHK, pinning the Kitchen east drops 13 of the 26 arrangements.
+2. **Variant pruning, arc order.** The outer cycle's cyclic ORDER must also admit a
+   rotation or reflection placing every pin in its own N/E/S/W arc
+   (`GPLAN.api._ring_order_satisfies`, the door path's ring predicate). A variant that
+   fails can never satisfy the pins at any room sizes, so it is dropped before paying
+   for placement. Open-path boundaries are never pruned on this test (unknown is not
+   impossible). If either pruning level would empty the set, everything is kept and
+   the geometric gate decides (`stats.variants_kept_by_cardinal_fallback: true`).
+3. **Geometric gating.** Every placed layout is then verified, because the boundary arcs
    are a topological assignment and only the rectangles are the truth. The gate runs
    inside the candidate loop, so `floorplans_per_variant` counts *satisfying* layouts
    instead of filling with violating ones a client would have to discard.
@@ -137,19 +151,28 @@ reads. `GPLAN.source.ptpg_floorplanner.plan_satisfies_cardinal` is the y-up vers
 
 If nothing in the whole request can honour the pins the endpoint retries unpinned and
 returns those plans with `data.cardinal.ignored: true` plus a warning naming the pins it
-could not place. It never returns an empty gallery and never silently unpins.
+could not place. It never returns an empty gallery and never silently unpins. When even
+the unpinned retry returns nothing (the sizes admit no layout at all), per-variant
+reasons say the pins are NOT the cause; when the deadline expires before the retry, the
+warning says the pins were never evaluated. Both cases set `undetermined: true`.
 
 ```jsonc
 "cardinal": {
-  "requested": [{"room": 2, "name": "Kitchen", "direction": "E"}],
-  "applied": true,      // pins were enforced on every returned plan
-  "ignored": false      // true = no arrangement could honour them
+  "requested": [{"room": 2, "name": "Kitchen", "direction": "E"}],  // what the client asked
+  "attempted": [{"room": 2, "name": "Kitchen", "direction": "E"}],  // what survived sanitation
+  "applied": true,        // evidence, not a flag: pinned plans were actually returned
+  "ignored": false,       // true = plans returned with the pins dropped, warned
+  "undetermined": false   // true = zero plans, pins neither held nor refuted
 }
 ```
 
+`applied` is derived from evidence (pinned plans exist), so a zero-plan response can
+never claim `applied: true` over an empty gallery.
+
 Per variant: `cardinal_satisfied` is `true`/`false`, or `null` when no pins were sent.
 Per plan: `cardinal_satisfied` mirrors it. `stats.variants_dropped_by_cardinal` counts
-step 1's prunes.
+both pruning levels' drops and is NOT zeroed by the keep-all fallback (the fallback is
+its own flag).
 
 ---
 
@@ -258,6 +281,8 @@ error dicts so the Celery state stays `SUCCESS`.
 | Situation | Result |
 |---|---|
 | Fewer than 3 or more than 40 rooms | `status: error`, `ValidationError` |
+| Disconnected adjacency graph | `status: error`, `ValidationError` naming the isolated rooms. Rejected up front since 2026-08-01: `door_connectivity` has no deadline hook and a disconnected 9-node forest was observed running past four minutes |
+| Edge naming a room outside `0..n-1` | `status: error`, `ValidationError` |
 | Node ids not the contiguous range `0..n-1` | `status: error`, names the first bad index |
 | A room missing `width`/`height`, or non-positive | `status: error`, names the room |
 | Only red (non-adjacency) edges | `status: error`. Red edges are dropped; `door_connectivity`'s non-adjacency branch is a known hang and is never taken here |
@@ -284,7 +309,7 @@ expensive part and it runs per candidate boundary.
 |---|---|
 | `max_depth` | **The lever that matters.** Each level multiplies the variant count and costs one more of the user's adjacencies. Default 2 |
 | `max_variants` | A backstop, not a display cap. Set it above the closure size or the BFS stops MID-LEVEL and returns an arbitrary slice of one depth. `stats.variant_cap_hit` plus a warning fires whenever it binds |
-| `max_boundaries_per_variant` | The boundary enumeration is `O(k^4)` in outer-cycle length when the CIP machinery finds no shortcuts; this caps it |
+| `max_boundaries_per_variant` | The boundary enumeration is `O(k^4)` in outer-cycle length when the CIP machinery finds no shortcuts; this caps it. Counts RAW boundaries since 2026-08-01, and every kept one carries its complete 8-element rotation/reflection orbit: the old flat-list cap cut orbit members first (a 10-node cycle kept 0 of 371), silently deleting the reflections that are sometimes the only placeable candidates. When pins are set the raw list is pin-scored BEFORE truncation. A variant that returns nothing while truncated says so in its reason and sets `boundaries_truncated`; `stats.variants_with_boundary_cap_truncation` aggregates. 0 lifts the cap |
 | `floorplans_per_variant` | Stops each variant early once it has enough plans |
 | `max_floorplans` | Hard cap on the TOTAL, default 30, the same size catalogue `door_connectivity` returns. Spent breadth-first: every arrangement gets one plan before any gets a second, so it costs depth before it costs arrangements. Arrangements past the cap are never dimensioned at all, which is where it buys time back on a 4BHK. `stats.floorplan_cap_hit` plus a warning naming the emptied arrangements fires whenever it binds; set it to 0 for the whole set |
 | `time_budget_seconds` | Hard wall-clock stop, and the *real* bound at depth 2 for large programs. Variants are dimensioned base-first then by depth, so what gets skipped is always the most-mutated end of the set. Keep it at or below 900 so the Celery soft limit (1500 s) never fires first |
