@@ -515,11 +515,12 @@ def generate_multi_ptpg_floorplans(params):
         cardinal_dropped_variants = before - len(kept)
         if not kept:
             # Dropping every variant would return nothing at all, so keep them
-            # and let the geometric gate decide per layout. A pinned room that
-            # is interior in every topology usually still has SOME layout in
-            # which its wall reaches the boundary. The drop count is KEPT: it
-            # is the funnel metric, and zeroing it in exactly the case where
-            # the filter was most aggressive hid what happened.
+            # and let the geometry decide per layout. A room that is interior
+            # in every topology usually still has SOME layout in which its
+            # wall reaches the boundary (relaxed layouts contain voids). The
+            # drop count is KEPT: it is the funnel metric, and zeroing it in
+            # exactly the case where the filter was most aggressive hid what
+            # happened.
             if pinned_rooms:
                 warnings.append(
                     f"no arrangement puts every pinned room ({pinned_rooms}) on the "
@@ -527,10 +528,20 @@ def generate_multi_ptpg_floorplans(params):
                     "are enforced on the placed layouts instead"
                 )
                 cardinal_filter_emptied = True
+            elif exterior_required:
+                # exterior_rooms without pins used to empty the whole request
+                # here; same keep-all treatment, disclosed.
+                warnings.append(
+                    f"no arrangement puts every exterior-required room "
+                    f"({exterior_required}) on the outer wall, so all {before} "
+                    "arrangements were kept; check each plan's geometry for the "
+                    "exposure you need"
+                )
+                cardinal_filter_emptied = True
             else:
                 warnings.append(
-                    f"all {before} variants were rejected by the interior/exterior "
-                    "room constraints"
+                    f"all {before} variants were rejected by the interior room "
+                    "constraints"
                 )
                 variants = kept
         else:

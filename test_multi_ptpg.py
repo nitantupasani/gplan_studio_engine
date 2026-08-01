@@ -426,6 +426,21 @@ def test_phase1_hardening():
           any("pin won" in w for w in conflict["data"]["warnings"]),
           f"warnings: {conflict['data']['warnings']}")
 
+    # -- exterior_rooms alone must never empty the request: when no arrangement
+    # can put every required room on the outer wall, everything is kept and the
+    # fallback is disclosed (this used to return zero plans; pins had the
+    # keep-all branch, plain exterior_rooms did not).
+    ext = call({"nodes": FIVE_ROOM_NODES, "edges": FIVE_ROOM_EDGES,
+                "preserve_input_edges": False, "strictness": "best_effort",
+                "exterior_rooms": [0, 1, 2, 3, 4]})
+    check("T10 exterior_rooms alone never empties the request",
+          ext["status"] == "ok" and ext["data"]["floorplan_count"] > 0,
+          f"count={ext.get('data', {}).get('floorplan_count')}")
+    if ext["data"]["stats"]["variants_kept_by_cardinal_fallback"]:
+        check("T10 exterior keep-all fallback is disclosed",
+              any("exterior-required" in w for w in ext["data"]["warnings"]),
+              f"warnings: {ext['data']['warnings']}")
+
     # -- 1.4: disconnected input is rejected up front with a fixable message,
     # not run unbounded through door_connectivity.
     started = time.time()

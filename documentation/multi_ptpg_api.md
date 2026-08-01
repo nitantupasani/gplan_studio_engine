@@ -60,7 +60,10 @@ and dimensioning half of the engine, which is what keeps room sizes exact.
     "preserve_input_edges": true,      // protect every requested adjacency
     "protected_edges": [[0, 1]],       // overrides the flag: protect only these
     "interior_rooms": [],              // must NOT sit on the outer face
-    "exterior_rooms": [],              // must sit on the outer face
+    "exterior_rooms": [],              // must sit on the outer face; if NO arrangement
+                                       // qualifies, all are kept + a warning (2026-08-01,
+                                       // used to return zero plans without pins). The
+                                       // designer sends Balcony/Utility indexes here
     "cardinal_constraints": [          // N/E/S/W pins, same shape as
       {"room": 0, "direction": "N"}    //   door_connectivity's
     ],
