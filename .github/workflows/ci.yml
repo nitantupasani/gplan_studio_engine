@@ -1,0 +1,26 @@
+# Minimal CI. Exists so `main` can require a status check that is real.
+#
+# Syntax only. The package ships compiled .so modules (build_dlls.py) built on
+# the deployment VM, so a plain runner cannot import GPLAN, and the test_*.py
+# scripts at the repo root are manual drivers that hit a live engine rather
+# than a pytest suite. A container job that builds the extensions is the next
+# step; until then this catches the failure that actually reaches the backend,
+# which is a syntax error in a pinned commit.
+name: ci
+
+on:
+  pull_request:
+    branches: [main, qa]
+  push:
+    branches: [qa]
+
+jobs:
+  python-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Byte-compile the engine package
+        run: python -m compileall -q GPLAN
