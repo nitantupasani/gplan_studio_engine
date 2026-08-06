@@ -87,6 +87,30 @@ caught and forced the E3 warning-contract fix below). Per-change outcomes:
   briefed walls geometrically). Multi-PTPG validity at that scale needs placer
   fidelity work; door_connectivity plus the client gate carry the type
   meanwhile.
+- **E8 CANDIDATE, not implemented: metric plan selection within variants,
+  measured against corridor briefs 2026-08-06.** The designer tried CORRIDOR
+  wings (a "Corridor" node between the Living Room and the secondary
+  bedrooms) in five 3/4BHK briefs on the bridge, and both pipelines fail it
+  structurally today. door_connectivity: the corridor is a high-degree
+  interior room, the dual makes it the spanning cell of its wing and its 3-5
+  requested doors lock `rectangularize_output`'s trim out, so corridors came
+  back 160-240 sqft (briefed 4 ft wide) with class-ordering hard errors in
+  30/30 plans at corridor degree >= 4; one degree-3 brief was clean (25/25)
+  and the 3BHK degree-3 brief inflated again (0/16), so the clean case is
+  tiling luck. multi-ptpg: exact sizes hold, but the 10-room placer realises
+  Living-Corridor at 0.00 ft across whole batches (candidate B, 12/12
+  plans) and at sub-door slivers in most of the best batch (candidate E: 16
+  plans, several one clause short of the client's preference audit, zero
+  across the line). The candidate fix is not placer surgery but SELECTION:
+  per variant, rank the `generate_floorplans` candidates by how many
+  priority/briefed pairs are realised at door width (reuse
+  `api._shared_wall_length`, floor 2.8-3.0 ft) before truncating to
+  `floorplans_per_variant`, and expose the per-plan count. That turns the
+  placer's sliver lottery into a filtered draw and would benefit every
+  brief, not only corridors. Until then corridor briefs stay out of the
+  shipped defaults (the designer documents the same verdict in its
+  UNIT_DEFAULT_SPACES comment) while the Corridor room type is fully
+  supported client-side for custom briefs.
 
 Original plan below, kept for the record. Written 2026-08-06 from bridge
 measurements across the 2BHK / 3BHK / 4BHK default briefs (frontend repo,
