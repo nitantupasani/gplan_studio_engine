@@ -365,6 +365,26 @@ def generate_multi_ptpg_floorplans(params):
         raise MultiPTPGError(f"strictness must be one of {list(pfp.STRICTNESS_LEVELS)}")
     preserve_input_edges = bool(params.get("preserve_input_edges", True))
     protected_edges = params.get("protected_edges")
+    protected_edge_groups = params.get("protected_edge_groups")
+    # Ordering, never filtering: priority_edges says which adjacencies the
+    # client cares about most (Living Room to each bedroom, say), so variants
+    # that keep them are dimensioned FIRST and flagged. Unlike protected_edges
+    # or protected_edge_groups it does not constrain the variant search at all;
+    # a client that needs a guarantee uses those, a client that wants the
+    # catalogue to LEAD with the keepers sends this. Malformed entries (too
+    # short, non-integer) are skipped silently, the same tolerance as the
+    # protected-edge normalisers; order is preserved and duplicates collapse.
+    priority_edges = params.get("priority_edges")
+    priority_pairs = []
+    for entry in priority_edges or []:
+        try:
+            if entry is None or len(entry) < 2:
+                continue
+            pair = mptpg._norm_edge(int(entry[0]), int(entry[1]))
+        except (TypeError, ValueError, KeyError, IndexError):
+            continue
+        if pair not in priority_pairs:
+            priority_pairs.append(pair)
     plot_w = int(params.get("plot_width", -1) or -1)
     plot_h = int(params.get("plot_height", -1) or -1)
     interior_rooms = params.get("interior_rooms") or []
@@ -460,12 +480,18 @@ def generate_multi_ptpg_floorplans(params):
         user_needs = sorted(input_pairs)
     else:
         user_needs = []
+    # Disjunctive protection (E1): each group keeps AT LEAST ONE member edge
+    # alive in every variant. This is the useful shape for circulation rules
+    # ("this bedroom keeps a hall wall") - protecting every member edge flat
+    # was measured to collapse the search to a handful of variants, because a
+    # room with two hall edges needs one, not both.
+    protected_groups = mptpg.normalise_protected_groups(protected_edge_groups)
     enum_stats = {}
     try:
         variants = mptpg.enumerate_ptpg_variants(
             G_base, user_needs=user_needs, max_variants=max_variants,
             max_depth=max_depth, include_base=True, deadline=deadline,
-            stats=enum_stats,
+            stats=enum_stats, protected_groups=protected_groups,
         )
     except Exception as exc:
         raise MultiPTPGError(f"variant enumeration failed: {exc}") from exc
@@ -490,11 +516,12 @@ def generate_multi_ptpg_floorplans(params):
         msg = ("no topological variant of the base PTPG survived validation; every "
                "boundary edge and interior diagonal is either protected or cannot "
                "be transformed without breaking the PTPG")
-        if user_needs:
+        if user_needs or protected_groups:
             msg += (". Every transformation removes an existing adjacency, so "
                     "protecting all of them leaves nothing to change: retry with "
-                    "preserve_input_edges=false, or list only the adjacencies you "
-                    "need in protected_edges")
+                    "preserve_input_edges=false, list only the adjacencies you "
+                    "need in protected_edges, or use protected_edge_groups to "
+                    "require one-of-several instead of every edge")
         warnings.append(msg)
 
     # A pinned room has to be on the outer face to face anything at all, so the
@@ -603,6 +630,40 @@ def generate_multi_ptpg_floorplans(params):
                 "and the pins are enforced on the placed layouts instead"
             )
 
+    # ---- priority ordering of the catalogue --------------------------------
+    # List order is load-bearing twice in stage 3: the max_floorplans cap fills
+    # round-robin from the FRONT and never dimensions arrangements past it, and
+    # the time budget cuts the TAIL. So this sort decides which arrangements
+    # get laid out AT ALL under a budget, not merely how the gallery reads.
+    # The sort is stable, so inside each tier the base-first/depth order (least
+    # mutated leads) is preserved; and it only reorders, it never drops: every
+    # variant that survived the filters above is still dimensioned or reported.
+    if priority_pairs:
+        for var in variants:
+            # "Keeps the adjacency" means the pair is an edge of the variant
+            # graph: the search only deletes and flips edges, so membership is
+            # the whole truth and no geometry needs consulting here.
+            variant_edge_set = {mptpg._norm_edge(u, v)
+                                for u, v in var["graph"].edges()}
+            var["priority_missing"] = sorted(
+                p for p in priority_pairs if p not in variant_edge_set)
+        variants.sort(key=lambda v: len(v["priority_missing"]))
+
+        base_edge_set = set(base_edges)
+        not_in_base = [p for p in priority_pairs if p not in base_edge_set]
+        if not_in_base:
+            # Variants are derived from the base PTPG by deletion and flip, so
+            # an adjacency the base never had cannot be kept by any of them.
+            warnings.append(
+                f"{len(not_in_base)} priority adjacency(ies) are not edges of "
+                "the base arrangement, so no variant can keep them"
+            )
+        if variants and all(v["priority_missing"] for v in variants):
+            warnings.append(
+                "none of the arrangements keeps every priority adjacency; "
+                "the catalogue leads with the closest"
+            )
+
     # ---- stage 3: dimensioned floorplans per variant -----------------------
     node_ids = sorted(G_base.nodes())
 
@@ -620,6 +681,14 @@ def generate_multi_ptpg_floorplans(params):
             positions = _positions_from_embedding(H, outer_cycle=var.get("outer_cycle"))
             payload = _variant_payload(var, base_edges, variant_id, positions)
             payload["cardinal_satisfied"] = None if not pins else False
+            if priority_pairs:
+                # Present only when the client sent priority_edges: absent in,
+                # absent out, so old clients and the pre-priority tests see
+                # byte-identical payloads. Set before the cap/deadline skips so
+                # even a never-dimensioned arrangement carries its verdict.
+                missing = var.get("priority_missing") or []
+                payload["priority_satisfied"] = not missing
+                payload["priority_missing"] = [[int(u), int(v)] for u, v in missing]
 
             # Once that many arrangements have a plan each, the round-robin cap
             # is already full at depth 1 and nothing a further arrangement
@@ -760,7 +829,9 @@ def generate_multi_ptpg_floorplans(params):
     # Time, not max_variants, is the real bound on this endpoint now, so running
     # out of it is a normal outcome and must be stated. Variants are dimensioned
     # base-first then by depth, so what gets skipped is always the most-mutated
-    # end of the set - the arrangements furthest from what the user drew.
+    # end of the set - the arrangements furthest from what the user drew. With
+    # priority_edges the sort has already moved the fewest-keeping arrangements
+    # to that tail, so the warning names whichever end was actually cut.
     # Count only the arrangements TIME dropped: the cap marks its own skips with
     # the same status, and blaming those on the clock would send the user off to
     # raise time_budget_seconds for a limit that has nothing to do with it.
@@ -768,10 +839,13 @@ def generate_multi_ptpg_floorplans(params):
                   if p.get("status") == "skipped"
                   and p.get("reason") == "time budget exhausted")
     if truncated and skipped:
+        tail = ("the ones keeping the fewest of your priority adjacencies"
+                if priority_pairs else
+                "the ones furthest from the graph you drew")
         warnings.append(
             f"the {time_budget:.0f}s time budget ran out with {skipped} of "
-            f"{len(variant_payloads)} arrangements not yet laid out; they are the "
-            "ones furthest from the graph you drew. Raise time_budget_seconds or "
+            f"{len(variant_payloads)} arrangements not yet laid out; they are "
+            f"{tail}. Raise time_budget_seconds or "
             "lower max_depth to cover them"
         )
 
@@ -787,7 +861,7 @@ def generate_multi_ptpg_floorplans(params):
             + ". Raise max_floorplans, or set it to 0, for the whole set"
         )
 
-    return {
+    data = {
         "base_ptpg": {
             "node_count": int(G_base.number_of_nodes()),
             "edges": [[int(u), int(v)] for u, v in base_edges],
@@ -836,6 +910,10 @@ def generate_multi_ptpg_floorplans(params):
             "strictness": strictness,
             "preserve_input_edges": preserve_input_edges,
             "protected_edges": [[int(u), int(v)] for u, v in user_needs],
+            "protected_edge_groups": [
+                sorted([int(u), int(v)] for u, v in group)
+                for group in protected_groups
+            ],
             "max_variants": max_variants,
             "max_depth": max_depth,
             "variant_cap_hit": bool(cap_hit),
@@ -847,6 +925,17 @@ def generate_multi_ptpg_floorplans(params):
             "truncated": truncated,
         },
     }
+    if priority_edges is not None:
+        # Echoed only when the request carried the field, mirroring the
+        # per-variant keys: an old client's response shape is unchanged.
+        # variants_keeping_all counts the tier the catalogue leads with; zero
+        # plus the warnings above tells the client the lead is best-effort.
+        data["priority"] = {
+            "edges": [[int(u), int(v)] for u, v in priority_pairs],
+            "variants_keeping_all": sum(
+                1 for var in variants if not var.get("priority_missing")),
+        }
+    return data
 
 
 def run(request_data):

@@ -424,6 +424,40 @@ def plan_satisfies_cardinal(plan_graph, cardinal_pairs):
     return True
 
 
+def _shared_wall_length(poly_a, poly_b, eps=0.05):
+    """Total collinear overlap between two rectilinear room polygons, feet.
+
+    E2a support (documentation/plans/VALIDITY_AND_TOPOLOGY_ENGINE_PLAN.md):
+    the graph promises an adjacency, the dimensioning realises it as SOME
+    shared boundary, and nothing below this function ever measured how much.
+    A briefed edge realised as a 0 ft corner contact or a 0.3 ft sliver holds
+    no door; the serializer uses this to disclose those pairs per plan.
+    Polygons are the `final_traversal` point lists (axis-aligned, closed
+    implicitly).
+    """
+    def edges(poly):
+        n = len(poly)
+        for idx in range(n):
+            x1, y1 = float(poly[idx][0]), float(poly[idx][1])
+            x2, y2 = float(poly[(idx + 1) % n][0]), float(poly[(idx + 1) % n][1])
+            yield x1, y1, x2, y2
+
+    total = 0.0
+    for ax1, ay1, ax2, ay2 in edges(poly_a):
+        for bx1, by1, bx2, by2 in edges(poly_b):
+            if abs(ax1 - ax2) < eps and abs(bx1 - bx2) < eps and abs(ax1 - bx1) < eps:
+                lo = max(min(ay1, ay2), min(by1, by2))
+                hi = min(max(ay1, ay2), max(by1, by2))
+                if hi - lo > eps:
+                    total += hi - lo
+            elif abs(ay1 - ay2) < eps and abs(by1 - by2) < eps and abs(ay1 - by1) < eps:
+                lo = max(min(ax1, ax2), min(bx1, bx2))
+                hi = min(max(ax1, ax2), max(bx1, bx2))
+                if hi - lo > eps:
+                    total += hi - lo
+    return total
+
+
 def filter_output_by_cardinal(ui, cardinal_pairs):
     """Keeps only geometrically satisfying plans in ui's output data.
 
@@ -763,6 +797,25 @@ def _headroom(rects, caps, i):
     return caps[i][1] - (x1 - x0) * (y1 - y0)
 
 
+def _scaled_caps(caps, slack):
+    """Caps with `slack` headroom for the bounded gap-closing pass (E3 of
+    documentation/plans/VALIDITY_AND_TOPOLOGY_ENGINE_PLAN.md). The fully
+    uncapped pass is what produced 1.5-3x WCs on 8+ room briefs: the hole had
+    to close and whoever touched it took everything. Closing within a bounded
+    multiple first keeps the overshoot small enough for post-processing to
+    repair without carving neighbouring walls into door-less slivers."""
+    if caps is None:
+        return None
+    return [None if c is None else (c[0] * slack, c[1] * slack) for c in caps]
+
+
+# How far past a room's ceiling the bounded gap-closing pass may go. 1.5x is
+# below every gross-oversize threshold the client audits (wet/service rooms
+# fail at 1.5x), so a plan that closes within this bound can always be
+# repaired back inside its band.
+GAP_FILL_SLACK = 1.5
+
+
 def _fill_gaps(rects, eps, caps=None, enforce=True):
     """Greedy wall extension: push each room's sides outward to the nearest
     obstruction (another room overlapping that side's span, else the plan
@@ -890,12 +943,18 @@ def rectangularize_output(ui):
         caps = _room_size_caps(ui, len(rects))
         if caps is not None:
             _fill_gaps(rects, eps, caps)
-        ran_uncapped = False
+        if not _is_gapless(rects, eps) and caps is not None:
+            # E3 (2026-08-06): close the hole within a BOUNDED multiple of the
+            # ceilings first. Most holes close here, and 1.5x overshoot is
+            # repairable; the old jump straight to uncapped is what put WCs at
+            # 1.5-3x their ceiling on every 8+ room brief.
+            _fill_gaps(rects, eps, _scaled_caps(caps, GAP_FILL_SLACK))
         if not _is_gapless(rects, eps):
             # Ceilings off, priority ordering still on: the hole must close, but
             # the room that closes it should be one that can carry the area.
+            # Last resort only, kept so a pathological plan degrades to an
+            # oversized room with a warning instead of vanishing from the batch.
             _fill_gaps(rects, eps, caps, enforce=False)
-            ran_uncapped = True
         if _rects_overlap(rects, eps) or not _is_gapless(rects, eps):
             continue
         # The tiling is now correct but the MEASUREMENTS are not: min-dim only
@@ -907,13 +966,16 @@ def rectangularize_output(ui):
         repaired = repair_dimensions(rects, _room_bounds(ui, len(rects)))
         if not _rects_overlap(repaired, eps) and _is_gapless(repaired, eps):
             rects = repaired
-        # The uncapped pass can push a room past its ceiling. That is the
-        # intended trade (a gapless rectangle is required, honouring every
-        # ceiling is preferred), but it must not be silent. Judged on the
-        # FINAL geometry: repair_dimensions often shrinks the offender back
-        # inside its band, and warning about a plan that ends up compliant
-        # taught clients to ignore the warning.
-        if ran_uncapped and caps is not None and _exceeds_caps(rects, caps, eps):
+        # The gap-closing passes can push a room past its ceiling (the bounded
+        # E3 pass up to GAP_FILL_SLACK, the last-resort pass without limit).
+        # That is the intended trade (a gapless rectangle is required,
+        # honouring every ceiling is preferred), but it must not be silent.
+        # Judged on the FINAL geometry only - not on which pass ran - because
+        # repair_dimensions often shrinks the offender back inside its band,
+        # and warning about a plan that ends up compliant taught clients to
+        # ignore the warning. `ran_uncapped` no longer gates this: the bounded
+        # pass overshoots too, and a silent 1.4x bathroom is still a lie.
+        if caps is not None and _exceeds_caps(rects, caps, eps):
             caps_broken = True
         plan.final_traversal = [
             [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
@@ -1247,6 +1309,7 @@ class Documents:
         self.floorplans = []
         self.ptpg_graph = None
         self.postprocess = None
+        self.adjacency_shortfalls = None
 
     def append_floorplan(self,floorplan):
         if floorplan:
@@ -1270,6 +1333,15 @@ class Documents:
             # Per-plan NBC post-processing reports, index-aligned with
             # floorPlans (null for plans that were passed through untouched).
             doc_dict["postprocess"] = self.postprocess
+        if self.adjacency_shortfalls is not None:
+            # Per-plan metric adjacency disclosure, index-aligned with
+            # floorPlans: requested adjacencies this plan realises with less
+            # shared wall than a door needs (E2a of
+            # documentation/plans/VALIDITY_AND_TOPOLOGY_ENGINE_PLAN.md). The
+            # graph guarantee is combinatorial; a briefed edge can come back
+            # as a 0 ft corner contact, and silence here is what made that
+            # invisible to clients.
+            doc_dict["adjacency_shortfalls"] = self.adjacency_shortfalls
 
         return {
             "Documents": doc_dict
@@ -1543,6 +1615,25 @@ class Documents:
             if ptpg_graph:
                 response.set_ptpg_graph(ptpg_graph)
 
+        # Metric adjacency disclosure (E2a): the dimensioning can realise a
+        # briefed edge as a corner contact or a sliver no door fits through
+        # (measured: an 8-room brief realised one edge at 0.00 ft in every
+        # plan of the batch). Judged against the REQUESTED edges, whatever
+        # relaxation later stages applied, because the client asked for those.
+        disclose_metric = caller == "door_connectivity" and minDimEnabled
+        # Disclosure floor: at least the dresser's 2.8 ft door threshold, not
+        # the 2.0 ft post-processing door-PROTECTION value - the solver's
+        # relaxation rung can legally emit a 2.0-2.8 ft wall (see
+        # handlers.solve_min_dim), and a wall in that band still holds no door.
+        overlap_floor = 2.8
+        if isinstance(postprocess_options, dict):
+            try:
+                requested = float(postprocess_options.get("min_door_overlap", 2.0) or 2.0)
+            except (TypeError, ValueError):
+                requested = 2.0
+            overlap_floor = max(overlap_floor, requested)
+        adjacency_shortfalls = []
+
         for index in range(min(min(len(outputData), limit),count)):
             rooms = []
             floorplanData = outputData[index].final_traversal
@@ -1569,6 +1660,34 @@ class Documents:
                 k = k + 1
                 rooms.append(room)
             response.append_floorplan(rooms)
+
+            if disclose_metric:
+                shortfalls = []
+                for e in edges_list or []:
+                    try:
+                        a, b = int(e[0]), int(e[1])
+                    except (TypeError, ValueError, IndexError):
+                        continue
+                    if max(a, b) >= len(floorplanData) or max(a, b) >= len(nodes_list):
+                        continue
+                    shared = _shared_wall_length(floorplanData[a], floorplanData[b])
+                    if shared + 1e-6 < overlap_floor:
+                        shortfalls.append({
+                            "a": a, "b": b,
+                            "a_name": nodes_list[a]["label"],
+                            "b_name": nodes_list[b]["label"],
+                            "shared_wall_ft": round(shared, 2),
+                        })
+                adjacency_shortfalls.append(shortfalls)
+
+        if disclose_metric:
+            response.adjacency_shortfalls = adjacency_shortfalls
+            affected = sum(1 for s in adjacency_shortfalls if s)
+            if affected:
+                message += (f" {affected} floorplan(s) realise at least one requested "
+                            f"adjacency with under {overlap_floor:g} ft of shared wall "
+                            f"(no room for a door there); the pairs are listed per plan "
+                            f"in adjacency_shortfalls.")
 
         builtins.print = original_print
 

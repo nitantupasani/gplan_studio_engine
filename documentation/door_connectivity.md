@@ -191,6 +191,21 @@ The property of adjacency and non adjacency of the rooms (nodes) are depicted us
 
     : Adjacency matrix representing the PTPG graph
 
+- `adjacency_shortfalls : array[array[object]]` (dimensioned catalogues only, 2026-08-06)
+
+    : Metric adjacency disclosure (E2a of `plans/VALIDITY_AND_TOPOLOGY_ENGINE_PLAN.md`),
+    index-aligned with `floorPlans`. The graph guarantees each requested adjacency
+    combinatorially, but the dimensioning can realise it as a corner contact or a sliver
+    no door fits through; each inner array lists the requested pairs this plan realises
+    with less shared wall than the request's `postprocess_options.min_door_overlap`
+    (default 2 ft). An empty inner array means every requested adjacency has door-width
+    wall. Absent on responses predating the field - absence must never be read as
+    "all adjacencies hold". The task message names how many plans are affected.
+
+    - `a`, `b` : node indices of the requested edge
+    - `a_name`, `b_name` : the rooms' labels
+    - `shared_wall_ft` : realised shared wall, feet (0 = corner contact only)
+
 - `floorPlans : array[array[object]]`
 
     : A nested array of objects with the structure below representing each floorplan generated. Each element in the outer array holds one floorplan, each element in the inner array holds information about each room/area in the floorplan

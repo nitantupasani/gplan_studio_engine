@@ -59,6 +59,9 @@ and dimensioning half of the engine, which is what keeps room sizes exact.
     "max_depth": 2,                    // BFS depth over the transformations
     "preserve_input_edges": true,      // protect every requested adjacency
     "protected_edges": [[0, 1]],       // overrides the flag: protect only these
+    "priority_edges": [[0, 3]],        // ORDERING only, never a filter: variants
+                                       // keeping these adjacencies are dimensioned
+                                       // first and flagged (see below)
     "interior_rooms": [],              // must NOT sit on the outer face
     "exterior_rooms": [],              // must sit on the outer face; if NO arrangement
                                        // qualifies, all are kept + a warning (2026-08-01,
@@ -102,15 +105,74 @@ Passes are tried in order and the first that yields anything wins.
 exact sizes admit no true rectangular dual; the per-plan `adjacency` block then reports
 exactly what was traded away.
 
-### `preserve_input_edges` vs `protected_edges`
+### `preserve_input_edges` vs `protected_edges` vs `protected_edge_groups`
 
 Both transformations work by destroying an existing adjacency, so protecting every input
 edge protects everything and the search cannot leave the base graph. With
 `preserve_input_edges: true` you will usually get one variant and a warning saying so.
 
-Prefer `protected_edges`: name only the two or three adjacencies that genuinely matter
+`protected_edges`: name only the two or three adjacencies that genuinely matter
 (kitchen next to dining, say) and let the rest be rearranged. `protected_edges` takes
 precedence over `preserve_input_edges` whenever it is present.
+
+`protected_edge_groups` (2026-08-06, E1 of
+`plans/VALIDITY_AND_TOPOLOGY_ENGINE_PLAN.md`): disjunctive protection - each group is a
+list of edges of which AT LEAST ONE must survive in every variant, judged against the
+variant's current graph so the last surviving member of a group is guarded whichever
+sibling was removed first. This is the right shape for circulation rules ("this bedroom
+keeps a hall wall", "some bath stays off the living side"): protecting the same edges
+flat was measured to collapse the search from 30 plans/17 topologies to 8/2 on an
+11-edge brief, because a room with two hall edges needs one of them, not both.
+Composable with the other two knobs; `stats.protected_edge_groups` echoes what was
+applied.
+
+```jsonc
+"protected_edge_groups": [
+  [[0, 4], [1, 4]],   // bedroom 4 keeps living OR dining
+  [[1, 7]]            // the guest WC keeps the dining edge (single = hard)
+]
+```
+
+### `priority_edges` (catalogue ordering, 2026-08-06, E7)
+
+Names the adjacencies the USER cares about most (Living Room to each bedroom, Living Room
+to a bath), so the arrangements that keep them are dimensioned first and flagged. "Keeps"
+means the pair is an edge of the variant graph: the search only deletes and flips edges,
+so membership is the whole truth.
+
+**Ordering only, never filtering.** The variant list is stable-sorted by how many of the
+named pairs each variant is missing, fewest first; inside a tier the base-first/depth
+order (least mutated leads) is preserved. Every arrangement that would have been returned
+without the field is still returned, losers included, after the keepers. Contrast
+`protected_edges` / `protected_edge_groups`, which PREVENT deletions: combine the two
+when you need a guarantee rather than a lead (protect the must-hold edges, prioritise the
+nice-to-holds).
+
+The ordering is nonetheless load-bearing, which is the point: `max_floorplans` (default
+30) fills round-robin from the FRONT of the list and arrangements past the cap are never
+dimensioned at all, and `time_budget_seconds` cuts the TAIL. So under any binding budget
+the field decides which arrangements get laid out at all, not merely how the gallery
+reads.
+
+Malformed entries (fewer than two members, non-integer) are skipped silently, matching
+the protected-edge normalisers; pairs are normalised (sorted, deduplicated). Two
+warnings disclose degraded outcomes: N of the pairs are not edges of the base
+arrangement (no variant can keep what the base never had), and no arrangement keeps
+every pair (the catalogue then leads with the closest).
+
+Response additions, present ONLY when the request carried the field (absent field =
+byte-identical old response, and old backends simply ignore the field):
+
+- per variant: `priority_satisfied` (bool) and `priority_missing` (the named pairs this
+  variant lacks, `[[u, v], ...]`), on every payload including skipped/errored ones;
+- top level, next to `cardinal`:
+
+```jsonc
+"priority": {
+  "edges": [[0, 3], [0, 4]],   // what was applied, normalised and deduplicated
+  "variants_keeping_all": 4    // size of the tier the catalogue leads with
+}
+```
 
 ### `cardinal_constraints` (N/E/S/W pins)
 
@@ -314,8 +376,8 @@ expensive part and it runs per candidate boundary.
 | `max_variants` | A backstop, not a display cap. Set it above the closure size or the BFS stops MID-LEVEL and returns an arbitrary slice of one depth. `stats.variant_cap_hit` plus a warning fires whenever it binds |
 | `max_boundaries_per_variant` | The boundary enumeration is `O(k^4)` in outer-cycle length when the CIP machinery finds no shortcuts; this caps it. Counts RAW boundaries since 2026-08-01, and every kept one carries its complete 8-element rotation/reflection orbit: the old flat-list cap cut orbit members first (a 10-node cycle kept 0 of 371), silently deleting the reflections that are sometimes the only placeable candidates. When pins are set the raw list is pin-scored BEFORE truncation. A variant that returns nothing while truncated says so in its reason and sets `boundaries_truncated`; `stats.variants_with_boundary_cap_truncation` aggregates. 0 lifts the cap |
 | `floorplans_per_variant` | Stops each variant early once it has enough plans |
-| `max_floorplans` | Hard cap on the TOTAL, default 30, the same size catalogue `door_connectivity` returns. Spent breadth-first: every arrangement gets one plan before any gets a second, so it costs depth before it costs arrangements. Arrangements past the cap are never dimensioned at all, which is where it buys time back on a 4BHK. `stats.floorplan_cap_hit` plus a warning naming the emptied arrangements fires whenever it binds; set it to 0 for the whole set |
-| `time_budget_seconds` | Hard wall-clock stop, and the *real* bound at depth 2 for large programs. Variants are dimensioned base-first then by depth, so what gets skipped is always the most-mutated end of the set. Keep it at or below 900 so the Celery soft limit (1500 s) never fires first |
+| `max_floorplans` | Hard cap on the TOTAL, default 30, the same size catalogue `door_connectivity` returns. Spent breadth-first: every arrangement gets one plan before any gets a second, so it costs depth before it costs arrangements. Arrangements past the cap are never dimensioned at all, which is where it buys time back on a 4BHK; `priority_edges` decides which arrangements those are (keepers lead). `stats.floorplan_cap_hit` plus a warning naming the emptied arrangements fires whenever it binds; set it to 0 for the whole set |
+| `time_budget_seconds` | Hard wall-clock stop, and the *real* bound at depth 2 for large programs. Variants are dimensioned base-first then by depth, so what gets skipped is always the most-mutated end of the set (with `priority_edges` the tail is instead the fewest-keeping end, and the warning says so). Keep it at or below 900 so the Celery soft limit (1500 s) never fires first |
 
 ### Measured closure sizes (2026-07-30)
 
@@ -354,7 +416,7 @@ presenting an arbitrary slice as though it were everything the brief admits.
 |---|---|
 | `GPLAN/source/multiple_ptpg.py` | Outer-face detection, the two transformations, bounded deduplicated BFS (`stats` out-param reports why it stopped), PTPG validation, Tutte embedding, interior/exterior filter |
 | `GPLAN/source/ptpg_floorplanner.py` | The PDF placer: boundary enumeration, `_pdf_place`, compaction, the strictness ladder, and the y-up cardinal gate (`plan_satisfies_cardinal`, `order_boundaries_by_cardinal`) |
-| `GPLAN/source/multi_ptpg_pipeline.py` | Orchestration, validation, cardinal normalization and the pin relaxation ladder, the request/response envelope |
+| `GPLAN/source/multi_ptpg_pipeline.py` | Orchestration, validation, cardinal normalization and the pin relaxation ladder, priority catalogue ordering, the request/response envelope |
 | `GPLAN/api.py` | `Documents.get_multi_ptpg_floorplans` |
 | `local_engine_bridge.py` | Local Flask route, no Django/Redis/Celery |
 | `test_multi_ptpg.py` | Test suite; run `python test_multi_ptpg.py` from the repository root |

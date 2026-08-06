@@ -38,6 +38,20 @@ edges_sety = []
 NEG_INF = -1e8
 POS_INF = 1e8
 
+# Minimum shared-wall overlap the solver guarantees on every RED adjacency,
+# feet. In this solver's input RED marks the DOOR-CONNECTIVITY edges (the
+# adjacencies the brief wants doors on - verified live: briefed pairs arrive
+# red, the black edges are the extra adjacencies triangulation added) and the
+# legacy hardcoded 0.1 is exactly what realised briefed walls as 0.0-0.3 ft
+# corner slivers no door can occupy (E2b of
+# documentation/plans/VALIDITY_AND_TOPOLOGY_ENGINE_PLAN.md: "each adjacency
+# must be at least big enough to fit a door"). 3.0 clears the dresser's 2.8 ft
+# door threshold with margin. solve_min_dim retries an infeasible topology at
+# the legacy 0.1 before giving up on it, so raising this cannot empty a batch,
+# only demote plans to disclosed slivers.
+DOOR_OVERLAP_FLOOR = 3.0
+adjacency_overlap_floor = DOOR_OVERLAP_FLOOR
+
 lb_len = []
 ub_len = []
 lb_width = []
@@ -75,23 +89,40 @@ def input_adjacency():
 
     # print("Enter adjacencies in this format: ROOM 1, ROOM 2, adjacency type")
 
+    eps = 0.05
     for i in range(adjacent_pairs):
         ri=data['edges'][i]['source']
         rj=data['edges'][i]['target']
 
-        # ri, rj, adj_type_input = map(int, input().split())
-        adj_type_input=0
-        if data['nodes'][ri-1]['room_x'] + data['nodes'][ri-1]['room_width'] == data['nodes'][rj-1]['room_x']:
-            adj_type_input=2
-        elif data['nodes'][rj-1]['room_x'] + data['nodes'][rj-1]['room_width'] == data['nodes'][ri-1]['room_x']:
-            adj_type_input=1
-        elif data['nodes'][ri-1]['room_y'] - data['nodes'][ri-1]['room_height'] == data['nodes'][rj-1]['room_y']:
-            adj_type_input=4
-        else :
-            adj_type_input=3
-        if adj_type_input < 1 or adj_type_input > 4:
-            # print("WRONG TYPE OF ADJACENCY")
-            exit(1)
+        # Classify the pair's orientation from the CANDIDATE geometry by which
+        # walls touch AND whether the perpendicular intervals actually overlap.
+        # The old exact `==` chain defaulted every unmatched pair (corner
+        # contacts, float jitter) to type 3, wiring garbage constraints that
+        # were feasible but meaningless - the solver reported success while the
+        # briefed rooms ended up 8 ft apart (found 2026-08-06 chasing E2b).
+        ni = data['nodes'][ri-1]
+        nj = data['nodes'][rj-1]
+        # input room_y is the TOP wall (see the producer note in input_for_min_dim)
+        ox = min(ni['room_x'] + ni['room_width'], nj['room_x'] + nj['room_width']) \
+            - max(ni['room_x'], nj['room_x'])
+        oy = min(ni['room_y'], nj['room_y']) \
+            - max(ni['room_y'] - ni['room_height'], nj['room_y'] - nj['room_height'])
+        adj_type_input = 0
+        if abs(ni['room_x'] + ni['room_width'] - nj['room_x']) < eps and oy > eps:
+            adj_type_input = 2   # ri to the left of rj
+        elif abs(nj['room_x'] + nj['room_width'] - ni['room_x']) < eps and oy > eps:
+            adj_type_input = 1   # ri to the right of rj
+        elif abs(ni['room_y'] - ni['room_height'] - nj['room_y']) < eps and ox > eps:
+            adj_type_input = 4   # ri above rj
+        elif abs(nj['room_y'] - nj['room_height'] - ni['room_y']) < eps and ox > eps:
+            adj_type_input = 3   # ri below rj
+        else:
+            # Corner contact or non-touching in THIS candidate: the arrangement
+            # cannot realise the edge as a wall, so there is no orientation to
+            # constrain. Skip it - forcing a fake type is worse - and let the
+            # API-level adjacency_shortfalls disclosure (E2a) name the pair on
+            # the finished plan.
+            continue
 
         adj_type[(ri, rj)] = adj_type_input
         if adj_type_input % 2:
@@ -255,7 +286,7 @@ def construct_constraintgraphX(small_positive = 2):
         for x in adj[i]:
             color = edge_color_map.get((x, i)) or edge_color_map.get((i, x))
             if color == 'red':
-                small_positive = 0.1
+                small_positive = adjacency_overlap_floor
             elif color == 'black':
                 small_positive = 2
 
@@ -336,10 +367,10 @@ def construct_constraintgraphY(small_positive = 2):
         for x in adj[i]:
             color = edge_color_map_y.get((x, i)) or edge_color_map_y.get((i, x))
             if color == 'red':
-                small_positive = 0.1
+                small_positive = adjacency_overlap_floor
             elif color == 'black':
                 small_positive = 2
-        
+
 
             left_wall_x = 2 * x - 1
             right_wall_x = 2 * x
@@ -762,11 +793,20 @@ def reinitialize():
     irreg_nodes_map.clear()
     door_connectivity_edges.clear()
 
+    global adjacency_overlap_floor
+    adjacency_overlap_floor = DOOR_OVERLAP_FLOOR
+
 
 # main wrapper
-def main(input, plot_width, plot_height):
+def main(input, plot_width, plot_height, overlap_floor=None):
+    """`overlap_floor` overrides the briefed-adjacency shared-wall minimum for
+    THIS solve (feet). None = DOOR_OVERLAP_FLOOR. solve_min_dim passes the
+    legacy 2.0 as a relaxation rung when the door-width floor makes a topology
+    infeasible."""
     global data, irreg_nodes_map
     reinitialize()
+    if overlap_floor is not None:
+        globals()['adjacency_overlap_floor'] = float(overlap_floor)
 # <<<<<<< main
     data = input
 

@@ -187,10 +187,52 @@ def is_valid_ptpg(G, expected_nodes=None):
     return len(get_outer_face_cycle(G)) >= 3
 
 
-def process_ptpg_recursive(G, user_needs, forbidden_cycles):
+def normalise_protected_groups(groups):
+    """``[[(u,v), ...], ...]`` -> list of frozensets of normalised edges.
+
+    Disjunctive protection (E1 of
+    documentation/plans/VALIDITY_AND_TOPOLOGY_ENGINE_PLAN.md): each group says
+    "AT LEAST ONE of these adjacencies must survive every variant". Flat
+    ``user_needs`` cannot express that, and protecting every member edge was
+    measured to collapse the search (a bedroom with two hall edges needs one
+    of them, not both - protecting both forbids exactly the valid variants
+    that trade one hall wall for the other).
+    """
+    out = []
+    for group in groups or []:
+        edges = frozenset(
+            _norm_edge(int(e[0]), int(e[1]))
+            for e in group or [] if e is not None and len(e) >= 2
+        )
+        if edges:
+            out.append(edges)
+    return out
+
+
+def _deletion_blocked(G, edge, user_needs_set, protected_groups):
+    """Whether removing ``edge`` from ``G`` is forbidden.
+
+    Hard protection: the edge is in ``user_needs_set``. Group protection: some
+    group containing the edge would be left with no other surviving member.
+    Judged against the CURRENT variant graph, so across depths a group's last
+    member is guarded whichever sibling died first.
+    """
+    if edge in user_needs_set:
+        return True
+    for group in protected_groups or ():
+        if edge not in group:
+            continue
+        if not any(other != edge and G.has_edge(*other) for other in group):
+            return True
+    return False
+
+
+def process_ptpg_recursive(G, user_needs, forbidden_cycles, protected_groups=None):
     """One transformation step: every PTPG reachable from ``G`` by a single edit.
 
-    Kept under the branch's original name and signature. Returns a list of
+    Kept under the branch's original name; ``protected_groups`` (normalised,
+    see :func:`normalise_protected_groups`) adds keep-one-of-each-group
+    protection on top of the flat ``user_needs``. Returns a list of
     ``{'graph': H, 'forbidden_cycles': set|None, 'operation': str, 'detail': tuple}``.
     """
     if forbidden_cycles is None:
@@ -204,7 +246,7 @@ def process_ptpg_recursive(G, user_needs, forbidden_cycles):
     # ---- STAGE 1: boundary edge removal ------------------------------------
     for u, v in outer_edges:
         e = _norm_edge(u, v)
-        if e in user_needs_set:
+        if _deletion_blocked(G, e, user_needs_set, protected_groups):
             continue
         # The triangle collapsing into the outer face must hang off an interior
         # apex; otherwise removal would leave a chord across the new outer face.
@@ -229,7 +271,7 @@ def process_ptpg_recursive(G, user_needs, forbidden_cycles):
 
         diag1 = _norm_edge(u, v)
         diag2 = _norm_edge(a, b)
-        if diag1 in user_needs_set:
+        if _deletion_blocked(G, diag1, user_needs_set, protected_groups):
             continue
         if G.has_edge(*diag2):
             continue
@@ -254,7 +296,7 @@ def process_ptpg_recursive(G, user_needs, forbidden_cycles):
 
 def enumerate_ptpg_variants(G, user_needs=None, max_variants=DEFAULT_MAX_VARIANTS,
                             max_depth=DEFAULT_MAX_DEPTH, include_base=True,
-                            deadline=None, stats=None):
+                            deadline=None, stats=None, protected_groups=None):
     """Breadth-first closure of the two transformations, bounded and deduplicated.
 
     Returns a list of dicts ordered base-first then by depth:
@@ -274,6 +316,7 @@ def enumerate_ptpg_variants(G, user_needs=None, max_variants=DEFAULT_MAX_VARIANT
 
     expected_nodes = G.number_of_nodes()
     user_needs_set = normalise_user_needs(user_needs)
+    groups = normalise_protected_groups(protected_groups)
 
     base = {
         'graph': G.copy(),
@@ -302,7 +345,8 @@ def enumerate_ptpg_variants(G, user_needs=None, max_variants=DEFAULT_MAX_VARIANT
                 deadline_hit = True
                 break
             for step in process_ptpg_recursive(parent['graph'], user_needs_set,
-                                               parent['forbidden_cycles']):
+                                               parent['forbidden_cycles'],
+                                               protected_groups=groups):
                 H = step['graph']
                 key = _edge_key(H)
                 if key in seen:

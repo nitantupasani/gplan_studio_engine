@@ -150,6 +150,111 @@ def test_protected_edges():
           data["stats"]["protected_edges"] == [list(p) for p in protect],
           str(data["stats"]["protected_edges"]))
 
+    # Disjunctive groups (E1, 2026-08-06): each group keeps AT LEAST ONE
+    # member alive per variant, which is strictly looser than protecting the
+    # same edges flat - the search must keep more variants under groups.
+    groups = [[[0, 1], [0, 5]], [[3, 4]]]
+    res_g = call({"nodes": SIX_ROOM_NODES, "edges": SIX_ROOM_EDGES,
+                  "protected_edge_groups": groups, "preserve_input_edges": False,
+                  "max_variants": 40, "max_depth": 2,
+                  "strictness": "best_effort", "time_budget_seconds": 120})
+    check("T3g status ok", res_g["status"] == "ok", res_g.get("error"))
+    data_g = res_g["data"]
+    group_kept = True
+    for variant in data_g["variants"]:
+        edges = {tuple(sorted(e)) for e in variant["edges"]}
+        for group in groups:
+            if not any(tuple(sorted(pair)) in edges for pair in group):
+                group_kept = False
+                print(f"     variant {variant['variant_id']} lost whole group {group}")
+    check("T3g every variant keeps one edge of every group", group_kept)
+    check("T3g groups are echoed in stats",
+          len(data_g["stats"].get("protected_edge_groups", [])) == len(groups),
+          str(data_g["stats"].get("protected_edge_groups")))
+    flat = [[0, 1], [0, 5], [3, 4]]
+    res_f = call({"nodes": SIX_ROOM_NODES, "edges": SIX_ROOM_EDGES,
+                  "protected_edges": flat, "preserve_input_edges": False,
+                  "max_variants": 40, "max_depth": 2,
+                  "strictness": "best_effort", "time_budget_seconds": 120})
+    check("T3g groups admit at least as many variants as flat protection",
+          data_g["variant_count"] >= res_f["data"]["variant_count"],
+          f"groups={data_g['variant_count']} flat={res_f['data']['variant_count']}")
+
+
+def test_priority_edges():
+    """E7 (2026-08-06): priority_edges ORDERS the catalogue, never filters it.
+
+    List order is load-bearing downstream (the max_floorplans cap fills from
+    the front, the time budget cuts the tail), so keepers of a priority
+    adjacency must lead and be flagged, while losers still appear after them.
+    """
+    print("\nT12: priority_edges orders keepers first and only orders")
+    base = {"nodes": SIX_ROOM_NODES, "edges": SIX_ROOM_EDGES,
+            "preserve_input_edges": False, "max_variants": 40, "max_depth": 2,
+            "strictness": "best_effort", "time_budget_seconds": 120}
+
+    plain = call(base)
+    check("T12 baseline status ok", plain["status"] == "ok", plain.get("error"))
+    data_p = plain["data"]
+    check("T12 absent param leaves payloads without priority keys",
+          all("priority_satisfied" not in v and "priority_missing" not in v
+              for v in data_p["variants"]))
+    check("T12 absent param leaves the response without a priority block",
+          "priority" not in data_p)
+
+    # Pick an adjacency the search demonstrably deletes: the base variant keeps
+    # every edge, so any pair seen in removed_edges guarantees both a keeping
+    # and a losing arrangement exist, which is what makes the ordering visible.
+    removed = sorted({tuple(sorted(e)) for v in data_p["variants"]
+                      for e in v["removed_edges"]})
+    if not removed:
+        check("T12 fixture deletes at least one edge", False,
+              "no variant removed any edge, the ordering cannot be exercised")
+        return
+    target = list(removed[0])
+
+    # Duplicates, the reversed orientation, and malformed entries all in one
+    # request: the normaliser must collapse them to the single sorted pair.
+    res = call(dict(base, priority_edges=[target, [target[1], target[0]],
+                                          [3], "junk", None, target]))
+    check("T12 status ok", res["status"] == "ok", res.get("error"))
+    data = res["data"]
+
+    check("T12 ordering never filters: same variant count as baseline",
+          data["variant_count"] == data_p["variant_count"],
+          f"{data['variant_count']} vs {data_p['variant_count']}")
+    keys_p = {tuple(sorted(tuple(e) for e in v["edges"])) for v in data_p["variants"]}
+    keys = {tuple(sorted(tuple(e) for e in v["edges"])) for v in data["variants"]}
+    check("T12 ordering never filters: same variant graphs as baseline",
+          keys == keys_p)
+
+    flags = [v["priority_satisfied"] for v in data["variants"]]
+    check("T12 every payload carries a boolean verdict",
+          all(isinstance(f, bool) for f in flags), str(flags))
+    check("T12 both a keeping and a losing arrangement exist",
+          True in flags and False in flags, f"flags: {flags}")
+    first_false = flags.index(False) if False in flags else len(flags)
+    check("T12 every keeper precedes every loser",
+          not any(flags[first_false:]), f"flags: {flags}")
+
+    consistent = True
+    for v in data["variants"]:
+        edges = {tuple(sorted(e)) for e in v["edges"]}
+        want_missing = [] if tuple(target) in edges else [target]
+        if (v["priority_missing"] != want_missing
+                or v["priority_satisfied"] is not (not want_missing)):
+            consistent = False
+            print(f"     variant {v['variant_id']}: missing "
+                  f"{v['priority_missing']}, satisfied {v['priority_satisfied']}")
+    check("T12 the verdict matches each variant's own edge set", consistent)
+
+    echo = data.get("priority")
+    check("T12 the echo normalises and dedupes the request",
+          bool(echo) and echo["edges"] == [sorted(target)], str(echo))
+    check("T12 variants_keeping_all equals the keeper count",
+          bool(echo) and echo["variants_keeping_all"] == flags.count(True),
+          str(echo))
+
 
 def test_strictness_ladder():
     print("\nT4: strictness ladder on sizes that admit no exact dual")
@@ -561,6 +666,7 @@ def main():
     print("multi-PTPG pipeline tests")
     print("=" * 70)
     for test in (test_five_room_exact, test_variants_multiply, test_protected_edges,
+                 test_priority_edges,
                  test_strictness_ladder, test_validation_errors, test_plot_constraint,
                  test_cardinal_constraints, test_phase1_hardening, test_must_hold_pin,
                  test_variant_cap_is_reported, test_total_floorplan_cap):
