@@ -52,6 +52,24 @@ caught and forced the E3 warning-contract fix below). Per-change outcomes:
   Measured on the 2BHK brief: Kitchen-Dining shared wall now 8.25-14.0 ft in
   30/30 door plans (was routinely 2.0-2.8); remaining shortfalls are
   Living~Dining 30x and Living~Bedroom 2 13x, see E6.
+- **E7 IMPLEMENTED 2026-08-06 (fourth pass, same day): priority-edge
+  catalogue ordering** (`priority_edges` on multi-ptpg). User concern:
+  arrangements keeping the living room's access adjacencies (Living to each
+  bedroom, Living to a bath) should LEAD the catalogue, with relaxed
+  diversity after, because list order is load-bearing twice in stage 3: the
+  max_floorplans cap fills round-robin from the front and never dimensions
+  the arrangements past it, and the time budget cuts the tail, so the order
+  decides which arrangements get laid out at all under a budget. E7 is a
+  stable sort of the variant list by how many priority pairs each keeps
+  (membership in the variant's edge set is the whole truth, the search only
+  deletes and flips edges), base/depth order preserved inside each tier; it
+  never filters, unlike protected_edge_groups, which stays the tool when a
+  guarantee rather than a lead is wanted, and the two compose. Per-variant
+  `priority_satisfied`/`priority_missing` plus a top-level `priority` echo
+  appear only when the field was sent, so old clients see unchanged
+  responses; degraded outcomes (pair not in the base arrangement, no
+  arrangement keeps all) are warned, never silent. Battery: test_multi_ptpg
+  116/116 (T12 added: orders keepers first, filters nothing, echo matches).
 - **E6, NEW, not implemented: separating-triangle resolution deletes briefed
   edges and should prefer sacrificing non-briefed ones.** On the shipped 2BHK
   brief the door path's ST handling deterministically REPLACES the briefed
