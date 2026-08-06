@@ -150,6 +150,36 @@ def test_protected_edges():
           data["stats"]["protected_edges"] == [list(p) for p in protect],
           str(data["stats"]["protected_edges"]))
 
+    # Disjunctive groups (E1, 2026-08-06): each group keeps AT LEAST ONE
+    # member alive per variant, which is strictly looser than protecting the
+    # same edges flat - the search must keep more variants under groups.
+    groups = [[[0, 1], [0, 5]], [[3, 4]]]
+    res_g = call({"nodes": SIX_ROOM_NODES, "edges": SIX_ROOM_EDGES,
+                  "protected_edge_groups": groups, "preserve_input_edges": False,
+                  "max_variants": 40, "max_depth": 2,
+                  "strictness": "best_effort", "time_budget_seconds": 120})
+    check("T3g status ok", res_g["status"] == "ok", res_g.get("error"))
+    data_g = res_g["data"]
+    group_kept = True
+    for variant in data_g["variants"]:
+        edges = {tuple(sorted(e)) for e in variant["edges"]}
+        for group in groups:
+            if not any(tuple(sorted(pair)) in edges for pair in group):
+                group_kept = False
+                print(f"     variant {variant['variant_id']} lost whole group {group}")
+    check("T3g every variant keeps one edge of every group", group_kept)
+    check("T3g groups are echoed in stats",
+          len(data_g["stats"].get("protected_edge_groups", [])) == len(groups),
+          str(data_g["stats"].get("protected_edge_groups")))
+    flat = [[0, 1], [0, 5], [3, 4]]
+    res_f = call({"nodes": SIX_ROOM_NODES, "edges": SIX_ROOM_EDGES,
+                  "protected_edges": flat, "preserve_input_edges": False,
+                  "max_variants": 40, "max_depth": 2,
+                  "strictness": "best_effort", "time_budget_seconds": 120})
+    check("T3g groups admit at least as many variants as flat protection",
+          data_g["variant_count"] >= res_f["data"]["variant_count"],
+          f"groups={data_g['variant_count']} flat={res_f['data']['variant_count']}")
+
 
 def test_strictness_ladder():
     print("\nT4: strictness ladder on sizes that admit no exact dual")

@@ -336,20 +336,48 @@ def get_max_dims(ui):
 
 
 def solve_min_dim(floorplan_data, plot_width, plot_height, capped):
-    """min_dim.main, retrying without the per-room ceilings when they block it.
+    """min_dim.main with a relaxation ladder.
 
-    Returns (status, out_data, released). The caller prefers a plan that honours
-    every room maximum, but a plan that breaks one still beats no plan at all,
-    so a topology the ceilings rule out is retried with them stripped.
+    Returns (status, out_data, released). The caller prefers a plan that
+    honours every room maximum AND gives every briefed (red, door) adjacency a
+    door-width shared wall (DOOR_OVERLAP_FLOOR), but a plan that breaks one
+    still beats no plan at all. Rungs, in order:
+
+      1. full: ceilings + door-width overlap floor;
+      2. ceilings + the legacy 0.1 overlap - a sliver wall holds no door,
+         but the plan ships and E2a disclosure names the pair per plan;
+      3. ceilings stripped, door-width floor (sets `released`);
+      4. ceilings stripped + legacy overlap, the pre-2026-08-06 behaviour.
+
+    min_dim.main MUTATES its input in place (1-based id bumps), so every rung
+    gets its own deepcopy of the PRISTINE data - re-solving a dict a previous
+    rung touched double-bumps the ids and crashes tblr_rooms.
     """
-    retry_data = copy.deepcopy(floorplan_data) if capped else None
+    LEGACY_OVERLAP = 0.1
+    retry_data = copy.deepcopy(floorplan_data)
     status, out_data = min_dim.main(floorplan_data, plot_width, plot_height)
-    if status or retry_data is None:
+    if status:
         return status, out_data, False
-    for node in retry_data['nodes']:
+    # Overlap relaxes BEFORE the ceilings release: a sliver wall is a
+    # disclosed shortfall, a released ceiling can inflate a room past the
+    # point any client shows it. It also keeps the release warning honest - a
+    # topology blocked only by the door-width floor must not report
+    # "maximum dimensions were released".
+    status, out_data = min_dim.main(
+        copy.deepcopy(retry_data), plot_width, plot_height,
+        overlap_floor=LEGACY_OVERLAP)
+    if status or not capped:
+        return status, out_data, False
+    stripped = copy.deepcopy(retry_data)
+    for node in stripped['nodes']:
         node.pop('max_width', None)
         node.pop('max_height', None)
-    status, out_data = min_dim.main(retry_data, plot_width, plot_height)
+    status, out_data = min_dim.main(
+        copy.deepcopy(stripped), plot_width, plot_height)
+    if status:
+        return status, out_data, True
+    status, out_data = min_dim.main(
+        stripped, plot_width, plot_height, overlap_floor=LEGACY_OVERLAP)
     return status, out_data, bool(status)
 
 

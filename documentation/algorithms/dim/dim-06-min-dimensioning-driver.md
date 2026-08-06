@@ -3,6 +3,23 @@
 Target file: `C:\Users\nitant\Documents\GPLAN_Revamp\GPLAN\GPLAN\source\dimensioning\minimum_dimensioning.py`
 (846 lines, read in full).
 
+> **2026-08-06 (door-width overlap floor, E2b).** Three changes postdate every
+> anchor below: (1) `DOOR_OVERLAP_FLOOR = 3.0` module constant +
+> `adjacency_overlap_floor` global (reset in `reinitialize`, overridable via a
+> new `main(..., overlap_floor=None)` kwarg); the constraint builders apply it
+> to RED adjacencies - **red marks the BRIEFED door edges in this solver's
+> input, black the triangulation extras** (verified live; the legacy red floor
+> was 0.1 ft, the corner-sliver source). (2) `input_adjacency`'s orientation
+> classifier is tolerance-based on touching walls + perpendicular overlap;
+> corner-contact pairs are SKIPPED instead of defaulting to type 3 (the old
+> exact `==` chain wired feasible-but-meaningless constraints - solves
+> "succeeded" with the pair 8 ft apart). (3) `handlers.solve_min_dim` is now a
+> four-rung ladder, each rung on a fresh deepcopy because `main` MUTATES its
+> input in place (re-solving a touched dict double-bumps the 1-based ids and
+> crashes `tblr_rooms`). Context and measurements:
+> `documentation/plans/VALIDITY_AND_TOPOLOGY_ENGINE_PLAN.md` E2b/E6. Line
+> anchors below shift ~+30 past the constants block.
+
 ## Correction to the task premise (read this first)
 
 The task assumed this driver calls `floorplan_to_st`, `convert_adj_equ_sym` and `solve_linear`, and

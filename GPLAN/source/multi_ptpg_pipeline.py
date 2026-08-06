@@ -365,6 +365,7 @@ def generate_multi_ptpg_floorplans(params):
         raise MultiPTPGError(f"strictness must be one of {list(pfp.STRICTNESS_LEVELS)}")
     preserve_input_edges = bool(params.get("preserve_input_edges", True))
     protected_edges = params.get("protected_edges")
+    protected_edge_groups = params.get("protected_edge_groups")
     plot_w = int(params.get("plot_width", -1) or -1)
     plot_h = int(params.get("plot_height", -1) or -1)
     interior_rooms = params.get("interior_rooms") or []
@@ -460,12 +461,18 @@ def generate_multi_ptpg_floorplans(params):
         user_needs = sorted(input_pairs)
     else:
         user_needs = []
+    # Disjunctive protection (E1): each group keeps AT LEAST ONE member edge
+    # alive in every variant. This is the useful shape for circulation rules
+    # ("this bedroom keeps a hall wall") - protecting every member edge flat
+    # was measured to collapse the search to a handful of variants, because a
+    # room with two hall edges needs one, not both.
+    protected_groups = mptpg.normalise_protected_groups(protected_edge_groups)
     enum_stats = {}
     try:
         variants = mptpg.enumerate_ptpg_variants(
             G_base, user_needs=user_needs, max_variants=max_variants,
             max_depth=max_depth, include_base=True, deadline=deadline,
-            stats=enum_stats,
+            stats=enum_stats, protected_groups=protected_groups,
         )
     except Exception as exc:
         raise MultiPTPGError(f"variant enumeration failed: {exc}") from exc
@@ -490,11 +497,12 @@ def generate_multi_ptpg_floorplans(params):
         msg = ("no topological variant of the base PTPG survived validation; every "
                "boundary edge and interior diagonal is either protected or cannot "
                "be transformed without breaking the PTPG")
-        if user_needs:
+        if user_needs or protected_groups:
             msg += (". Every transformation removes an existing adjacency, so "
                     "protecting all of them leaves nothing to change: retry with "
-                    "preserve_input_edges=false, or list only the adjacencies you "
-                    "need in protected_edges")
+                    "preserve_input_edges=false, list only the adjacencies you "
+                    "need in protected_edges, or use protected_edge_groups to "
+                    "require one-of-several instead of every edge")
         warnings.append(msg)
 
     # A pinned room has to be on the outer face to face anything at all, so the
@@ -836,6 +844,10 @@ def generate_multi_ptpg_floorplans(params):
             "strictness": strictness,
             "preserve_input_edges": preserve_input_edges,
             "protected_edges": [[int(u), int(v)] for u, v in user_needs],
+            "protected_edge_groups": [
+                sorted([int(u), int(v)] for u, v in group)
+                for group in protected_groups
+            ],
             "max_variants": max_variants,
             "max_depth": max_depth,
             "variant_cap_hit": bool(cap_hit),

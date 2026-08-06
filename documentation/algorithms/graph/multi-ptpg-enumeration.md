@@ -34,6 +34,16 @@ All line anchors below were read in this session. Absolute prefix for engine fil
 > The "**Ordering / ranking**" claim below is also superseded in one respect: the *client*
 > now ranks arrangements (pins honoured, then adjacencies kept, then option count) in
 > `gplanApi.ts`. The pipeline itself still applies no quality ranking, as stated.
+>
+> **2026-08-06 (protected groups, E1).** `multiple_ptpg.py` gained
+> `normalise_protected_groups` + `_deletion_blocked`, `process_ptpg_recursive` takes a
+> `protected_groups` kwarg, and both stage guards go through `_deletion_blocked` instead
+> of the bare `user_needs` membership test; `enumerate_ptpg_variants` and the pipeline
+> thread a new `protected_edge_groups` request param through (keep at least one edge of
+> each group per variant, judged against the variant's current graph). Contract and the
+> measured collapse that motivated groups over flat protection:
+> `documentation/multi_ptpg_api.md` and `plans/VALIDITY_AND_TOPOLOGY_ENGINE_PLAN.md`.
+> Anchors below predate this and shift a further ~+40 in `multiple_ptpg.py`.
 
 ---
 

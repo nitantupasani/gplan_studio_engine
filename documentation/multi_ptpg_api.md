@@ -102,15 +102,33 @@ Passes are tried in order and the first that yields anything wins.
 exact sizes admit no true rectangular dual; the per-plan `adjacency` block then reports
 exactly what was traded away.
 
-### `preserve_input_edges` vs `protected_edges`
+### `preserve_input_edges` vs `protected_edges` vs `protected_edge_groups`
 
 Both transformations work by destroying an existing adjacency, so protecting every input
 edge protects everything and the search cannot leave the base graph. With
 `preserve_input_edges: true` you will usually get one variant and a warning saying so.
 
-Prefer `protected_edges`: name only the two or three adjacencies that genuinely matter
+`protected_edges`: name only the two or three adjacencies that genuinely matter
 (kitchen next to dining, say) and let the rest be rearranged. `protected_edges` takes
 precedence over `preserve_input_edges` whenever it is present.
+
+`protected_edge_groups` (2026-08-06, E1 of
+`plans/VALIDITY_AND_TOPOLOGY_ENGINE_PLAN.md`): disjunctive protection - each group is a
+list of edges of which AT LEAST ONE must survive in every variant, judged against the
+variant's current graph so the last surviving member of a group is guarded whichever
+sibling was removed first. This is the right shape for circulation rules ("this bedroom
+keeps a hall wall", "some bath stays off the living side"): protecting the same edges
+flat was measured to collapse the search from 30 plans/17 topologies to 8/2 on an
+11-edge brief, because a room with two hall edges needs one of them, not both.
+Composable with the other two knobs; `stats.protected_edge_groups` echoes what was
+applied.
+
+```jsonc
+"protected_edge_groups": [
+  [[0, 4], [1, 4]],   // bedroom 4 keeps living OR dining
+  [[1, 7]]            // the guest WC keeps the dining edge (single = hard)
+]
+```
 
 ### `cardinal_constraints` (N/E/S/W pins)
 
