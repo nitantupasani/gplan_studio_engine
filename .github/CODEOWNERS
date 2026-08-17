@@ -1,0 +1,11 @@
+# Every path in this repo is owned by the maintainer, so every pull request to
+# a protected branch needs their review before it can merge.
+#
+# Enforced by the `Protect main` and `Protect qa` repository rulesets
+# (require_code_owner_review). A code owner must have write access or the entry
+# is silently ignored, and nobody can approve their own pull request.
+#
+# `main` and `qa` carry an IDENTICAL copy on purpose, so merging qa into main
+# cannot widen who approves production. Keep them in step.
+
+* @nitantupasani
