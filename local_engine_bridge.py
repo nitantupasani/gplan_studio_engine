@@ -109,6 +109,18 @@ def _prepare(data, shape):
         dim_inputs["symmetric"] = data.get("symmetric", False)
         dim_inputs["optimal_floorplan"] = data.get("optimal_floorplan", 1)
         dim_inputs["rotation_enabled"] = data.get("rotation_enabled", 1)
+        # Hard plot-fit opt-in: strict_plot_width/height carry the caller's
+        # REAL footprint (plot_width/plot_height keep their slack rejection-cap
+        # role for backends and clients that predate the flag). When present,
+        # the strict pair replaces the solver plot and enforce_plot rides on
+        # dim_inputs so the engine solves the full pool under the real cap.
+        if min_dim_enabled and data.get("enforce_plot"):
+            strict_w = data.get("strict_plot_width") or 0
+            strict_h = data.get("strict_plot_height") or 0
+            if strict_w > 0 and strict_h > 0:
+                dim_inputs["plot_width"] = strict_w
+                dim_inputs["plot_height"] = strict_h
+                dim_inputs["enforce_plot"] = True
 
     return dict(
         starting_from=data.get("starting_from", 0),

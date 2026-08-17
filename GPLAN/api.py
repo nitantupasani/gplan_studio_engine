@@ -809,11 +809,14 @@ def _scaled_caps(caps, slack):
     return [None if c is None else (c[0] * slack, c[1] * slack) for c in caps]
 
 
-# How far past a room's ceiling the bounded gap-closing pass may go. 1.5x is
-# below every gross-oversize threshold the client audits (wet/service rooms
-# fail at 1.5x), so a plan that closes within this bound can always be
-# repaired back inside its band.
-GAP_FILL_SLACK = 1.5
+# How far past a room's ceiling the bounded gap-closing pass may go. Must sit
+# BELOW every gross-oversize threshold the client audits, with margin: the
+# fill lands rooms exactly AT the bound (a 34 sqft toilet cap emitted a 51.1
+# sqft toilet at the old 1.5, and the client's wet/service hard error starts
+# at 1.5x - the 0.1 sqft overshoot flipped whole exact-fill batches to
+# non-compliant, measured 2026-08-17). 1.4 keeps the closure property and
+# every closed room inside warning territory.
+GAP_FILL_SLACK = 1.4
 
 
 def _fill_gaps(rects, eps, caps=None, enforce=True):
@@ -965,7 +968,31 @@ def rectangularize_output(ui):
         # the gaplessness and every adjacency survive untouched.
         repaired = repair_dimensions(rects, _room_bounds(ui, len(rects)))
         if not _rects_overlap(repaired, eps) and _is_gapless(repaired, eps):
-            rects = repaired
+            # repair_dimensions claims to move shared walls only, but the
+            # relax iterations DO push the outer walls (measured +0.19 to
+            # +3 ft on the bbox). Under enforce_plot that silently broke the
+            # hard cap the solver had just honoured, so the repaired
+            # geometry is accepted only while it stays inside the enforced
+            # plot - or inside the plan's own entry bbox when that was
+            # already larger (the labeled expanded plans keep their repair).
+            accept = True
+            params = getattr(ui, "min_dim_inputs", None)
+            if params is not None and bool(getattr(params, "get_enforce_plot",
+                                                   lambda: False)()):
+                try:
+                    limit_w = float(params.get_plot_width() or 0)
+                    limit_h = float(params.get_plot_height() or 0)
+                except (TypeError, ValueError):
+                    limit_w = limit_h = 0.0
+                if limit_w > 0 and limit_h > 0:
+                    entry_w = max(r[2] for r in rects) - min(r[0] for r in rects)
+                    entry_h = max(r[3] for r in rects) - min(r[1] for r in rects)
+                    rep_w = max(r[2] for r in repaired) - min(r[0] for r in repaired)
+                    rep_h = max(r[3] for r in repaired) - min(r[1] for r in repaired)
+                    accept = (rep_w <= max(limit_w, entry_w) + eps
+                              and rep_h <= max(limit_h, entry_h) + eps)
+            if accept:
+                rects = repaired
         # The gap-closing passes can push a room past its ceiling (the bounded
         # E3 pass up to GAP_FILL_SLACK, the last-resort pass without limit).
         # That is the intended trade (a gapless rectangle is required,
@@ -1310,6 +1337,7 @@ class Documents:
         self.ptpg_graph = None
         self.postprocess = None
         self.adjacency_shortfalls = None
+        self.plot_fit = None
 
     def append_floorplan(self,floorplan):
         if floorplan:
@@ -1342,6 +1370,14 @@ class Documents:
             # as a 0 ft corner contact, and silence here is what made that
             # invisible to clients.
             doc_dict["adjacency_shortfalls"] = self.adjacency_shortfalls
+        if self.plot_fit is not None:
+            # Per-plan plot-fit disclosure, index-aligned with floorPlans.
+            # Present only when the request opted into enforce_plot: each
+            # entry says whether the plan's extent stays inside the enforced
+            # plot and by how much it overflows when it does not. Clients
+            # verify geometrically anyway; this is the engine owning its
+            # answer rather than leaving it to be inferred.
+            doc_dict["plot_fit"] = self.plot_fit
 
         return {
             "Documents": doc_dict
@@ -1363,7 +1399,7 @@ class Documents:
             # min_ratio/max_ratio ride along for the post-solve band
             # (_room_bounds / repair_dimensions / post-processing). The min-dim
             # SOLVER still ignores them; see minimum_dimensioning.input_constraints.
-            dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'],max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], min_ratio=dim_inputs.get('min_ratio', []), max_ratio=dim_inputs.get('max_ratio', []), min_area=dim_inputs.get('min_area', []), max_area=dim_inputs.get('max_area', []), plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], isOptimalEnabled=dim_inputs['optimal_floorplan'],isRotationAllowed = dim_inputs['rotation_enabled'])
+            dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'],max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], min_ratio=dim_inputs.get('min_ratio', []), max_ratio=dim_inputs.get('max_ratio', []), min_area=dim_inputs.get('min_area', []), max_area=dim_inputs.get('max_area', []), plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], isOptimalEnabled=dim_inputs['optimal_floorplan'],isRotationAllowed = dim_inputs['rotation_enabled'], enforce_plot=dim_inputs.get('enforce_plot', False))
         elif dimensioned:
             dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'], max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], min_ratio=dim_inputs['min_ratio'], max_ratio=dim_inputs['max_ratio'], plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], symmetric=dim_inputs['symmetric'], isOptimalEnabled=dim_inputs['optimal_floorplan'])
         ui = GuiParameters(graph=graph).set_isDimensioned(dimensioned).set_isDimensionedCirculation(
@@ -1634,6 +1670,17 @@ class Documents:
             overlap_floor = max(overlap_floor, requested)
         adjacency_shortfalls = []
 
+        # Plot-fit disclosure (enforce_plot only): judged on the FINAL
+        # geometry, i.e. after post-processing grew or trimmed the plans.
+        disclose_plot_fit = (
+            caller == "door_connectivity" and minDimEnabled
+            and isinstance(dim_inputs, dict) and dim_inputs.get("enforce_plot")
+            and (dim_inputs.get("plot_width") or 0) > 0
+            and (dim_inputs.get("plot_height") or 0) > 0)
+        fit_plot_w = float(dim_inputs.get("plot_width") or 0) if disclose_plot_fit else 0.0
+        fit_plot_h = float(dim_inputs.get("plot_height") or 0) if disclose_plot_fit else 0.0
+        plot_fit_reports = []
+
         for index in range(min(min(len(outputData), limit),count)):
             rooms = []
             floorplanData = outputData[index].final_traversal
@@ -1680,6 +1727,22 @@ class Documents:
                         })
                 adjacency_shortfalls.append(shortfalls)
 
+            if disclose_plot_fit:
+                xs = [pt[0] for poly in floorplanData for pt in poly]
+                ys = [pt[1] for poly in floorplanData for pt in poly]
+                plan_w = (max(xs) - min(xs)) if xs else 0.0
+                plan_h = (max(ys) - min(ys)) if ys else 0.0
+                eps = 0.05
+                plot_fit_reports.append({
+                    "fits": plan_w <= fit_plot_w + eps and plan_h <= fit_plot_h + eps,
+                    "plan_width": round(plan_w, 2),
+                    "plan_height": round(plan_h, 2),
+                    "plot_width": fit_plot_w,
+                    "plot_height": fit_plot_h,
+                    "overflow_width": round(max(0.0, plan_w - fit_plot_w), 2),
+                    "overflow_height": round(max(0.0, plan_h - fit_plot_h), 2),
+                })
+
         if disclose_metric:
             response.adjacency_shortfalls = adjacency_shortfalls
             affected = sum(1 for s in adjacency_shortfalls if s)
@@ -1688,6 +1751,13 @@ class Documents:
                             f"adjacency with under {overlap_floor:g} ft of shared wall "
                             f"(no room for a door there); the pairs are listed per plan "
                             f"in adjacency_shortfalls.")
+
+        if disclose_plot_fit:
+            response.plot_fit = plot_fit_reports
+            fitting = sum(1 for r in plot_fit_reports if r["fits"])
+            message += (f" {fitting} of {len(plot_fit_reports)} floorplan(s) fit within "
+                        f"the {fit_plot_w:g} x {fit_plot_h:g} ft plot; per-plan extents "
+                        f"are listed in plot_fit.")
 
         builtins.print = original_print
 

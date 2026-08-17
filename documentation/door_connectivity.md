@@ -155,6 +155,27 @@ The property of adjacency and non adjacency of the rooms (nodes) are depicted us
 : Upper cap for the height of the overall rectangular plot (same semantics as
   `plot_width`)
 
+`enforce_plot : bool (optional) (default = false)` *(2026-08-17)*
+
+: Hard plot-fit mode. When true and `strict_plot_width`/`strict_plot_height`
+  are both > 0, the strict pair replaces the solver's plot cap (so
+  `plot_width`/`plot_height` can keep carrying a deliberately slack rejection
+  cap for backward compatibility) and the engine changes behaviour three ways:
+  the `dim_on_paths_bdy` boundary pre-selector is skipped (it tunes the pool
+  for a slack cap and collapses it at a real one), so the FULL topology pool
+  is solved under the cap; the catalogue is composed fitting-plans-first and,
+  when fewer than 30 fit, topped up - each remaining topology is first solved
+  against the SWAPPED plot (a rotated fit, geometry swapped back; skipped
+  when cardinal constraints are present) and only then expanded via the
+  legacy uncapped + scale path, appended after every fitting plan; and the
+  response carries the per-plan `plot_fit` disclosure below. Zero fitting
+  topologies degrade to the legacy expanded batch, labeled, never empty.
+  Backends predating the flag ignore all three fields.
+
+`strict_plot_width : int`, `strict_plot_height : int` *(with `enforce_plot`)*
+
+: The REAL plot footprint to enforce, feet.
+
 `rotation_enabled : int (0|1) (optional) (default = 1)`
 
 : When 1 (default), every accepted floorplan is also returned as a whole-plan 90°
@@ -205,6 +226,17 @@ The property of adjacency and non adjacency of the rooms (nodes) are depicted us
     - `a`, `b` : node indices of the requested edge
     - `a_name`, `b_name` : the rooms' labels
     - `shared_wall_ft` : realised shared wall, feet (0 = corner contact only)
+
+- `plot_fit : array[object]` (only when the request set `enforce_plot`, 2026-08-17)
+
+    : Per-plan plot-fit disclosure, index-aligned with `floorPlans`, judged on the
+    FINAL geometry (after post-processing) against the enforced plot. The task
+    message also states "N of M floorplan(s) fit within the W x H ft plot".
+
+    - `fits` : bool, extent inside the plot (0.05 ft epsilon)
+    - `plan_width`, `plan_height` : the plan's built extent, feet
+    - `plot_width`, `plot_height` : the enforced plot, feet
+    - `overflow_width`, `overflow_height` : feet past the plot per axis (0 = none)
 
 - `floorPlans : array[array[object]]`
 

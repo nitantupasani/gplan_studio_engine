@@ -335,6 +335,13 @@ def get_max_dims(ui):
     return usable(params.get_max_width()), usable(params.get_max_height())
 
 
+# enforce_plot top-up: after the capped pass, keep expanding the catalogue with
+# plot-overflowing (labeled) plans until this many are available, so a plot
+# that only a few topologies fit still returns a full page. Matches the API
+# response cap (api.FLOORPLAN_LIMIT) rather than the 500-strong search bound.
+ENFORCE_PLOT_TOPUP_TARGET = 30
+
+
 def solve_min_dim(floorplan_data, plot_width, plot_height, capped):
     """min_dim.main with a relaxation ladder.
 
@@ -379,6 +386,164 @@ def solve_min_dim(floorplan_data, plot_width, plot_height, capped):
     status, out_data = min_dim.main(
         stripped, plot_width, plot_height, overlap_floor=LEGACY_OVERLAP)
     return status, out_data, bool(status)
+
+
+def solve_min_dim_fill(floorplan_data, plot_width, plot_height, capped,
+                       targets=None, area_caps=None):
+    """solve_min_dim, then raise the minimums TOWARD THE ALLOCATOR TARGETS as
+    far as this topology can fit them (enforce_plot exact fill, 2026-08-17).
+
+    `targets` is the tier-aware allocation for this plot: per room the
+    (target_width, target_height) the functionality rule assigns - living
+    and bedrooms take the surplus, a toilet stays a toilet. The bisection
+    finds the largest interpolation lambda in [0, 1] between the band
+    minimums and those targets that still solves INSIDE the plot cap, so
+    the tiling stretches coherently toward the allocation instead of a
+    post-hoc fill inflating whichever room touches the leftover strip.
+    A per-axis uniform-factor fallback covers programs the allocator does
+    not know.
+
+    Returns (status, out_data, released) exactly like solve_min_dim.
+    """
+    base = copy.deepcopy(floorplan_data)
+    status, out_data, released = solve_min_dim(
+        copy.deepcopy(base), plot_width, plot_height, capped)
+    if not status or plot_width <= 0 or plot_height <= 0:
+        return status, out_data, released
+
+    def clamp_to_node_max(node, key_max, value):
+        hi = node.get(key_max)
+        if hi is not None:
+            try:
+                hi = float(hi)
+                if 0 < hi < 99999:
+                    value = min(value, hi)
+            except (TypeError, ValueError):
+                pass
+        return value
+
+    def scaled_toward_targets(lam):
+        data = copy.deepcopy(base)
+        for i, node in enumerate(data['nodes']):
+            if targets is None or i >= len(targets) or targets[i] is None:
+                continue
+            tw, th = targets[i]
+            for key_min, key_max, tgt in (("min_width", "max_width", tw),
+                                          ("min_height", "max_height", th)):
+                try:
+                    lo = float(node.get(key_min) or 0)
+                except (TypeError, ValueError):
+                    continue
+                if lo <= 0 or tgt is None or float(tgt) <= lo:
+                    continue
+                grown = lo + lam * (float(tgt) - lo)
+                node[key_min] = max(lo, clamp_to_node_max(node, key_max, grown))
+        return data
+
+    def solution_ok(out):
+        # Quality gate on a probe's SOLUTION: solver feasibility alone lets a
+        # spanning-cell room absorb a stretched row (SOLVER_UB_SLACK), so a
+        # probe only counts when every room stays inside its tiered area cap.
+        if area_caps is None:
+            return True
+        for i, node in enumerate(out.get("nodes", [])):
+            if i >= len(area_caps) or area_caps[i] is None:
+                continue
+            try:
+                area = float(node["width"]) * float(node["height"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if area > area_caps[i] + 0.5:
+                return False
+        return True
+
+    def scaled_uniform(fw, fh):
+        data = copy.deepcopy(base)
+        for node in data['nodes']:
+            for key_min, key_max, factor in (("min_width", "max_width", fw),
+                                             ("min_height", "max_height", fh)):
+                try:
+                    lo = float(node.get(key_min) or 0)
+                except (TypeError, ValueError):
+                    continue
+                if lo <= 0:
+                    continue
+                node[key_min] = max(lo, clamp_to_node_max(node, key_max,
+                                                          lo * factor))
+        return data
+
+    best = (status, out_data, released)
+
+    if targets is not None:
+        # Lambda toward the allocation, solved ENTIRELY under a tight solver
+        # slack: the normal SOLVER_UB_SLACK (2.5x the minimum) lets one
+        # arbitrary room take a stretched column's whole residual (a
+        # spanning-cell toilet measured 38.0 x 4.1 ft) and then every probe
+        # fails the area gate, collapsing lambda to zero. At 1.3x each room
+        # stays near its interpolated minimum, the allocation's balance does
+        # the equalising, and the gate only has to catch real spanning-cell
+        # topologies. lam=1 IS the allocation; most topologies bind earlier
+        # and the bisection keeps the largest lambda that solves inside the
+        # plot with every room inside its tiered cap. The residual to the
+        # exact plot is post-processing's job; when NO lambda passes, the
+        # plain minimum solution stands and the plan simply fills less.
+        old_slack = min_dim.SOLVER_UB_SLACK
+        min_dim.SOLVER_UB_SLACK = 1.3
+        try:
+            lo_l, hi_l = 0.0, 1.0
+            s, o, r = solve_min_dim(scaled_toward_targets(1.0),
+                                    plot_width, plot_height, capped)
+            if s and solution_ok(o):
+                best = (s, o, r)
+            else:
+                for _ in range(6):
+                    mid = (lo_l + hi_l) / 2.0
+                    s, o, r = solve_min_dim(scaled_toward_targets(mid),
+                                            plot_width, plot_height, capped)
+                    if s and solution_ok(o):
+                        lo_l = mid
+                        best = (s, o, r)
+                    else:
+                        hi_l = mid
+        finally:
+            min_dim.SOLVER_UB_SLACK = old_slack
+        if not solution_ok(best[1]):
+            # Every lambda failed the gate AND the plain solve itself violates
+            # a tiered area cap - the ladder released this topology's ceilings
+            # and handed a spanning cell the residual (the 295.8 sqft
+            # Bedroom 2). Under enforce_plot that plan would break the area
+            # hierarchy the client audits, so the topology is DROPPED from the
+            # fitted pool (it re-enters through the labeled expanded top-up).
+            # An honest thinner catalogue beats a page-one broken plan.
+            return False, best[1], best[2]
+        return best
+
+    # No allocation available: per-axis uniform factors (a single factor
+    # stalls once the tighter axis binds; independent factors let each axis
+    # stretch to its own plot line).
+    best_fw = 1.0
+    lo_f, hi_f = 1.0, 2.5
+    for _ in range(6):
+        mid = (lo_f + hi_f) / 2.0
+        s, o, r = solve_min_dim(scaled_uniform(mid, 1.0),
+                                plot_width, plot_height, capped)
+        if s:
+            lo_f = mid
+            best = (s, o, r)
+            best_fw = mid
+        else:
+            hi_f = mid
+    lo_f, hi_f = 1.0, 2.5
+    for _ in range(6):
+        mid = (lo_f + hi_f) / 2.0
+        s, o, r = solve_min_dim(scaled_uniform(best_fw, mid),
+                                plot_width, plot_height, capped)
+        if s:
+            lo_f = mid
+            best = (s, o, r)
+        else:
+            hi_f = mid
+    return best
 
 
 def generate_mindim_rfp(ui, graph, gclass, min_width, min_height, plot_width, plot_height, optimal_floorplan):
@@ -1847,9 +2012,52 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             start = time.time()
             max_width, max_height = get_max_dims(ui)
             max_dims_released = False
+            # Hard plot-fit mode (API opt-in): plot_width/plot_height carry the
+            # caller's REAL footprint. The solver cap below already enforces it
+            # per topology; what changes here is the boundary pool and the
+            # batch composition (see the two enforce_plot branches).
+            enforce_plot = bool(getattr(ui.min_dim_inputs, "get_enforce_plot",
+                                        lambda: False)())
+            if enforce_plot and (plot_width <= 0 or plot_height <= 0):
+                enforce_plot = False
+            fill_targets = None
+            if enforce_plot:
+                # Tier-aware per-room targets for the fill solver: the
+                # allocator hands the plot's surplus to living/bedrooms and
+                # keeps service rooms small - the functionality rule the
+                # exact fill distributes by. Unknown programs degrade to the
+                # uniform-factor fallback inside solve_min_dim_fill.
+                try:
+                    from GPLAN.source.dimensioning.allocator import allocate
+                    _alloc = allocate([{"name": nm} for nm in ui.get_roomNames()],
+                                      plot_width, plot_height)
+                    fill_targets = [(room["target_width"], room["target_height"])
+                                    for room in _alloc["rooms"]]
+                    # Per-room AREA quality caps for the fill probes, tiered
+                    # like the client's gross-oversize audit: a probe whose
+                    # solution blows a room past these is treated as
+                    # infeasible, so spanning-cell topologies settle at a
+                    # smaller lambda (a slightly under-filled VALID plan)
+                    # instead of reaching the plot through a 2.2x bedroom.
+                    fill_area_caps = [
+                        float(room["max_area"]) * (1.5 if room.get("tier", 3) <= 2
+                                                   else 1.4)
+                        for room in _alloc["rooms"]]
+                except Exception as _exc:
+                    print("enforce_plot: allocator unavailable (%s); uniform"
+                          " fill fallback" % _exc)
+                    fill_targets = None
+                    fill_area_caps = None
             input_dims = [min_width, min_height, plot_width, plot_height]
             input_dims = copy.deepcopy(input_dims)
             if plot_width == 0 and plot_height == 0:
+                input_dims = []
+            elif enforce_plot:
+                # The dim_on_paths_bdy pre-selector tunes the boundary pool
+                # for a slack rejection cap and COLLAPSES it at a real plot
+                # (measured 2/14/30 plans, 2026-07-24). Enumerate the full
+                # pool instead, exactly like the cardinal path, and let the
+                # capped solver do the selecting.
                 input_dims = []
             if allow_rotation and getattr(graph, "cardinal_constraints", []):
                 # The rotation pass swaps x/y, which would rotate pinned rooms
@@ -1895,6 +2103,10 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             print("Total possible floorplans = ",number_of_floorplans)
 
             original_graph_list = copy.deepcopy(graph.graph_list)
+            # Topologies whose capped solve succeeded, keyed by their slot in
+            # graph_list_by_bdy - the enforce_plot top-up pass skips these so
+            # the expanded catalogue never duplicates a fitting plan.
+            fitted_topologies = set()
 
             for bdy_itr in range(len(graph.graph_list_by_bdy)):
                 bdy_fplans = 0
@@ -1930,13 +2142,20 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     #     json_file.write(json_data)
                     # print(f"JSON data has been written to {input_path}")
 
-                    # If floorplan satisfying the given constraints is satisfied
-                    status, out_data, released = solve_min_dim(
+                    # If floorplan satisfying the given constraints is satisfied.
+                    # enforce_plot: the fill variant bisects a minimum-scale
+                    # factor so the tiling stretches toward the plot in the
+                    # SOLVER, room by room until each ceiling clamps.
+                    _solver = solve_min_dim_fill if enforce_plot else solve_min_dim
+                    _kw = ({"targets": fill_targets,
+                            "area_caps": fill_area_caps} if enforce_plot else {})
+                    status, out_data, released = _solver(
                         floorplan_data, plot_width, plot_height,
-                        max_width is not None or max_height is not None)
+                        max_width is not None or max_height is not None, **_kw)
                     max_dims_released = max_dims_released or released
                     if status == True:
                         bdy_fplans += 1
+                        fitted_topologies.add((bdy_itr, rel_itr))
                         room_x = []
                         room_y = []
                         room_width = []
@@ -2041,9 +2260,15 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
 
                     # If floorplan satisfying the given constraints is satisfied
                     # reverse order of plot width and height for the rotated pass
-                    status, out_data, released = solve_min_dim(
+                    _solver = solve_min_dim_fill if enforce_plot else solve_min_dim
+                    _kw = ({"targets": [None if t is None else (t[1], t[0])
+                                        for t in fill_targets],
+                            "area_caps": fill_area_caps}
+                           if enforce_plot and fill_targets else
+                           ({"targets": None} if enforce_plot else {}))
+                    status, out_data, released = _solver(
                         floorplan_data, plot_height, plot_width,
-                        max_width is not None or max_height is not None)
+                        max_width is not None or max_height is not None, **_kw)
                     max_dims_released = max_dims_released or released
                     if status == True:
                         room_x = []
@@ -2106,38 +2331,74 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         floorplan_found = True
 
 
-            if not floorplan_found:
-                print("No floorplan found which satisfies the minimum dimensions input by user.")
-                print("Getting optimal floorplan with same info just plot data is 0")
-                # This retry drops the PLOT cap only. Per-room maximums still
-                # apply and are released per topology inside solve_min_dim.
-                warning = ("No floorplan fits the given plot dimensions; room dimensions were kept "
-                           "and the plot was expanded to fit.")
-                if gclass is not None:
-                    messagebox.showwarning("Warning", warning)
+            # ── batch composition ─────────────────────────────────────────
+            # Fitting plans first (the two floorplan_found branches below);
+            # then, when the caller opted into enforce_plot and the capped
+            # pass came up short, a top-up of expanded plans; with no fitting
+            # plan at all the legacy expand fallback runs for every caller.
+            if floorplan_found and optimal_floorplan == 1 and multiple_door is not True: # Display floorplan with optimal area if required
+                areas_mapping.sort()#sort all bound areas
+                min_graph = areas_mapping[0][1]
+                min_area = areas_mapping[0][0][1]
+                print("Area mapping", areas_mapping)
+                print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
+                ui._append_output_data(graph.graph_list[min_graph])
+                # graph.graph_list[min_graph].final_traversal=inputgraph.get_final_traversal(graph.graph_list[min_graph])
+                if drawGUI:
+                    drawFunction(ui, graph.graph_list[min_graph], origin, ui.get_roomNames(), gclass=gclass)
+            elif floorplan_found and multiple_door == 1:#Sort all the given floorplans based on area then append them at the end of the output list
+                areas_mapping.sort()#sort all bound areas
+                print("plot height",plot_height,"plot width",plot_width)
+                print("area mapping", areas_mapping)
+                for floorplan in areas_mapping:
+                    ui._append_output_data(graph.graph_list[floorplan[1]])
+                    ui._set_multiple_output_found(1)
+
+            fitted_count = len(ui.get_output_data()) if floorplan_found else 0
+            need_expand = not floorplan_found
+            topup = (enforce_plot and floorplan_found and multiple_door == 1
+                     and fitted_count < ENFORCE_PLOT_TOPUP_TARGET)
+            if need_expand or topup:
+                if need_expand:
+                    print("No floorplan found which satisfies the minimum dimensions input by user.")
+                    print("Getting optimal floorplan with same info just plot data is 0")
+                    # This retry drops the PLOT cap only. Per-room maximums still
+                    # apply and are released per topology inside solve_min_dim.
+                    warning = ("No floorplan fits the given plot dimensions; room dimensions were kept "
+                               "and the plot was expanded to fit.")
+                    if gclass is not None:
+                        messagebox.showwarning("Warning", warning)
+                    else:
+                        ui.print_gui("Warning: " + warning)
+
+                    ui._set_output_data([])
+                    ui._set_multiple_output_found(0)
                 else:
-                    ui.print_gui("Warning: " + warning)
-         
-                ui._set_output_data([])
-                ui._set_multiple_output_found(0)
+                    # enforce_plot top-up: every fitting plan is already in the
+                    # output; the remaining topologies are solved uncapped and
+                    # appended AFTER them, expanded toward the plot and named
+                    # in the message so no client mistakes them for fits.
+                    ui.print_gui("Only " + str(fitted_count) + " floorplan(s) fit the plot; "
+                                 "the catalogue was topped up with plans that overflow it.")
 
                 # Variables for storing the data of the floorplan with minimal area
                 min_area = -1
                 min_graph = None
                 areas = []
 
-                i = -1
                 print("Total possible floorplans = ",number_of_floorplans)
                 valid = []
+                rotated_mapping = []
+                skip_keys = fitted_topologies if topup else set()
                 for bdy_itr in range(len(graph.graph_list_by_bdy)):
                     bdy_fplans = 0
                     for rel_itr in range(len(graph.graph_list_by_bdy[bdy_itr])):
                         if bdy_fplans >= graph.floorplan_per_bdy_limit:
                             break
-                        # print("Trying floorplan number", i + 1,
-                        #     "to see if minimum dimension floorplan can be constructed.")
+                        if (bdy_itr, rel_itr) in skip_keys:
+                            continue
                         graph.graph_list.append(graph.graph_list_by_bdy[bdy_itr][rel_itr])#may cause issues later might need to deepcopy
-                        i = i+1
+                        i = len(graph.graph_list) - 1
                         floorplan_obj = input_for_min_dim.floorplan(ui.get_fptype(), ui.get_isDimensioned(),
                                                                     ui.get_isDimensionedCirculation(), ui.get_isRemoveAddCirculation(),
                                                                     ui.get_corridor_thickness())
@@ -2152,7 +2413,53 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                             max_width=max_width, max_height=max_height
                         )
 
-                        # print(floorplan_data)
+                        if enforce_plot and allow_rotation:
+                            # A topology that overflows W x H may still fit
+                            # H x W: solve against the swapped plot and swap
+                            # the geometry back, exactly like the rotation
+                            # pass above. Tried BEFORE the uncapped solve so
+                            # a rotated FIT beats an expanded plan. The solver
+                            # mutates its input, so it gets its own deepcopy.
+                            status, out_data, released = solve_min_dim_fill(
+                                copy.deepcopy(floorplan_data), plot_height, plot_width,
+                                max_width is not None or max_height is not None,
+                                targets=([None if t is None else (t[1], t[0])
+                                          for t in fill_targets]
+                                         if fill_targets else None),
+                                area_caps=fill_area_caps)
+                            if status == True:
+                                max_dims_released = max_dims_released or released
+                                bdy_fplans += 1
+                                room_x = []
+                                room_y = []
+                                room_width = []
+                                room_height = []
+                                room_area = []
+                                for room_detail in out_data["nodes"]:
+                                    room_x.append(room_detail["room_x"])
+                                    room_y.append(room_detail["room_y"])
+                                    room_width.append(room_detail["width"])
+                                    room_height.append(room_detail["height"])
+                                    room_area.append(room_detail["width"] * room_detail["height"])
+                                # x/y and width/height swapped back into the
+                                # plot frame (mirrors the rotation pass).
+                                graph.graph_list[i].room_x = room_y
+                                graph.graph_list[i].room_y = room_x
+                                graph.graph_list[i].room_width = room_height
+                                graph.graph_list[i].room_height = room_width
+                                graph.graph_list[i].area = room_area
+                                wMax = 0
+                                hMax = 0
+                                for itr2 in range(len(room_x)):
+                                    if room_y[itr2] + room_height[itr2] > wMax:
+                                        wMax = room_y[itr2] + room_height[itr2]
+                                    if room_x[itr2] + room_width[itr2] > hMax:
+                                        hMax = room_x[itr2] + room_width[itr2]
+                                area_sum = sum(room_area)
+                                graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(
+                                        graph.graph_list[i])
+                                rotated_mapping.append(((wMax * hMax - area_sum, area_sum), i))
+                                continue
 
                         # This pass drops only the PLOT cap; the room ceilings
                         # still apply and are released per topology only when
@@ -2186,7 +2493,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                             graph.graph_list[i].room_y = room_y
                             graph.graph_list[i].room_width = room_width
                             graph.graph_list[i].room_height = room_height
-                            graph.graph_list[i].area = room_area          
+                            graph.graph_list[i].area = room_area
 
                             # Store graph data if graph area is less than current minimal area
                             area_sum = sum(room_area)
@@ -2198,45 +2505,30 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                             if min_area < 0 or area_sum < min_area:
                                 min_graph = i
                                 min_area = area_sum
-                            
+
                             '''
                             Adds the graph data to output_data for downloading the catalogue and
                             multiple_output_found flag is set which indicates that catalogue can be downloaded for this output
                             '''
-                        else: 
-                            i = i-1
+                        else:
                             graph.graph_list.pop()
-                        
-                print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
 
-                # graph.graph_list[min_graph].final_traversal=inputgraph.get_final_traversal(graph.graph_list[min_graph])
-                graph.scale_plot_dimension(plot_width, plot_height,valid)
-                for i in range(len(graph.graph_list)):
-                    graphz = graph.graph_list[i]
-                    if(i in valid):
-                        ui._append_output_data(graphz)
-                        ui._set_multiple_output_found(1)
-                min_graph = 0
-                if drawGUI:
-                    drawFunction(ui, graph.graph_list[min_graph], origin, ui.get_roomNames(), gclass=gclass)
-
-            elif optimal_floorplan == 1 and multiple_door is not True: # Display floorplan with optimal area if required  
-                areas_mapping.sort()#sort all bound areas
-                min_graph = areas_mapping[0][1]
-                min_area = areas_mapping[0][0][1]
-                print("Area mapping", areas_mapping)
-                print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
-                ui._append_output_data(graph.graph_list[min_graph])
-                # graph.graph_list[min_graph].final_traversal=inputgraph.get_final_traversal(graph.graph_list[min_graph])
-                if drawGUI:
-                    drawFunction(ui, graph.graph_list[min_graph], origin, ui.get_roomNames(), gclass=gclass)
-            elif multiple_door == 1:#Sort all the given floorplans based on area then append them at the end of the output list
-                areas_mapping.sort()#sort all bound areas
-                print("plot height",plot_height,"plot width",plot_width)
-                print("area mapping", areas_mapping)
-                for floorplan in areas_mapping:
-                    ui._append_output_data(graph.graph_list[floorplan[1]])
+                # Rotated fits are real fits: they land BEFORE anything
+                # expanded, least bounding-box waste first.
+                rotated_mapping.sort()
+                for entry in rotated_mapping:
+                    ui._append_output_data(graph.graph_list[entry[1]])
                     ui._set_multiple_output_found(1)
+                print("Floorplan Areas Possible:", areas, "\nOptimal Area:", min_area)
+
+                # Expand-only fit toward the plot; least growth first, appended
+                # after every fitting plan.
+                expanded = graph.scale_plot_dimension(plot_width, plot_height, valid)
+                for graphz in expanded:
+                    ui._append_output_data(graphz)
+                    ui._set_multiple_output_found(1)
+                if drawGUI and len(ui.get_output_data()) > 0:
+                    drawFunction(ui, ui.get_output_data()[0], origin, ui.get_roomNames(), gclass=gclass)
             end = time.time()
             ui.print_gui("Time taken: " + str((end - start) * 1000) + " ms")
             if max_dims_released:
@@ -2299,9 +2591,46 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             ui._set_dim_constraints([min_width, min_height, plot_width, plot_height])
             max_width, max_height = get_max_dims(ui)
             max_dims_released = False
+            # Same hard plot-fit opt-in as the PTPG branch: full boundary pool
+            # + the fill solver. The non-PTPG (irregular) branch shares the
+            # solve loop below, so the flag must exist here too.
+            enforce_plot = bool(getattr(ui.min_dim_inputs, "get_enforce_plot",
+                                        lambda: False)())
+            if enforce_plot and (plot_width <= 0 or plot_height <= 0):
+                enforce_plot = False
+            fill_targets = None
+            if enforce_plot:
+                # Tier-aware per-room targets for the fill solver: the
+                # allocator hands the plot's surplus to living/bedrooms and
+                # keeps service rooms small - the functionality rule the
+                # exact fill distributes by. Unknown programs degrade to the
+                # uniform-factor fallback inside solve_min_dim_fill.
+                try:
+                    from GPLAN.source.dimensioning.allocator import allocate
+                    _alloc = allocate([{"name": nm} for nm in ui.get_roomNames()],
+                                      plot_width, plot_height)
+                    fill_targets = [(room["target_width"], room["target_height"])
+                                    for room in _alloc["rooms"]]
+                    # Per-room AREA quality caps for the fill probes, tiered
+                    # like the client's gross-oversize audit: a probe whose
+                    # solution blows a room past these is treated as
+                    # infeasible, so spanning-cell topologies settle at a
+                    # smaller lambda (a slightly under-filled VALID plan)
+                    # instead of reaching the plot through a 2.2x bedroom.
+                    fill_area_caps = [
+                        float(room["max_area"]) * (1.5 if room.get("tier", 3) <= 2
+                                                   else 1.4)
+                        for room in _alloc["rooms"]]
+                except Exception as _exc:
+                    print("enforce_plot: allocator unavailable (%s); uniform"
+                          " fill fallback" % _exc)
+                    fill_targets = None
+                    fill_area_caps = None
             input_dims = [min_width, min_height, plot_width, plot_height]
             input_dims = copy.deepcopy(input_dims)
             if plot_width == 0 and plot_height == 0:
+                input_dims = []
+            elif enforce_plot:
                 input_dims = []
 
             start = time.time()
@@ -2358,10 +2687,16 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         floorplan_data['nodes'][merge_node]['min_width'] = node_min_width/2
                         floorplan_data['nodes'][merge_node]['min_height'] = node_min_height/2
 
-                    # If floorplan satisfying the given constraints is satisfied
-                    status, out_data, released = solve_min_dim(
+                    # If floorplan satisfying the given constraints is satisfied.
+                    # enforce_plot: the fill variant bisects a minimum-scale
+                    # factor so the tiling stretches toward the plot in the
+                    # SOLVER, room by room until each ceiling clamps.
+                    _solver = solve_min_dim_fill if enforce_plot else solve_min_dim
+                    _kw = ({"targets": fill_targets,
+                            "area_caps": fill_area_caps} if enforce_plot else {})
+                    status, out_data, released = _solver(
                         floorplan_data, plot_width, plot_height,
-                        max_width is not None or max_height is not None)
+                        max_width is not None or max_height is not None, **_kw)
                     max_dims_released = max_dims_released or released
                     if status == True:
                         bdy_fplans += 1

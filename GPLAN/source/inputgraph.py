@@ -595,6 +595,14 @@ class InputGraph:
         #                                                                                    self.irreg_nodes1)
 
     def scale_plot_dimension(self,plot_width,plot_height,valid):
+        """Expand-only fit of the `valid` graph_list entries toward the plot.
+
+        Mutates each valid graph's geometry in place and RETURNS the valid
+        graphs ordered by least plot growth (1.0 = fits). The caller appends
+        the returned list; graph_list itself is left in append order, because
+        reordering it in place broke as soon as the valid set was not a prefix
+        (the enforce_plot top-up appends expanded plans after fitting ones).
+        """
         reorder_mapping = []
         for i in range(len(self.graph_list)):
             if i not in valid:
@@ -640,10 +648,7 @@ class InputGraph:
 
             print(reorder_mapping)
         reorder_mapping.sort(key=lambda x: x[0])
-        new_graph_list = copy.deepcopy(self.graph_list)
-        for index in range(len(reorder_mapping)):
-            new_graph_list[index] = self.graph_list[reorder_mapping[index][1]]
-        self.graph_list = new_graph_list
+        return [self.graph_list[entry[1]] for entry in reorder_mapping]
 
 
 
