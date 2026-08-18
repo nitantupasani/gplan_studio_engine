@@ -975,14 +975,60 @@ def _side_growth_limit(rects, bounds, i, side, allowances):
     return room
 
 
-def _expand_to_target(work, bounds, door_reqs, eps, target,
-                      plot_limits, actions, allowances):
-    """Phase 5. Grow a gapless plan toward `target` (already oriented).
+# Ceiling release for the exact plot fill, in two stages, BOTH kept under the
+# client's gross-oversize hard-error lines (wet/service escalate past 1.5x of
+# their ceiling, anything past 1.6x): an exact plot reached by plans the
+# validity gate then hides would be no exact plot at all. Stage one is a mild
+# uniform slack; stage two is TIERED BY ROOM CLASS - the functionality rule
+# as a hard limit, not just an ordering: social/private (living, bedrooms)
+# and the kitchen may approach their line, wet and service rooms stay at
+# stage one. A residual the release cannot close within these lines stays
+# open (the plan lands a hair under the plot) rather than shipping a plan
+# the gate would bury.
+_FILL_RELEASE_STAGE_ONE = 1.25
+_FILL_RELEASE_BY_CLASS = {"social": 1.55, "private": 1.55, "kitchen": 1.55,
+                          "wet": 1.45, "service": 1.45}
 
-    A whole boundary side advances at once, by the SMALLEST headroom among the
-    rooms on it, so the outline stays a rectangle and no room passes its own
-    ceiling. Never shrinks (the min-dim minimums are floors) and never crosses
-    the plot cap. Returns the feet gained per axis.
+
+def _tiered_release_bounds(bounds):
+    """Per-class relaxed copy of `bounds` for the final release stage."""
+    out = []
+    for b in bounds:
+        if b is None:
+            out.append(None)
+            continue
+        slack = _FILL_RELEASE_BY_CLASS.get(
+            str(b.get("room_class", "")), _FILL_RELEASE_STAGE_ONE)
+        out.append(_relaxed_bounds([b], slack)[0])
+    return out
+
+
+def _expand_to_target(work, bounds, door_reqs, eps, target,
+                      plot_limits, actions, allowances, slack_rooms=None):
+    """Phase 5. Fill the plan out to `target` EXACTLY (2026-08-17, user
+    decision: the typed plot is not just a cap, plans must BE the plot).
+
+    Slack flows by FUNCTIONALITY end to end - every step hands growth to the
+    rooms with the most ceiling headroom first, which is living/bedrooms
+    before kitchen/dining before wet and service rooms:
+
+      A. rectangle-preserving whole-side growth (the legacy step): a side
+         advances by the smallest headroom among its rooms, outline stays a
+         rectangle, nobody passes a ceiling;
+      B. per-room growth to the target line, headroom-descending, within
+         ceilings and aspect band (opens boundary notches next to rooms that
+         are already full);
+      C. absorb rounds close those notches within ceilings (_absorb_pass);
+      D. only if a deficit remains: B+C again with the ceilings released in
+         stages (_FILL_RELEASE_STAGES), still headroom-ordered. Rooms pushed
+         past their true ceiling are recorded in `slack_rooms` (the caller
+         exempts them from the no-regress gate and reports them).
+
+    Release never runs when the target exceeds the PROGRAM maximum (the sum
+    of every room's area ceiling): a plot bigger than the program can legally
+    occupy keeps ceiling-true rooms and an open ring (the client centres the
+    plan there). Never shrinks and never crosses the plot cap. Returns feet
+    gained per axis.
     """
     if target is None:
         return (0.0, 0.0)
@@ -990,7 +1036,25 @@ def _expand_to_target(work, bounds, door_reqs, eps, target,
     if plot_limits is not None:
         limit_w = min(limit_w, plot_limits[0])
         limit_h = min(limit_h, plot_limits[1])
-    gained_x = gained_y = 0.0
+    ebx0, eby0, ebx1, eby1 = _bbox(work)
+    entry_w, entry_h = ebx1 - ebx0, eby1 - eby0
+
+    def _over_true_ceiling(i):
+        if bounds[i] is None:
+            return False
+        x0, y0, x1, y1 = work[i]
+        w, h = x1 - x0, y1 - y0
+        tw, th = _axis_ceilings(bounds[i], w, h, aspect_floors=False)
+        over_area = (bounds[i]["maxarea"] < _INF
+                     and w * h > bounds[i]["maxarea"] + 0.5)
+        return w > tw + 0.05 or h > th + 0.05 or over_area
+
+    # Rooms already past their ceiling at entry (door-locked keepers, the
+    # engine's expanded plans) are not the fill's doing - never report them
+    # as fill releases.
+    entry_over = {i for i in range(len(work)) if _over_true_ceiling(i)}
+
+    # ── A. rectangle-preserving side growth ─────────────────────────────────
     sides = ("E", "S", "W", "N")
     for _ in range(6):
         moved = False
@@ -1034,19 +1098,267 @@ def _expand_to_target(work, bounds, door_reqs, eps, target,
             for i in idxs:
                 actions.setdefault(i, []).append(
                     "grew %.1f ft toward %s to fill the plot" % (advance, side))
-            if side in ("E", "W"):
-                gained_x += advance
-            else:
-                gained_y += advance
             moved = True
         if not moved:
             break
-    return (gained_x, gained_y)
+
+    # ── B-D. exact fill ─────────────────────────────────────────────────────
+    def deficits():
+        x0, y0, x1, y1 = _bbox(work)
+        return limit_w - (x1 - x0), limit_h - (y1 - y0)
+
+    def reach_lines(stage_bounds):
+        """Grow boundary rooms individually to the target lines, biggest
+        headroom first. Rooms on one boundary side have disjoint spans, so
+        outward growth cannot overlap; the stage invariant check below is
+        the belt to this suspenders."""
+        moved = False
+        for axis in ("w", "h"):
+            dw, dh = deficits()
+            gap = dw if axis == "w" else dh
+            if gap <= 0.02:
+                continue
+            bx0, by0, bx1, by1 = _bbox(work)
+            line = (bx0 + limit_w) if axis == "w" else (by0 + limit_h)
+            members = [i for i, r in enumerate(work)
+                       if (r[2] >= bx1 - eps if axis == "w"
+                           else r[3] >= by1 - eps)]
+
+            def stage_headroom(i):
+                b = stage_bounds[i]
+                if b is None or b["maxarea"] >= _INF:
+                    return _INF
+                x0, y0, x1, y1 = work[i]
+                return b["maxarea"] - (x1 - x0) * (y1 - y0)
+
+            for i in sorted(members, key=lambda k: (-stage_headroom(k), k)):
+                x0, y0, x1, y1 = work[i]
+                if stage_bounds[i] is None:
+                    tw = th = _INF
+                else:
+                    tw, th = _axis_ceilings(stage_bounds[i], x1 - x0, y1 - y0,
+                                            aspect_floors=False)
+                if axis == "w":
+                    new_edge = min(line, x0 + tw)
+                    delta = new_edge - x1
+                    candidate = (x0, y0, new_edge, y1)
+                else:
+                    new_edge = min(line, y0 + th)
+                    delta = new_edge - y1
+                    candidate = (x0, y0, x1, new_edge)
+                if delta <= 0.02:
+                    continue
+                work[i] = candidate
+                actions.setdefault(i, []).append(
+                    "grew %.1f ft to reach the plot edge" % delta)
+                moved = True
+        return moved
+
+    def stage_allowances(stage_bounds):
+        # The started-aspect guard applies to the ceiling-true stage only;
+        # release stages stay inside the NBC aspect band via _axis_ceilings
+        # but may leave a room more slender than it happened to start.
+        return allowances if stage_bounds is bounds else None
+
+    program_max = 0.0
+    unbounded = False
+    for b in bounds:
+        if b is None or b.get("maxarea", _INF) >= _INF:
+            unbounded = True
+            break
+        program_max += b["maxarea"]
+    allow_release = unbounded or (limit_w * limit_h) <= program_max + 1.0
+
+    stage_list = [bounds]
+    if allow_release:
+        stage_list += [_relaxed_bounds(bounds, _FILL_RELEASE_STAGE_ONE),
+                       _tiered_release_bounds(bounds)]
+
+    # Rooms the RELEASE stages actually moved: exempted from the driver's
+    # no-regress gate (a release is a deliberate, disclosed regression;
+    # reverting the whole plan for it would undo the exact fill).
+    release_baseline = None
+    for stage_bounds in stage_list:
+        dw, dh = deficits()
+        notch, hole = _void_metrics(work)
+        if dw <= 0.05 and dh <= 0.05 and notch <= eps and hole <= eps:
+            break
+        if stage_bounds is not bounds and release_baseline is None:
+            release_baseline = list(work)
+        snapshot = list(work)
+        action_snapshot = copy.deepcopy(actions)
+        reach_lines(stage_bounds)
+        for _ in range(8):
+            if not _absorb_pass(work, stage_bounds, eps, actions,
+                                allowances=stage_allowances(stage_bounds)):
+                break
+        if (_rects_overlap(work, eps)
+                or _void_metrics(work)[1] > eps
+                or not _doors_ok(work, door_reqs, eps)
+                or not _within_limits(work, plot_limits, eps)):
+            work[:] = snapshot
+            actions.clear()
+            actions.update(action_snapshot)
+            break
+
+    # Exempt/disclose set: every room the release stages MOVED (grew), plus
+    # any room now past its true ceiling that was not over at entry. Both are
+    # the fill's doing; rooms already over at entry (door-locked keepers, the
+    # engine's expanded plans) are neither.
+    if slack_rooms is not None:
+        if release_baseline is not None:
+            for i, (before, after) in enumerate(zip(release_baseline, work)):
+                if any(abs(a - b) > 0.02 for a, b in zip(before, after)):
+                    slack_rooms.add(i)
+        for i in range(len(work)):
+            if i not in entry_over and _over_true_ceiling(i):
+                slack_rooms.add(i)
+
+    fbx0, fby0, fbx1, fby1 = _bbox(work)
+    return (max(0.0, (fbx1 - fbx0) - entry_w),
+            max(0.0, (fby1 - fby0) - entry_h))
 
 
 # ---------------------------------------------------------------------------
 # the per-plan driver
 # ---------------------------------------------------------------------------
+
+def _shift_overcap_walls(work, bounds, door_reqs, eps, actions, rounds=24):
+    """Shift shared walls off over-ceiling rooms into full-span neighbours.
+
+    For every room past its area or span ceiling: find a wall that exactly
+    one neighbour spans entirely, whose shift shrinks the offender toward its
+    ceiling and grows the neighbour within ITS ceilings, and move it. The
+    tiling stays gapless and the bbox unchanged by construction; doors are
+    re-verified after every shift and the shift is undone if one breaks.
+    Returns True when anything moved.
+    """
+    moved_any = False
+    touch = eps * 10
+    for _ in range(rounds):
+        moved = False
+        for i, (x0, y0, x1, y1) in enumerate(work):
+            if bounds[i] is None:
+                continue
+            w, h = x1 - x0, y1 - y0
+            tw, th = _axis_ceilings(bounds[i], w, h, aspect_floors=False)
+            over_area = (bounds[i]["maxarea"] < _INF
+                         and w * h > bounds[i]["maxarea"] + 0.5)
+            need_w = max(0.0, w - tw)
+            need_h = max(0.0, h - th)
+            if over_area:
+                # shed area along the LONG axis first
+                shed = (w * h - bounds[i]["maxarea"])
+                if w >= h:
+                    need_w = max(need_w, shed / max(h, 1e-9))
+                else:
+                    need_h = max(need_h, shed / max(w, 1e-9))
+            if need_w <= 0.05 and need_h <= 0.05:
+                continue
+            for side, need in (("E", need_w), ("W", need_w),
+                               ("S", need_h), ("N", need_h)):
+                if need <= 0.05:
+                    continue
+                # every neighbour touching this wall; together they must
+                # cover its whole run or the shift would open a hole
+                nbrs = []
+                for j, (a0, b0, a1, b1) in enumerate(work):
+                    if j == i:
+                        continue
+                    if side in ("E", "W"):
+                        wall_x = x1 if side == "E" else x0
+                        nbr_x = a0 if side == "E" else a1
+                        if abs(nbr_x - wall_x) > touch:
+                            continue
+                        if min(y1, b1) - max(y0, b0) > touch:
+                            nbrs.append(j)
+                    else:
+                        wall_y = y1 if side == "S" else y0
+                        nbr_y = b0 if side == "S" else b1
+                        if abs(nbr_y - wall_y) > touch:
+                            continue
+                        if min(x1, a1) - max(x0, a0) > touch:
+                            nbrs.append(j)
+                if not nbrs:
+                    continue
+                # joint coverage of the wall run
+                if side in ("E", "W"):
+                    spans = sorted((max(y0, work[j][1]), min(y1, work[j][3]))
+                                   for j in nbrs)
+                    lo_run, hi_run = y0, y1
+                else:
+                    spans = sorted((max(x0, work[j][0]), min(x1, work[j][2]))
+                                   for j in nbrs)
+                    lo_run, hi_run = x0, x1
+                cover = lo_run
+                covered = True
+                for s0, s1 in spans:
+                    if s0 > cover + touch:
+                        covered = False
+                        break
+                    cover = max(cover, s1)
+                if not covered or cover < hi_run - touch:
+                    continue
+                # delta = the tightest neighbour ceiling, the offender's own
+                # floor, and the need
+                delta = need
+                for j in nbrs:
+                    na0, nb0, na1, nb1 = work[j]
+                    nw, nh = na1 - na0, nb1 - nb0
+                    if bounds[j] is None:
+                        head = _INF
+                    else:
+                        ntw, nth = _axis_ceilings(bounds[j], nw, nh,
+                                                  aspect_floors=False)
+                        head = (ntw - nw) if side in ("E", "W") else (nth - nh)
+                    delta = min(delta, max(0.0, head))
+                own_floor = max(bounds[i].get("floor_short", 0.0), 1.0)
+                own_room = (w - own_floor) if side in ("E", "W") \
+                    else (h - own_floor)
+                delta = min(delta, max(0.0, own_room))
+                if delta <= 0.05:
+                    continue
+                snapshot = {j: work[j] for j in nbrs}
+                snapshot[i] = work[i]
+                if side == "E":
+                    work[i] = (x0, y0, x1 - delta, y1)
+                    for j in nbrs:
+                        a0, b0, a1, b1 = work[j]
+                        work[j] = (a0 - delta, b0, a1, b1)
+                elif side == "W":
+                    work[i] = (x0 + delta, y0, x1, y1)
+                    for j in nbrs:
+                        a0, b0, a1, b1 = work[j]
+                        work[j] = (a0, b0, a1 + delta, b1)
+                elif side == "S":
+                    work[i] = (x0, y0, x1, y1 - delta)
+                    for j in nbrs:
+                        a0, b0, a1, b1 = work[j]
+                        work[j] = (a0, b0 - delta, a1, b1)
+                else:
+                    work[i] = (x0, y0 + delta, x1, y1)
+                    for j in nbrs:
+                        a0, b0, a1, b1 = work[j]
+                        work[j] = (a0, b0, a1, b1 + delta)
+                if (_rects_overlap(work, eps)
+                        or _void_metrics(work)[1] > eps
+                        or not _doors_ok(work, door_reqs, eps)):
+                    for j, old in snapshot.items():
+                        work[j] = old
+                    continue
+                actions.setdefault(i, []).append(
+                    "shed %.1f ft toward %s to neighbours" % (delta, side))
+                for j in nbrs:
+                    actions.setdefault(j, []).append(
+                        "took %.1f ft from an over-ceiling neighbour" % delta)
+                moved = moved_any = True
+                break
+            if moved:
+                break
+        if not moved:
+            break
+    return moved_any
+
 
 def _room_snapshot(rects, names):
     out = []
@@ -1247,15 +1559,40 @@ def postprocess_plan(rects, names, options=None, edges=None,
                  + ((" (%s stay past their NBC ceiling)" % ", ".join(over))
                     if over else ""))
 
-    # -- phase 5: fill the plot ---------------------------------------------
+    # -- phase 5: fill the plot EXACTLY -------------------------------------
+    # Runs on notched plans too (2026-08-17): a trim notch is open space the
+    # fill hands to a neighbour with headroom, never regrows on the trimmed
+    # room while a capped stage can avoid it. Only an interior HOLE (invalid
+    # input geometry) skips the phase.
     filled = (0.0, 0.0)
+    fill_slack_rooms = set()
     if opts["fill_target"] and target is not None \
-            and _void_metrics(work)[0] <= max(_bbox_area(work), 1e-9) * 1e-3:
+            and _void_metrics(work)[1] <= eps:
         filled = _expand_to_target(work, bounds, door_reqs, eps,
-                                   target, plot_limits, actions, allowances)
+                                   target, plot_limits, actions, allowances,
+                                   slack_rooms=fill_slack_rooms)
         if filled[0] > 0.05 or filled[1] > 0.05:
-            note("grown %.1f x %.1f ft toward the plot within the room"
-                 " ceilings" % filled)
+            note("grown %.1f x %.1f ft to fill the plot" % filled)
+
+        # -- phase 6: rebalance inside the filled plot -----------------------
+        # An exact fill fixes the TOTAL area, and the tiling decides who holds
+        # it - a toilet spanning a stretched column ends up over its ceiling
+        # with the trim locked out (an interior room cannot be trimmed without
+        # opening a hole). The redistribution primitive that CAN reach an
+        # interior room is a shared-wall SHIFT: move the boundary between an
+        # over-ceiling room and a full-span neighbour with headroom, shrinking
+        # one and growing the other by the same strip - gapless by
+        # construction, bbox untouched. Conservative on purpose: only walls a
+        # single neighbour spans entirely move, doors are re-checked per
+        # shift, and a shift is capped by the neighbour's own ceilings.
+        if _shift_overcap_walls(work, bounds, door_reqs, eps, actions):
+            note("room sizes rebalanced inside the filled plot")
+
+        if fill_slack_rooms:
+            over_now = _over_ceiling_rooms(work, bounds, names)
+            if over_now:
+                note("ceilings released to fill the plot: %s"
+                     % ", ".join(over_now))
 
     # -- the gate: is the whole sequence worth shipping? ---------------------
     # The promise that outranks all heuristics: post-processing never makes
@@ -1271,12 +1608,22 @@ def postprocess_plan(rects, names, options=None, edges=None,
     score_after = sum(10 if i["severity"] == "error" else 1
                       for i in issues_after)
     vec_after = [_quality_vector(r, b) for r, b in zip(work, bounds)]
+    # Rooms the plot fill DELIBERATELY pushed past a ceiling are exempt from
+    # the no-regress gate: the plot outranks the ceilings and the release is
+    # already disclosed (phase note + over_ceiling_rooms below). Everything
+    # else keeps the full promise.
     regressed = sorted({
         str(names[i]) for i in range(len(names))
-        if any((not before) and after
-               for before, after in zip(vec_before[i], vec_after[i]))
+        if i not in fill_slack_rooms
+        and any((not before) and after
+                for before, after in zip(vec_before[i], vec_after[i]))
     })
-    if regressed or score_after > score_before:
+    # The integer-score tiebreak stands down when the fill released ceilings:
+    # a released room legitimately adds its over-cap warning to the score, and
+    # reverting the whole sequence for it would undo the exact plot fill the
+    # release exists to reach. Per-room protection for every OTHER room stays
+    # via the vector check above.
+    if regressed or (score_after > score_before and not fill_slack_rooms):
         work = list(start)
         actions.clear()
         rectangle_restored = False
@@ -1316,7 +1663,8 @@ def postprocess_plan(rects, names, options=None, edges=None,
         "rectangle_restored": rectangle_restored,
         "trims_reverted_for_rectangle": trims_reverted,
         "over_ceiling_rooms": (_over_ceiling_rooms(work, bounds, names)
-                               if reclose_slack_used or trims_reverted else []),
+                               if reclose_slack_used or trims_reverted
+                               or fill_slack_rooms else []),
         "plot_fit": _within_limits(work, plot_limits, eps),
         "filled_toward_plot": [round(filled[0], 2), round(filled[1], 2)],
         "extent_before": [round(bbox_before[2] - bbox_before[0], 2),

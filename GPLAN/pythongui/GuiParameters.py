@@ -24,9 +24,17 @@ class DimParameters:
     __symmetric: bool
     __isOptimalEnabled: int
     __isRotationAllowed: int
-    def __init__(self, min_width, max_width, plot_height, plot_width,isOptimalEnabled,isRotationAllowed = 1,symmetric = False, min_height = [], max_height = [], min_ratio = [], max_ratio = [], min_area = [], max_area = []):
+    __enforce_plot: bool
+    def __init__(self, min_width, max_width, plot_height, plot_width,isOptimalEnabled,isRotationAllowed = 1,symmetric = False, min_height = [], max_height = [], min_ratio = [], max_ratio = [], min_area = [], max_area = [], enforce_plot = False):
         self.__isOptimalEnabled = isOptimalEnabled
         self.__isRotationAllowed = isRotationAllowed
+        # Hard plot-fit mode (door_connectivity API): plot_width/plot_height
+        # hold the caller's REAL footprint (not a slack rejection cap), the
+        # boundary pre-selector is skipped so the full topology pool is
+        # solved under the cap, and the catalogue is topped up with expanded
+        # plans only after every fitting one. Legacy callers (flag absent)
+        # keep the old behaviour end to end.
+        self.__enforce_plot = bool(enforce_plot)
         self.__min_width = min_width
         self.__max_width = max_width
         self.__plot_height = plot_height
@@ -58,9 +66,15 @@ class DimParameters:
 
     def get_isRotationAllowed(self):
         return self.__isRotationAllowed
-    
+
     def set_isRotationAllowed(self, value):
         self.__isRotationAllowed = value
+
+    def get_enforce_plot(self):
+        return self.__enforce_plot
+
+    def set_enforce_plot(self, value):
+        self.__enforce_plot = bool(value)
 
     def get_min_width(self):
         return self.__min_width

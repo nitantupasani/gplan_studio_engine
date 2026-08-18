@@ -1,5 +1,129 @@
 # Engine plan: architectural validity and topology diversity
 
+STATUS 2026-08-17c (third pass): two fixes for the released-spanning-cell
+leak (a 295.8 sqft Bedroom 2 led the catalogue beside a 195 sqft living
+room). (1) Client `AREA_ORDERING` gains `Bedroom (any) > Living Room = hard
+error` (plus Master > Living warning) - the equal-bedroom briefs had removed
+the Master anchor and with it the only bedroom-size ordering. (2)
+`solve_min_dim_fill` DROPS a topology whose only solution violates the
+tiered area quality gates (the ladder's ceiling release hands a spanning
+cell the residual); it re-enters through the labeled expanded top-up
+instead of leading page one. Measured: 2BHK 36x28 exact leader, 3 compliant
+door + 20 multi; 38x30 4/9 exact leaders; 3BHK 44x34 still 25/25/24; 4BHK
+unchanged; batteries all green. The full rule catalogue now lives in the
+designer repo: `docs/ARCHITECTURAL_RULES.md` - update it with any rule
+change.
+
+STATUS 2026-08-17b (same day, second pass): **EXACT PLOT FILL on top of the
+enforcement below** - user decision: the typed plot is not a cap but the SIZE;
+plans must BE 38x30, rooms grown by functionality. Pipeline, all local:
+- `solve_min_dim_fill` (handlers.py): per topology, bisects an interpolation
+  lambda between the band minimums and the ALLOCATOR's tier-aware per-room
+  targets (allocate() on the room names; living/bedrooms take the surplus, a
+  toilet stays a toilet), solved under a TIGHT solver slack (1.2-1.3 vs the
+  normal 2.5x SOLVER_UB_SLACK - at near-target minimums the normal slack
+  hands one arbitrary room a stretched column, measured 38.0x4.1 ft toilet)
+  with a tiered AREA quality gate per probe (habitable 1.5x / service 1.4x of
+  the allocator max) so spanning-cell topologies settle at a smaller lambda
+  instead of reaching the plot through a 2.2x bedroom. Uniform per-axis
+  factor fallback when the allocator does not know the program.
+- `rectangularize_output` accepts `repair_dimensions` output only while it
+  stays inside the enforced plot (the relax iterations push the OUTER walls
+  too: measured +0.19 to +4.3 ft bbox drift, the source of every eps breach).
+  `GAP_FILL_SLACK` 1.5 -> 1.4: the bounded gap fill lands rooms exactly AT
+  the bound and the client's wet/service hard error starts at 1.5x, so whole
+  exact-fill batches flipped non-compliant over a 0.1 sqft overshoot.
+- postprocess phase 5 is an EXACT fill (`_expand_to_target` rewritten):
+  legacy rectangle-preserving side growth, then per-room growth to the plot
+  lines headroom-descending, absorb rounds, and ceiling release in two capped
+  stages (uniform 1.25x, then per-class - social/private/kitchen 1.55x,
+  wet/service 1.45x, ALL under the client's gross-oversize hard lines; a
+  residual that cannot close within them stays open rather than shipping a
+  plan the validity gate would bury). Release-touched rooms are exempt from
+  the driver's no-regress gate and disclosed via over_ceiling_rooms + note.
+  Runs on notched plans too (only an interior hole skips it).
+- postprocess phase 6 `_shift_overcap_walls`: shared-wall SHIFTS off
+  over-ceiling rooms into neighbours that jointly span the wall and have
+  ceiling headroom - the only redistribution that reaches an INTERIOR room
+  (trims there open holes and roll back). Gapless and bbox-preserving by
+  construction, doors re-checked per shift.
+- Client: 5th sort key (unbuilt plot area within the fitting tier) so exact
+  plans lead near-fills.
+Bridge-measured (door path): 2BHK 36x28 exact 36.0x28.0 leaders, 5/11
+compliant; 2BHK 38x30 exact 38.0x30.0, 4 compliant+preferred leading (the
+brief stretches 13% past its tuned size - thin by design, multi-ptpg
+supplies 20 more compliant fits); **3BHK 44x34: 25/25 fit, 24 compliant,
+exact 44.0x34.0 leading**; 4BHK 54x40 fills to the program maximum (51x40)
+and centres - a plot beyond the program max is deliberately not force-
+filled; 20x18 infeasible keeps the labeled expand ladder. Engine batteries
+14/14, cardinal, 49/49; client 37/37. Residual: the expanded top-up pool
+(anisotropically scaled to the plot) is architecturally poor by nature and
+lives behind the client's validity gate; sizing it honestly is future work.
+
+STATUS 2026-08-17: **PLOT-FIT ENFORCEMENT (door_connectivity) IMPLEMENTED
+and bridge-verified**, local working tree only (not committed). Request opt-in
+`enforce_plot: true` + `strict_plot_width/strict_plot_height` (the REAL
+footprint; `plot_width/plot_height` keep their 1.6x-slack rejection-cap role
+for old clients, which also keeps old backends safe if a new client sends the
+fields). What it does, in order:
+- views.py / local_engine_bridge.py move the strict pair into
+  `dim_inputs.plot_width/plot_height` and set `dim_inputs.enforce_plot`;
+  `DimParameters` carries the flag (GuiParameters.py).
+- `handle_door_connectivity` skips the `dim_on_paths_bdy` boundary
+  pre-selector under the flag (it tunes the pool for a slack cap and
+  collapses it at a real one - the 2/14/30 batch collapse of 2026-07-24):
+  the FULL pool is solved under the real cap, exactly like the cardinal path.
+  `solve_min_dim` already carries the plot as a hard difference-constraint on
+  every ladder rung, so per-topology fit needed no solver change.
+- Batch composition: capped fits first (least waste, as before); then, when
+  fits < ENFORCE_PLOT_TOPUP_TARGET (30), a TOP-UP pass over the remaining
+  topologies - each first tried against the SWAPPED plot (a rotated fit, the
+  geometry swapped back, mirrors the rotation pass; pin-free requests only
+  since rotation is already disabled under cardinal constraints), then
+  uncapped + `scale_plot_dimension` toward the plot, appended after every
+  fitting plan with the message naming the fitted count. Zero fits =
+  unchanged legacy fallback ("plot was expanded", never an empty batch).
+- `scale_plot_dimension` now RETURNS the valid graphs in least-growth order
+  instead of reordering graph_list in place (the in-place surgery silently
+  assumed the valid set was a list prefix, which the top-up breaks).
+- Per-plan `response.Documents.plot_fit` disclosure (fits / plan extents /
+  overflow per axis, judged on FINAL post-postprocess geometry, 0.05 ft eps)
+  plus a message line "N of M floorplan(s) fit within the W x H ft plot".
+- Post-processing inherits the strict plot automatically: `postprocess_ui_
+  output` reads its default hard cap off `min_dim_inputs.get_plot_width()`,
+  which now holds the real footprint, so grow-toward-target stops at the
+  plot instead of at 1.6x of it. Residual: phase eps drift can leave a plan
+  ~0.1 ft over (measured +0.09 on 30 ft); the client absorbs it with a
+  sub-0.5% uniform shrink and a 0.15 ft fit epsilon.
+Bridge-measured (2BHK default brief, client harness scripts/measurePlotFit.ts
+in the designer repo): 38x30 went 7/20 plans fitting (first fit ranked #5) to
+13/21 fitting, all leading; 36x28 12/30 fit; 3BHK 44x34 18/30 fit; 4BHK 54x40
+21/24 fit in 3.1s - the "plot cap never satisfiable for 8+ rooms" note in the
+designer CLAUDE.md is obsolete under the flag. 20x18 (program cannot fit)
+returns the legacy expanded batch, 0/30 fit, labeled. Engine batteries after:
+test_max_dimensions 14/14, test_api_cardinal_constraints pass,
+test_api_postprocess 49/49; designer check:generators 37/37 (legacy-shape
+request verified byte-compatible via LEGACY=1 raw run).
+
+**E9 CANDIDATE, not implemented: plot-fit for multi-ptpg (the alternate-plans
+engine).** The endpoint is deliberately plot-blind (exact sizes, plot -1, a
+real plot as reject filter returns nothing) and the CLIENT now compensates
+(2026-08-17, designer repo): the parse rotates a plan 90 degrees when only
+its transpose fits (pin-free briefs only), then uniform-scales toward the
+unit capped at 1.35x, stamps `plan.plotFit`, and the catalogue sort ranks
+fitting plans first - 2BHK 38x30 went 5/23 fitting at first-fit #16 to 10/23
+with fits leading. What the ENGINE could add, in measured-impact order:
+(a) per-arrangement extent-aware candidate selection - `generate_floorplans`
+already produces multiple candidates per variant; rank them by fit to a
+passed plot (and door-width priority realisation, same machinery as E8)
+before truncating to `floorplans_per_variant`, so the catalogue draws
+fitting layouts instead of a size lottery; (b) a `size_tolerance` solve:
+allow each briefed size a bounded deviation (say +-10%) chosen per
+arrangement to bring the tiling extent inside the plot - a small LP over the
+row/column sums, reusing the min-dim constraint graphs; (c) reject-filter
+mode kept for exact briefs. (a) is cheap and composes with E8; (b) changes
+the endpoint's exact-sizes contract and needs its own product decision.
+
 STATUS 2026-08-06 (same day, second pass): **E1, E2a and E3 are IMPLEMENTED
 and bridge-verified**; E4 and E5 stay open. Engine batteries after the
 changes: test_multi_ptpg 104/104 (T3g added for E1's groups), test_api_postprocess
