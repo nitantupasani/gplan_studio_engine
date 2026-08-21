@@ -232,7 +232,7 @@ All optional; defaults in `postprocess.DEFAULT_OPTIONS`.
 | `max_passes` | `3` | trim+absorb rounds |
 | `min_door_overlap` | `2.0` | ft of shared wall every protected pair keeps |
 | `aspect` | `null` | global w/h band, e.g. `{"min": 0.5, "max": 1.5}`; intersected with each room type's own band |
-| `rules` | `null` | per-type overrides, e.g. `{"Bathroom": {"max_area": 60, "max_aspect": 1.8}}` (keys of `nbc_rules.NBC_RULES` entries) |
+| `rules` | `null` | per-type overrides, e.g. `{"Bathroom": {"max_area": 60, "max_aspect": 1.8}}` (keys of `nbc_rules.NBC_RULES` entries), merged over the base rule for known names. Since 2026-08-21 a COMPLETE entry (all of `room_class, min_area, max_area, min_width, min_height, max_width, max_height, max_aspect`) for a name the rulebook does not know DEFINES that room for the request (the client sends its authoritative rulebook, e.g. `{"Berging": {...}}`); a partial entry for an unknown name is dropped. Such rooms take part in no `AREA_ORDERING` hierarchy |
 | `tolerance` | `0.02` | fraction past a limit before the processor acts |
 | `max_bbox_growth` | `0.03` | per-axis footprint growth allowed to the repair phase |
 | `max_notch_ratio` | `0.25` | a trim+absorb round leaving notches beyond this fraction of the bounding box rolls back. Measured on a 7-room/12-plan live batch (2026-07-30): real trims open 0.08-0.24, median ~0.13, so the plan's suggested 0.12 would have reverted half the batch |
@@ -308,7 +308,21 @@ rank the catalogue. **Keep the two files in sync** - a change to one without
 the other makes the server repair to one standard and the client score to
 another. Room names are matched via `base_room_name` (strips numeric
 suffixes) plus an alias table ("Bath" -> Bathroom, "WC" -> Toilet, ...);
-unknown types get a fallback (aspect cap 3.0, span cap 18 ft, no area rule).
+unknown types get a fallback (aspect cap 3.0, span cap 18 ft, no area rule)
+unless the request's `rules` option carries a complete entry for them (see
+the options table), in which case that entry is the rule.
+
+`Corridor` is a known type since 2026-08-21 (service class, 3.5 ft least
+width, 28-90 sqft, span caps 6 x 18 ft, aspect cap 4.5, listed among the
+small rooms of `AREA_ORDERING`), mirroring the designer's entry of
+2026-08-06; before that the engine sized a corridor with the 6 ft fallback
+floor while the client asked for 3.5 ft. Deliberately NOT aliased: "hal",
+"gang", "entree", "overloop" (Dutch circulation; the Indian "hall" IS the
+living room, the Dutch "hal" never is). Known drift still open for the
+owner: the designer's `AREA_ORDERING` carries two bedroom-vs-living rows
+(`Bedroom <= Living Room` error, `Master Bedroom <= Living Room` warning)
+that this file does not, because adding them changes `plan_sanity_score`,
+which gates every post-process phase.
 
 ## Frontend companion notes (not yet wired)
 

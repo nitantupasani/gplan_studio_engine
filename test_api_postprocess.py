@@ -515,6 +515,63 @@ def t9_rectangle_and_plot():
           str(grown_report["extent_after"]))
 
 
+def t10_rules_unknown_and_corridor():
+    print("\nT10: complete `rules` entries define unknown rooms; Corridor is known")
+    from GPLAN.source.postprocessing.postprocess import build_bounds
+
+    # (i) A complete entry (every ROOM_FALLBACK key) for a name the rulebook
+    # does not know defines the room: the client sends the authoritative
+    # rulebook per request (location-based packs); "Berging" is Dutch storage.
+    full = {"room_class": "service", "min_area": 53.8, "max_area": 120,
+            "min_width": 5, "min_height": 7, "max_width": 10, "max_height": 14,
+            "max_aspect": 2.5}
+    b = build_bounds(["Berging"], {"rules": {"Berging": full}})[0]
+    got = nbc_rules.rule_for("Berging", {"Berging": full})
+    got_suffix = nbc_rules.rule_for("Berging 2", {"Berging": full})
+    check("T10 complete rules entry defines an unknown room",
+          b["known"] is True
+          and abs(b["minarea"] - full["min_area"]) < 1e-9
+          and abs(b["minw"] - min(full["min_width"], full["min_height"])) < 1e-9
+          and abs(b["maxarea"] - full["max_area"]) < 1e-9
+          and abs(b["cap_short"] - 10) < 1e-9 and abs(b["cap_long"] - 14) < 1e-9
+          and abs(b["ar_hi"] - 2.5) < 1e-9
+          and got == full and got is not full          # a copy, never the caller's dict
+          and got_suffix == full,                      # "Berging 2" -> "Berging"
+          "bounds=%s rule_for=%s suffix=%s" % (b, got, got_suffix))
+
+    # (ii) A partial entry for an unknown name is still dropped (half a rule
+    # is not a rule); a known name still MERGES a patch rather than replacing.
+    partial = {"max_area": 60}
+    bp = build_bounds(["Berging"], {"rules": {"Berging": partial}})[0]
+    toilet = nbc_rules.rule_for("Toilet", {"Toilet": {"max_area": 40}})
+    check("T10 partial entry for an unknown name is ignored",
+          nbc_rules.rule_for("Berging", {"Berging": partial}) is None
+          and bp["known"] is False and bp["minarea"] == 0.0
+          and abs(bp["minw"] - 6) < 1e-9                # ROOM_FALLBACK floor
+          and toilet["max_area"] == 40 and toilet["min_width"] == 3.5
+          and nbc_rules.rule_for("Berging", None) is None,
+          "bounds=%s toilet=%s" % (bp, toilet))
+
+    # (iii) Corridor is a known type mirroring nbcRules.ts (all seven numbers;
+    # there is no runnable diff against the TS file) and sits among the
+    # small rooms of AREA_ORDERING.
+    corridor = nbc_rules.rule_for("Corridor")
+    bc = build_bounds(["Corridor"], {})[0]
+    expected = {"room_class": "service", "min_area": 28, "max_area": 90,
+                "min_width": 3.5, "min_height": 7, "max_width": 6,
+                "max_height": 18, "max_aspect": 4.5}
+    ordered = any(small == "Corridor" and big == "Living Room"
+                  and sev == "error" and strict
+                  for small, big, sev, strict in nbc_rules.AREA_ORDERING)
+    check("T10 Corridor is a known type with the nbcRules.ts numbers",
+          corridor == expected and bc["known"] is True
+          and bc["minw"] == 3.5 and bc["minarea"] == 28
+          and bc["cap_short"] == 6 and bc["cap_long"] == 18
+          and nbc_rules.canonical_name("Corridor 2") == "Corridor"
+          and ordered,
+          "rule=%s bounds=%s ordered=%s" % (corridor, bc, ordered))
+
+
 def main():
     print("=" * 70)
     print("NBC post-processing tests")
@@ -528,6 +585,7 @@ def main():
     t7_aspect_floors()
     t8_rulebook_gaps()
     t9_rectangle_and_plot()
+    t10_rules_unknown_and_corridor()
     print("\n" + "=" * 70)
     print("%d passed, %d failed" % (len(PASSED), len(FAILED)))
     for name, detail in FAILED:

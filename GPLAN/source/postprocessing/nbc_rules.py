@@ -101,6 +101,19 @@ NBC_RULES = {
         "max_width": 7, "max_height": 14,
         "max_aspect": 3.5,
     },
+    # Corridor (2026-08-21, mirrors nbcRules.ts): circulation, not a
+    # destination. Tight area band so the gap fill cannot inflate it into a
+    # second hall; the loosest aspect cap in the table because a corridor IS
+    # a long thin room. Before this row the engine treated "Corridor" as an
+    # unknown type (6 ft fallback floor, no area rule) while the client sent
+    # a 3.5 ft floor, so the two rulebooks disagreed on every corridor brief.
+    "Corridor": {
+        "room_class": "service",
+        "min_area": 28, "max_area": 90,
+        "min_width": 3.5, "min_height": 7,
+        "max_width": 6, "max_height": 18,
+        "max_aspect": 4.5,
+    },
 }
 
 # Fallback for room types with no rule (user-created types). No min/max area
@@ -137,6 +150,13 @@ _NAME_ALIASES = {
     # NOTE: "terrace"/"deck" are deliberately NOT aliased to Balcony - a
     # terrace legitimately exceeds balcony ceilings, and aliasing it would
     # actively trim it. Unknown types get the permissive fallback instead.
+    # NOTE: "hal", "gang", "entree", "overloop" (Dutch entrance hall,
+    # passage, entry, landing) are deliberately NOT aliased either
+    # (2026-08-21). A Dutch "hal" is circulation and never a kamer, while the
+    # Indian "hall" above IS the living room: aliasing "hal" onto Living Room
+    # would size a 1 m passage as a 115 sqft social room. Never add "hal".
+    # Dutch packs name such rooms "Corridor" (3.5 ft least width) or send a
+    # complete `rules` entry for the label (see rule_for).
     "balcony": "Balcony",
 }
 
@@ -177,6 +197,18 @@ def rule_for(name, overrides=None):
     tuning); patched fields are merged over the base rule. Overrides are
     looked up by canonical rulebook key first, then by the literal base name,
     so {"Bathroom": ...} also applies to a room labelled "Bath 2".
+
+    A COMPLETE override entry for a name the rulebook does not know DEFINES
+    that room for the request (2026-08-21): the client sends the
+    authoritative rulebook per request (location-based rule packs, Dutch
+    first), and a room type this table has never heard of ("Berging") must
+    still get real floors and ceilings instead of the permissive fallback.
+    Complete means every key of ROOM_FALLBACK is present and not None
+    (room_class, min_area, max_area, min_width, min_height, max_width,
+    max_height, max_aspect); extra keys are kept and ignored. Such rooms
+    take part in no AREA_ORDERING hierarchy (it is keyed by canonical
+    names). A PARTIAL entry for an unknown name is dropped, as before: half a
+    rule is not a rule.
     """
     canonical = canonical_name(name)
     rule = NBC_RULES.get(canonical)
@@ -185,6 +217,11 @@ def rule_for(name, overrides=None):
         if patch:
             rule = dict(rule)
             rule.update({k: v for k, v in patch.items() if v is not None})
+    elif rule is None and overrides:
+        entry = overrides.get(canonical) or overrides.get(base_room_name(name))
+        if isinstance(entry, dict) and all(entry.get(k) is not None
+                                           for k in ROOM_FALLBACK):
+            rule = dict(entry)
     return rule
 
 
@@ -197,7 +234,7 @@ def rule_or_fallback(name, overrides=None):
 # strictly smaller; otherwise only exceeding is flagged.
 AREA_ORDERING = (
     [(small, big, "error", True)
-     for small in ("Toilet", "Bathroom", "Utility", "Store", "Pooja")
+     for small in ("Toilet", "Bathroom", "Utility", "Store", "Pooja", "Corridor")
      for big in HABITABLE_ROOMS]
     + [
         ("Balcony", "Living Room", "error", True),
