@@ -521,7 +521,8 @@ def t10_rules_unknown_and_corridor():
 
     # (i) A complete entry (every ROOM_FALLBACK key) for a name the rulebook
     # does not know defines the room: the client sends the authoritative
-    # rulebook per request (location-based packs); "Serre" is Dutch storage.
+    # rulebook per request (location-based packs); a "serre" (conservatory) is
+    # a room the rulebook and its aliases do not know.
     full = {"room_class": "service", "min_area": 53.8, "max_area": 120,
             "min_width": 5, "min_height": 7, "max_width": 10, "max_height": 14,
             "max_aspect": 2.5}
