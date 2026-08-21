@@ -233,6 +233,7 @@ All optional; defaults in `postprocess.DEFAULT_OPTIONS`.
 | `min_door_overlap` | `2.0` | ft of shared wall every protected pair keeps |
 | `aspect` | `null` | global w/h band, e.g. `{"min": 0.5, "max": 1.5}`; intersected with each room type's own band |
 | `rules` | `null` | per-type overrides, e.g. `{"Bathroom": {"max_area": 60, "max_aspect": 1.8}}` (keys of `nbc_rules.NBC_RULES` entries), merged over the base rule for known names. Since 2026-08-21 a COMPLETE entry (all of `room_class, min_area, max_area, min_width, min_height, max_width, max_height, max_aspect`) for a name the rulebook does not know DEFINES that room for the request (the client sends its authoritative rulebook, e.g. `{"Serre": {...}}`), matched by the literal base name ("Serre 2" -> "Serre"); numeric strings are coerced, and an entry whose numbers do not parse, are not positive spans, or put a minimum above a maximum is dropped exactly like a partial entry (never a 500). Such rooms take part in no `AREA_ORDERING` hierarchy |
+| `rulepack` | `null` | provenance id of the rulebook the client's `rules` came from (e.g. `"nl-bbl-2024"`); echoed in every per-plan report as `rulepack`, never interpreted (2026-08-21) |
 | `tolerance` | `0.02` | fraction past a limit before the processor acts |
 | `max_bbox_growth` | `0.03` | per-axis footprint growth allowed to the repair phase |
 | `max_notch_ratio` | `0.25` | a trim+absorb round leaving notches beyond this fraction of the bounding box rolls back. Measured on a 7-room/12-plan live batch (2026-07-30): real trims open 0.08-0.24, median ~0.13, so the plan's suggested 0.12 would have reverted half the batch |
@@ -278,6 +279,7 @@ legacy default sends `min: 3`) that must not be read as "force landscape".
   "trims_reverted_for_rectangle": true,          // phase 4 kept the rectangle instead
   "over_ceiling_rooms": ["Bathroom", "Kitchen"], // what that trade left over-cap
   "plot_fit": true,
+  "rulepack": "nl-bbl-2024",                     // echo of options.rulepack (null when absent)
   "filled_toward_plot": [2.0, 0.0],              // phase 5 gain per axis, ft
   "extent_before": [23.0, 30.0], "extent_after": [25.0, 30.0],
   "phase_notes": ["repair rolled back (would grow the plan footprint ...)"],

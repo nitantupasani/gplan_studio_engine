@@ -2030,7 +2030,10 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 try:
                     from GPLAN.source.dimensioning.allocator import allocate
                     _alloc = allocate([{"name": nm} for nm in ui.get_roomNames()],
-                                      plot_width, plot_height)
+                                      plot_width, plot_height,
+                                      overrides=getattr(ui.min_dim_inputs,
+                                                        "get_rules",
+                                                        lambda: None)())
                     fill_targets = [(room["target_width"], room["target_height"])
                                     for room in _alloc["rooms"]]
                     # Per-room AREA quality caps for the fill probes, tiered
@@ -2608,7 +2611,10 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                 try:
                     from GPLAN.source.dimensioning.allocator import allocate
                     _alloc = allocate([{"name": nm} for nm in ui.get_roomNames()],
-                                      plot_width, plot_height)
+                                      plot_width, plot_height,
+                                      overrides=getattr(ui.min_dim_inputs,
+                                                        "get_rules",
+                                                        lambda: None)())
                     fill_targets = [(room["target_width"], room["target_height"])
                                     for room in _alloc["rooms"]]
                     # Per-room AREA quality caps for the fill probes, tiered

@@ -62,6 +62,9 @@ DEFAULT_OPTIONS = {
     "aspect": None,          # optional {"min": 0.5, "max": 1.5} w/h band,
                              # intersected with each room type's own band
     "rules": None,           # optional {"Bathroom": {"max_area": 60, ...}}
+    "rulepack": None,        # optional provenance id of the rulebook the
+                             # client's `rules` came from ("nl-bbl-2024");
+                             # echoed in every report, never interpreted
     "tolerance": 0.02,       # fraction past a limit before we act (2%)
     "max_bbox_growth": 0.03, # in-tile repair may grow the plan extent by at
                              # most this fraction per axis, else it rolls back
@@ -1666,6 +1669,7 @@ def postprocess_plan(rects, names, options=None, edges=None,
                                if reclose_slack_used or trims_reverted
                                or fill_slack_rooms else []),
         "plot_fit": _within_limits(work, plot_limits, eps),
+        "rulepack": opts.get("rulepack"),
         "filled_toward_plot": [round(filled[0], 2), round(filled[1], 2)],
         "extent_before": [round(bbox_before[2] - bbox_before[0], 2),
                           round(bbox_before[3] - bbox_before[1], 2)],

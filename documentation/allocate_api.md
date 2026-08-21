@@ -98,7 +98,14 @@ product decision), and the response adds:
 ## The algorithm
 
 1. Canonicalise names via `nbc_rules.canonical_name`; unknown types get
-   `ROOM_FALLBACK` (no area rule, span/aspect caps only). `Corridor` is a
+   `ROOM_FALLBACK` (no area rule, span/aspect caps only), UNLESS the request
+   carries `rules` (since 2026-08-21, engine PR 2): the body's optional
+   `rules` is the same per-type patch as `postprocess_options.rules`
+   (`{"Store": {"min_area": 54, ...}}`), merged over the NBC rule for known
+   names and defining unknown names when complete; the enforce_plot fill
+   allocator inside generation reads the same dict off the request's
+   `postprocess_options.rules`. A pack floor above an NBC ceiling is
+   therefore kept in the envelope instead of being undone. `Corridor` is a
    KNOWN type since 2026-08-21 (the rulebook row mirrors the designer's):
    a room labelled Corridor now allocates as tier 3 with the 3.5 x 7 ft
    floors, 6 x 18 ft caps, 28-90 sqft band and 4.5 aspect (rect envelope

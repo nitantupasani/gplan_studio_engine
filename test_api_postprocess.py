@@ -606,6 +606,63 @@ def t11_dutch_aliases():
           "leaked=%s hall=%s" % (leaked, nbc_rules.canonical_name("hall")))
 
 
+def t12_rules_reach_allocator_and_rulepack_echo():
+    print("\nT12: per-request rules reach the allocator and the fill; rulepack echoes")
+    from GPLAN.source.dimensioning.allocator import allocate
+    from GPLAN.pythongui.GuiParameters import DimParameters
+    from GPLAN.source.postprocessing.postprocess import DEFAULT_OPTIONS
+
+    # (i) A pack floor above the NBC ceiling is honoured by the allocator:
+    # Store 54 sqft minimum (the Bbl berging) against the NBC 44 sqft cap.
+    rooms = [{"name": "Living Room"}, {"name": "Bedroom"}, {"name": "Kitchen"},
+             {"name": "Bathroom"}, {"name": "Store"}]
+    plain = allocate(rooms, 30, 30)
+    patched = allocate(rooms, 30, 30,
+                       overrides={"Store": {"min_area": 54, "max_area": 107,
+                                            "min_width": 6, "min_height": 8}})
+    p_store = [r for r in plain["rooms"] if r["name"] == "Store"][0]
+    s_store = [r for r in patched["rooms"] if r["name"] == "Store"][0]
+    check("T12 allocator honours a rules floor above the NBC ceiling",
+          p_store["min_area"] < 54 and s_store["min_area"] >= 54 - 1e-6
+          and s_store["max_area"] > p_store["max_area"]
+          and s_store["known"] is True,
+          "plain=%s patched=%s" % (p_store["min_area"], s_store["min_area"]))
+    # A complete entry for a name the rulebook does not know defines it here too.
+    serre = allocate([{"name": "Living Room"}, {"name": "Serre"}], 30, 30,
+                     overrides={"Serre": {"room_class": "service", "min_area": 40,
+                                          "max_area": 90, "min_width": 5,
+                                          "min_height": 7, "max_width": 9,
+                                          "max_height": 12, "max_aspect": 2.5}})
+    s_row = [r for r in serre["rooms"] if r["name"] == "Serre"][0]
+    check("T12 allocator defines an unknown room from a complete entry",
+          s_row["known"] is True and s_row["min_area"] >= 40 - 1e-6
+          and s_row["ar_hi"] == 2.5, str(s_row))
+    # Garbage overrides are ignored, never a crash.
+    check("T12 non-dict overrides are ignored",
+          allocate(rooms, 30, 30, overrides="nope")["rooms"][4]["min_area"]
+          == p_store["min_area"])
+
+    # (ii) The request's rules reach the enforce_plot fill through DimParameters.
+    dp = DimParameters(min_width=[10], max_width=[20], plot_height=30, plot_width=30,
+                       isOptimalEnabled=1, rules={"Store": {"min_area": 54}})
+    dp_none = DimParameters(min_width=[10], max_width=[20], plot_height=30,
+                            plot_width=30, isOptimalEnabled=1, rules={})
+    check("T12 DimParameters carries rules (empty dict -> None)",
+          dp.get_rules() == {"Store": {"min_area": 54}} and dp_none.get_rules() is None)
+
+    # (iii) rulepack is a known option and is echoed per plan, unchanged.
+    check("T12 rulepack is in DEFAULT_OPTIONS", "rulepack" in DEFAULT_OPTIONS)
+    req = build_request(post_process=True)
+    req["postprocess_options"] = {"rulepack": "nl-bbl-2024",
+                                  "rules": {"Bath": {"max_area": 40}}}
+    resp, _msg = Documents.get_floorplans(**req)
+    doc = resp.to_dict()["Documents"]
+    reports = [r for r in (doc.get("postprocess") or []) if r]
+    check("T12 every report echoes the rulepack id",
+          len(reports) > 0 and all(r.get("rulepack") == "nl-bbl-2024" for r in reports),
+          "reports=%d echoes=%s" % (len(reports), [r.get("rulepack") for r in reports][:3]))
+
+
 def main():
     print("=" * 70)
     print("NBC post-processing tests")
@@ -621,6 +678,7 @@ def main():
     t9_rectangle_and_plot()
     t10_rules_unknown_and_corridor()
     t11_dutch_aliases()
+    t12_rules_reach_allocator_and_rulepack_echo()
     print("\n" + "=" * 70)
     print("%d passed, %d failed" % (len(PASSED), len(FAILED)))
     for name, detail in FAILED:

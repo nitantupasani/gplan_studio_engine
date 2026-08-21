@@ -25,9 +25,13 @@ class DimParameters:
     __isOptimalEnabled: int
     __isRotationAllowed: int
     __enforce_plot: bool
-    def __init__(self, min_width, max_width, plot_height, plot_width,isOptimalEnabled,isRotationAllowed = 1,symmetric = False, min_height = [], max_height = [], min_ratio = [], max_ratio = [], min_area = [], max_area = [], enforce_plot = False):
+    __rules: dict
+    def __init__(self, min_width, max_width, plot_height, plot_width,isOptimalEnabled,isRotationAllowed = 1,symmetric = False, min_height = [], max_height = [], min_ratio = [], max_ratio = [], min_area = [], max_area = [], enforce_plot = False, rules = None):
         self.__isOptimalEnabled = isOptimalEnabled
         self.__isRotationAllowed = isRotationAllowed
+        # Per-request rulebook patch ({name: {field: value}}, the same dict as
+        # postprocess_options.rules); read by the enforce_plot fill allocator.
+        self.__rules = rules if isinstance(rules, dict) and rules else None
         # Hard plot-fit mode (door_connectivity API): plot_width/plot_height
         # hold the caller's REAL footprint (not a slack rejection cap), the
         # boundary pre-selector is skipped so the full topology pool is
@@ -69,6 +73,9 @@ class DimParameters:
 
     def set_isRotationAllowed(self, value):
         self.__isRotationAllowed = value
+
+    def get_rules(self):
+        return self.__rules
 
     def get_enforce_plot(self):
         return self.__enforce_plot

@@ -144,14 +144,25 @@ def _override(value):
 
 
 def allocate(rooms, plot_width, plot_height,
-             wall_allowance_ft=None, tier_share=None):
+             wall_allowance_ft=None, tier_share=None, overrides=None):
     """The allocator. `rooms` = [{"name", optional per-room clear-feet
     overrides min_width/min_height/max_width/max_height}, ...].
+
+    `overrides` (2026-08-21, location rules engine PR 2) is the request's
+    per-type rulebook patch, the same {name: {field: value}} dict the
+    post-processor takes as `postprocess_options.rules`: patched fields are
+    merged over the NBC rule for a known name, a COMPLETE entry defines an
+    unknown name (nbc_rules.rule_for). Before this the allocator was
+    rules-blind, so a pack whose floor sits above an NBC ceiling (a 5 m2
+    berging against the 44 sqft Store cap, a 20 m2 woonkamer) was undone on
+    the allocation envelope the client copies into its request.
 
     Returns the allocation dict (see documentation/allocate_api.md).
     Raises ValueError with every problem joined by "; " - a user maximum
     below the NBC minimum is an error, not a silent clamp.
     """
+    if overrides is not None and not isinstance(overrides, dict):
+        overrides = None
     problems = []
     try:
         plot_w = float(plot_width)
@@ -193,8 +204,8 @@ def allocate(rooms, plot_width, plot_height,
             problems.append("room %d has no name" % idx)
             name = "Room %d" % idx
         canonical = nbc_rules.canonical_name(name)
-        rule = nbc_rules.rule_or_fallback(name)
-        is_known = nbc_rules.rule_for(name) is not None
+        rule = nbc_rules.rule_or_fallback(name, overrides)
+        is_known = nbc_rules.rule_for(name, overrides) is not None
         (lw, lh, la), (hw, hh, ha) = rect_bounds(rule, allowance)
 
         umw = _override(room.get("min_width"))

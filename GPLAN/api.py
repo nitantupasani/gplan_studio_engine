@@ -1399,7 +1399,7 @@ class Documents:
             # min_ratio/max_ratio ride along for the post-solve band
             # (_room_bounds / repair_dimensions / post-processing). The min-dim
             # SOLVER still ignores them; see minimum_dimensioning.input_constraints.
-            dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'],max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], min_ratio=dim_inputs.get('min_ratio', []), max_ratio=dim_inputs.get('max_ratio', []), min_area=dim_inputs.get('min_area', []), max_area=dim_inputs.get('max_area', []), plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], isOptimalEnabled=dim_inputs['optimal_floorplan'],isRotationAllowed = dim_inputs['rotation_enabled'], enforce_plot=dim_inputs.get('enforce_plot', False))
+            dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'],max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], min_ratio=dim_inputs.get('min_ratio', []), max_ratio=dim_inputs.get('max_ratio', []), min_area=dim_inputs.get('min_area', []), max_area=dim_inputs.get('max_area', []), plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], isOptimalEnabled=dim_inputs['optimal_floorplan'],isRotationAllowed = dim_inputs['rotation_enabled'], enforce_plot=dim_inputs.get('enforce_plot', False), rules=(postprocess_options or {}).get("rules") if isinstance(postprocess_options, dict) else None)
         elif dimensioned:
             dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'], max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], min_ratio=dim_inputs['min_ratio'], max_ratio=dim_inputs['max_ratio'], plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], symmetric=dim_inputs['symmetric'], isOptimalEnabled=dim_inputs['optimal_floorplan'])
         ui = GuiParameters(graph=graph).set_isDimensioned(dimensioned).set_isDimensionedCirculation(
@@ -1826,7 +1826,10 @@ class Documents:
                       min_width/min_height/max_width/max_height}, ...],
            "plot_width": 36, "plot_height": 28,
            "wall_allowance_ft": 0.4,          # optional
-           "tier_share": [1.0, 1.0, 1.0]}     # optional
+           "tier_share": [1.0, 1.0, 1.0],     # optional
+           "rules": {"Store": {"min_area": 54, ...}}}  # optional per-type
+                                              # rulebook patch, same shape as
+                                              # postprocess_options.rules
 
         Returns (response_dict, message); response_dict is
         {"allocation": {...}} - see source/dimensioning/allocator.allocate.
@@ -1842,6 +1845,7 @@ class Documents:
             data.get("plot_height"),
             wall_allowance_ft=data.get("wall_allowance_ft"),
             tier_share=data.get("tier_share"),
+            overrides=data.get("rules"),
         )
         if allocation["fits"]:
             message = ("Allocated %d rooms across %s sqft;"
