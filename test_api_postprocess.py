@@ -544,13 +544,24 @@ def t10_rules_unknown_and_corridor():
     partial = {"max_area": 60}
     bp = build_bounds(["Berging"], {"rules": {"Berging": partial}})[0]
     toilet = nbc_rules.rule_for("Toilet", {"Toilet": {"max_area": 40}})
+    # Malformed "complete" entries are dropped too, never handed to the
+    # arithmetic: numeric strings are coerced, anything else is not a rule.
+    coerced = nbc_rules.rule_for("Berging", {"Berging": dict(full, min_area="53.8", max_width="10")})
+    bad = [dict(full, max_aspect=0), dict(full, min_width="wide"),
+           dict(full, min_area=200), dict(full, max_height=-1),
+           dict(full, room_class=3), dict(full, min_width=None)]
     check("T10 partial entry for an unknown name is ignored",
           nbc_rules.rule_for("Berging", {"Berging": partial}) is None
           and bp["known"] is False and bp["minarea"] == 0.0
           and abs(bp["minw"] - 6) < 1e-9                # ROOM_FALLBACK floor
           and toilet["max_area"] == 40 and toilet["min_width"] == 3.5
-          and nbc_rules.rule_for("Berging", None) is None,
-          "bounds=%s toilet=%s" % (bp, toilet))
+          and nbc_rules.rule_for("Berging", None) is None
+          and coerced is not None and coerced["min_area"] == 53.8
+          and coerced["max_width"] == 10.0
+          and all(nbc_rules.rule_for("Berging", {"Berging": b}) is None for b in bad)
+          and all(build_bounds(["Berging"], {"rules": {"Berging": b}})[0]["known"] is False
+                  for b in bad),
+          "bounds=%s toilet=%s coerced=%s" % (bp, toilet, coerced))
 
     # (iii) Corridor is a known type mirroring nbcRules.ts (all seven numbers;
     # there is no runnable diff against the TS file) and sits among the
@@ -568,6 +579,7 @@ def t10_rules_unknown_and_corridor():
           and bc["minw"] == 3.5 and bc["minarea"] == 28
           and bc["cap_short"] == 6 and bc["cap_long"] == 18
           and nbc_rules.canonical_name("Corridor 2") == "Corridor"
+          and nbc_rules.canonical_name("corridor") == "Corridor"
           and ordered,
           "rule=%s bounds=%s ordered=%s" % (corridor, bc, ordered))
 

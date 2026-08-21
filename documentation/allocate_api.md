@@ -98,7 +98,16 @@ product decision), and the response adds:
 ## The algorithm
 
 1. Canonicalise names via `nbc_rules.canonical_name`; unknown types get
-   `ROOM_FALLBACK` (no area rule, span/aspect caps only).
+   `ROOM_FALLBACK` (no area rule, span/aspect caps only). `Corridor` is a
+   KNOWN type since 2026-08-21 (the rulebook row mirrors the designer's):
+   a room labelled Corridor now allocates as tier 3 with the 3.5 x 7 ft
+   floors, 6 x 18 ft caps, 28-90 sqft band and 4.5 aspect (rect envelope
+   roughly 3.9 x 8.4 .. 6.4 x 15.4 ft with the wall allowance) instead of
+   the 6 x 8 .. 18 x 18 fallback, `known` reads true, and the `enforce_plot`
+   fill caps read the same row. The allocator still takes no per-request
+   `rules` (that is engine PR 2); the designer's measured corridor verdict
+   (2026-08-06, taken against the fallback-era envelope) is to be
+   re-measured on the bridge.
 2. `rect_bounds(rule)`: clear NBC bounds -> rectangle bounds. The area floor
    beats the shape floor (a 3.5x5 Toilet backfills its height to 18/3.5) and
    the area cap beats the shape cap (a 22x24 Living Room caps its height at

@@ -158,6 +158,7 @@ _NAME_ALIASES = {
     # Dutch packs name such rooms "Corridor" (3.5 ft least width) or send a
     # complete `rules` entry for the label (see rule_for).
     "balcony": "Balcony",
+    "corridor": "Corridor",
 }
 
 
@@ -205,10 +206,16 @@ def rule_for(name, overrides=None):
     still get real floors and ceilings instead of the permissive fallback.
     Complete means every key of ROOM_FALLBACK is present and not None
     (room_class, min_area, max_area, min_width, min_height, max_width,
-    max_height, max_aspect); extra keys are kept and ignored. Such rooms
-    take part in no AREA_ORDERING hierarchy (it is keyed by canonical
-    names). A PARTIAL entry for an unknown name is dropped, as before: half a
-    rule is not a rule.
+    max_height, max_aspect), the numbers parse as floats (numeric strings
+    are coerced), spans and max_aspect are positive, areas non-negative and
+    min <= max; extra keys are kept and ignored. Anything else is dropped
+    exactly like a partial entry, so a malformed entry can never reach the
+    arithmetic (a 500 on the postprocess view). The entry is matched by the
+    literal base name only ("Berging 2" -> "Berging"; no alias or dash/digit
+    tolerance for names the rulebook does not know). Such rooms take part in
+    no AREA_ORDERING hierarchy (it is keyed by canonical names). A PARTIAL
+    entry for an unknown name is dropped, as before: half a rule is not a
+    rule.
     """
     canonical = canonical_name(name)
     rule = NBC_RULES.get(canonical)
@@ -219,10 +226,51 @@ def rule_for(name, overrides=None):
             rule.update({k: v for k, v in patch.items() if v is not None})
     elif rule is None and overrides:
         entry = overrides.get(canonical) or overrides.get(base_room_name(name))
-        if isinstance(entry, dict) and all(entry.get(k) is not None
-                                           for k in ROOM_FALLBACK):
-            rule = dict(entry)
+        rule = _complete_entry(entry)
     return rule
+
+
+_NUMERIC_RULE_KEYS = ("min_area", "max_area", "min_width", "min_height",
+                      "max_width", "max_height", "max_aspect")
+
+
+def _complete_entry(entry):
+    """A per-request entry that DEFINES an unknown room, normalised, or None.
+
+    Every ROOM_FALLBACK key present and not None; the seven numbers coerced
+    with float() and finite (an infinite max_* is allowed, it means "no
+    cap"); spans and max_aspect > 0; areas >= 0; min_area <= max_area and the
+    smaller minimum span <= the larger maximum span; room_class a string.
+    Returns a new dict (never the caller's) or None when any of that fails.
+    """
+    if not isinstance(entry, dict):
+        return None
+    if any(entry.get(k) is None for k in ROOM_FALLBACK):
+        return None
+    if not isinstance(entry.get("room_class"), str):
+        return None
+    clean = dict(entry)
+    for key in _NUMERIC_RULE_KEYS:
+        try:
+            value = float(entry[key])
+        except (TypeError, ValueError):
+            return None
+        if value != value or value == -_INF:
+            return None
+        if value == _INF and not key.startswith("max_"):
+            return None
+        clean[key] = value
+    if min(clean["min_width"], clean["min_height"], clean["max_width"],
+           clean["max_height"], clean["max_aspect"]) <= 0:
+        return None
+    if clean["min_area"] < 0 or clean["max_area"] < 0:
+        return None
+    if clean["min_area"] > clean["max_area"]:
+        return None
+    if (min(clean["min_width"], clean["min_height"])
+            > max(clean["max_width"], clean["max_height"])):
+        return None
+    return clean
 
 
 def rule_or_fallback(name, overrides=None):
