@@ -159,6 +159,27 @@ _NAME_ALIASES = {
     # complete `rules` entry for the label (see rule_for).
     "balcony": "Balcony",
     "corridor": "Corridor",
+    # Dutch free-text tokens (2026-08-21, location rules E). The designer
+    # sends canonical English keys; these catch what a Dutch user or an MCP
+    # agent types. Deliberately absent: "hal", "gang", "entree", "overloop",
+    # "vestibule" (circulation; see the note above), "kamer" alone
+    # (ambiguous), "buitenruimte", "terras", "dakterras", "loggia", "tuin"
+    # (aliasing them to Balcony would trim them to the balcony cap), "zolder",
+    # "kelder", "meterkast" (not rooms in the tiling), "woonkeuken" (an eat-in
+    # kitchen is Living or Kitchen by the user's choice, never guessed).
+    "woonkamer": "Living Room", "huiskamer": "Living Room", "zitkamer": "Living Room",
+    "eetkamer": "Dining", "eethoek": "Dining",
+    "keuken": "Kitchen", "open keuken": "Kitchen", "gesloten keuken": "Kitchen",
+    "hoofdslaapkamer": "Master Bedroom", "ouderslaapkamer": "Master Bedroom",
+    "slaapkamer": "Bedroom", "kinderkamer": "Bedroom", "logeerkamer": "Bedroom",
+    "studeerkamer": "Study", "werkkamer": "Study", "kantoor": "Study",
+    "badkamer": "Bathroom", "badruimte": "Bathroom", "doucheruimte": "Bathroom",
+    "douche": "Bathroom",
+    "toiletruimte": "Toilet",
+    "bijkeuken": "Utility", "wasruimte": "Utility", "washok": "Utility",
+    "berging": "Store", "bergruimte": "Store", "bergkast": "Store",
+    "inpandige berging": "Store",
+    "balkon": "Balcony",
 }
 
 
@@ -202,7 +223,7 @@ def rule_for(name, overrides=None):
     A COMPLETE override entry for a name the rulebook does not know DEFINES
     that room for the request (2026-08-21): the client sends the
     authoritative rulebook per request (location-based rule packs, Dutch
-    first), and a room type this table has never heard of ("Berging") must
+    first), and a room type this table has never heard of ("Serre") must
     still get real floors and ceilings instead of the permissive fallback.
     Complete means every key of ROOM_FALLBACK is present and not None
     (room_class, min_area, max_area, min_width, min_height, max_width,
@@ -211,7 +232,7 @@ def rule_for(name, overrides=None):
     min <= max; extra keys are kept and ignored. Anything else is dropped
     exactly like a partial entry, so a malformed entry can never reach the
     arithmetic (a 500 on the postprocess view). The entry is matched by the
-    literal base name only ("Berging 2" -> "Berging"; no alias or dash/digit
+    literal base name only ("Serre 2" -> "Serre"; no alias or dash/digit
     tolerance for names the rulebook does not know). Such rooms take part in
     no AREA_ORDERING hierarchy (it is keyed by canonical names). A PARTIAL
     entry for an unknown name is dropped, as before: half a rule is not a

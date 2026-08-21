@@ -521,13 +521,13 @@ def t10_rules_unknown_and_corridor():
 
     # (i) A complete entry (every ROOM_FALLBACK key) for a name the rulebook
     # does not know defines the room: the client sends the authoritative
-    # rulebook per request (location-based packs); "Berging" is Dutch storage.
+    # rulebook per request (location-based packs); "Serre" is Dutch storage.
     full = {"room_class": "service", "min_area": 53.8, "max_area": 120,
             "min_width": 5, "min_height": 7, "max_width": 10, "max_height": 14,
             "max_aspect": 2.5}
-    b = build_bounds(["Berging"], {"rules": {"Berging": full}})[0]
-    got = nbc_rules.rule_for("Berging", {"Berging": full})
-    got_suffix = nbc_rules.rule_for("Berging 2", {"Berging": full})
+    b = build_bounds(["Serre"], {"rules": {"Serre": full}})[0]
+    got = nbc_rules.rule_for("Serre", {"Serre": full})
+    got_suffix = nbc_rules.rule_for("Serre 2", {"Serre": full})
     check("T10 complete rules entry defines an unknown room",
           b["known"] is True
           and abs(b["minarea"] - full["min_area"]) < 1e-9
@@ -536,30 +536,30 @@ def t10_rules_unknown_and_corridor():
           and abs(b["cap_short"] - 10) < 1e-9 and abs(b["cap_long"] - 14) < 1e-9
           and abs(b["ar_hi"] - 2.5) < 1e-9
           and got == full and got is not full          # a copy, never the caller's dict
-          and got_suffix == full,                      # "Berging 2" -> "Berging"
+          and got_suffix == full,                      # "Serre 2" -> "Serre"
           "bounds=%s rule_for=%s suffix=%s" % (b, got, got_suffix))
 
     # (ii) A partial entry for an unknown name is still dropped (half a rule
     # is not a rule); a known name still MERGES a patch rather than replacing.
     partial = {"max_area": 60}
-    bp = build_bounds(["Berging"], {"rules": {"Berging": partial}})[0]
+    bp = build_bounds(["Serre"], {"rules": {"Serre": partial}})[0]
     toilet = nbc_rules.rule_for("Toilet", {"Toilet": {"max_area": 40}})
     # Malformed "complete" entries are dropped too, never handed to the
     # arithmetic: numeric strings are coerced, anything else is not a rule.
-    coerced = nbc_rules.rule_for("Berging", {"Berging": dict(full, min_area="53.8", max_width="10")})
+    coerced = nbc_rules.rule_for("Serre", {"Serre": dict(full, min_area="53.8", max_width="10")})
     bad = [dict(full, max_aspect=0), dict(full, min_width="wide"),
            dict(full, min_area=200), dict(full, max_height=-1),
            dict(full, room_class=3), dict(full, min_width=None)]
     check("T10 partial entry for an unknown name is ignored",
-          nbc_rules.rule_for("Berging", {"Berging": partial}) is None
+          nbc_rules.rule_for("Serre", {"Serre": partial}) is None
           and bp["known"] is False and bp["minarea"] == 0.0
           and abs(bp["minw"] - 6) < 1e-9                # ROOM_FALLBACK floor
           and toilet["max_area"] == 40 and toilet["min_width"] == 3.5
-          and nbc_rules.rule_for("Berging", None) is None
+          and nbc_rules.rule_for("Serre", None) is None
           and coerced is not None and coerced["min_area"] == 53.8
           and coerced["max_width"] == 10.0
-          and all(nbc_rules.rule_for("Berging", {"Berging": b}) is None for b in bad)
-          and all(build_bounds(["Berging"], {"rules": {"Berging": b}})[0]["known"] is False
+          and all(nbc_rules.rule_for("Serre", {"Serre": b}) is None for b in bad)
+          and all(build_bounds(["Serre"], {"rules": {"Serre": b}})[0]["known"] is False
                   for b in bad),
           "bounds=%s toilet=%s coerced=%s" % (bp, toilet, coerced))
 
@@ -584,6 +584,27 @@ def t10_rules_unknown_and_corridor():
           "rule=%s bounds=%s ordered=%s" % (corridor, bc, ordered))
 
 
+def t11_dutch_aliases():
+    print("\nT11: Dutch free-text room names resolve; circulation and outdoor do not")
+    resolved = {
+        "woonkamer": "Living Room", "Slaapkamer 2": "Bedroom", "keuken": "Kitchen",
+        "badkamer": "Bathroom", "toiletruimte": "Toilet", "bijkeuken": "Utility",
+        "berging": "Store", "balkon": "Balcony", "studeerkamer": "Study",
+        "eetkamer": "Dining", "hoofdslaapkamer": "Master Bedroom", "washok": "Utility",
+    }
+    wrong = [(k, nbc_rules.canonical_name(k)) for k, v in resolved.items()
+             if nbc_rules.canonical_name(k) != v]
+    check("T11 Dutch names resolve to their canonical rooms", not wrong, str(wrong))
+    # A Dutch "hal" is an entrance hall, never the living room; "kamer" alone
+    # is ambiguous; outdoor spaces are not balconies. All keep the fallback.
+    unaliased = ["hal", "gang", "entree", "overloop", "kamer", "buitenruimte",
+                 "terras", "tuin", "loggia", "zolder", "meterkast", "woonkeuken"]
+    leaked = [n for n in unaliased if nbc_rules.rule_for(n) is not None]
+    check("T11 hal/gang/kamer/buitenruimte/terras stay unaliased (fallback)",
+          not leaked and nbc_rules.canonical_name("hall") == "Living Room",
+          "leaked=%s hall=%s" % (leaked, nbc_rules.canonical_name("hall")))
+
+
 def main():
     print("=" * 70)
     print("NBC post-processing tests")
@@ -598,6 +619,7 @@ def main():
     t8_rulebook_gaps()
     t9_rectangle_and_plot()
     t10_rules_unknown_and_corridor()
+    t11_dutch_aliases()
     print("\n" + "=" * 70)
     print("%d passed, %d failed" % (len(PASSED), len(FAILED)))
     for name, detail in FAILED:
