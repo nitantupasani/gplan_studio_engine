@@ -261,6 +261,56 @@ def _map_point(pt, old, new):
             ny + (pt[1] - oy) * (nh / oh if oh else 1)]
 
 
+
+def _hpwl_geom(rects, nets):
+    """Geometric HPWL of a rect dict {i: [x, y, w, h]} under the installed net model."""
+    total = 0.0
+    for net in nets:
+        xs, ys = [], []
+        for pin in net.get("pins", []):
+            i = int(pin)
+            if i in rects:
+                x, y, w, h = rects[i]
+                xs.append(x + w / 2.0)
+                ys.append(y + h / 2.0)
+        xs += [float(v) for v in (net.get("pads_x") or [])]
+        ys += [float(v) for v in (net.get("pads_y") or [])]
+        wgt = float(net.get("weight", 1))
+        if len(xs) > 1:
+            total += wgt * (max(xs) - min(xs))
+        if len(ys) > 1:
+            total += wgt * (max(ys) - min(ys))
+    return total
+
+
+def _valid_tiling(rects, W_out, H_out, seam_edges):
+    """No overlaps, area matches the outline, every original seam survives."""
+    items = list(rects.items())
+    area = 0.0
+    for _, (x, y, w, h) in items:
+        if w <= 0 or h <= 0:
+            return False
+        area += w * h
+    if abs(area - W_out * H_out) > 1e-3 * W_out * H_out:
+        return False
+    for i in range(len(items)):
+        ai, (ax, ay, aw, ah) = items[i]
+        for j in range(i + 1, len(items)):
+            bj, (bx, by, bw, bh) = items[j]
+            if ax < bx + bw - _EPS and bx < ax + aw - _EPS and ay < by + bh - _EPS and by < ay + ah - _EPS:
+                return False
+    for (a, b, kind) in seam_edges:
+        ax, ay, aw, ah = rects[a]
+        bx, by, bw, bh = rects[b]
+        if kind == "h":
+            if abs(ax + aw - bx) > _EPS or min(ay + ah, by + bh) - max(ay, by) <= _EPS:
+                return False
+        else:
+            if abs(ay + ah - by) > _EPS or min(ax + aw, bx + bw) - max(ax, bx) <= _EPS:
+                return False
+    return True
+
+
 def refine_response(response, nets, bounds_by_name=None):
     """Re-dimension every rectangular floorplan in a serialized response for
     minimum HPWL at its own outline. Mutates the response; returns how many
@@ -314,6 +364,23 @@ def refine_response(response, nets, bounds_by_name=None):
                     x = sum(width[j] for j in chains_x[i])
                     y = sum(height[j] for j in chains_y[i])
                     new_rects[i] = [float(x), float(y), float(width[i]), float(height[i])]
+
+                # accept gate (critique 2026-08-24 finding 5): the refined plan
+                # must be a valid tiling of the same topology AND strictly
+                # shorter; otherwise the engine's plan stands untouched.
+                seam_edges = []
+                for a in range(n):
+                    for b in range(n):
+                        if a != b and hor[a + 1][b + 1]:
+                            seam_edges.append((a, b, "h"))
+                        if a != b and ver[a + 1][b + 1]:
+                            seam_edges.append((a, b, "v"))
+                if not _valid_tiling(new_rects, W_out, H_out, seam_edges):
+                    continue
+                old_hpwl = _hpwl_geom(rects, nets)
+                new_hpwl = _hpwl_geom(new_rects, nets)
+                if new_hpwl >= old_hpwl - 1e-9:
+                    continue
                 for i, room in enumerate(plan):
                     old, new = rects[i], new_rects[i]
                     room["circular_coordinates"] = [
