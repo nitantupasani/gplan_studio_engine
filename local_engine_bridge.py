@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from flask import Flask, request, jsonify
 from GPLAN.api import Documents, FLOORPLAN_LIMIT
 from GPLAN.source.inputgraph import InputGraph
+from GPLAN.source.dimensioning import hpwl_dimensioning
 
 app = Flask(__name__)
 
@@ -236,13 +237,34 @@ def generate_multi_ptpg():
 def generate(shape):
     task_id = str(uuid.uuid4())
     try:
-        kwargs = _prepare(request.get_json(force=True), shape)
+        body = request.get_json(force=True)
+        kwargs = _prepare(body, shape)
+        # Opt-in HPWL dimensioning: a request may carry "nets"
+        # ([{weight, pins, pads_x, pads_y}]); installed for this solve only.
+        hpwl_dimensioning.set_nets(body.get("nets"))
         print(f"[bridge] {shape}: nodes={len(kwargs['nodes_list'])} "
               f"edges={len(kwargs['edges_list'])} "
               f"cardinal={kwargs['cardinal_constraints']}")
-        floorplans, message = Documents.get_floorplans(**kwargs)
+        try:
+            floorplans, message = Documents.get_floorplans(**kwargs)
+        finally:
+            hpwl_dimensioning.set_nets(None)
+        response_dict = floorplans.to_dict()
+        if body.get("nets"):
+            bounds_by_name = {}
+            for node in body.get("nodes", []):
+                try:
+                    bounds_by_name[node.get("label")] = (
+                        float(node["width"]["min"]), float(node["width"]["max"]),
+                        float(node["height"]["min"]), float(node["height"]["max"]))
+                except (KeyError, TypeError):
+                    continue
+            refined = hpwl_dimensioning.refine_response(
+                response_dict, body["nets"], bounds_by_name)
+            print(f"[bridge] {shape}: HPWL refinement on {refined} plan(s)")
+            message += f" HPWL refinement applied to {refined} floorplan(s)."
         result = {"status": "SUCCESS", "message": message,
-                  "response": floorplans.to_dict()}
+                  "response": response_dict}
         print(f"[bridge] {shape}: done - "
               f"{len(result['response']['Documents']['floorPlans'])} floorplans; {message!r}")
     except Exception as exc:

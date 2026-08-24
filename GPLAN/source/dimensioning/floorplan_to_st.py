@@ -13,6 +13,7 @@ This module contains the following functions stored in seperate files:
 import numpy as np
 from .solve_linear import solve_linear
 from .convert_adj_equ_sym import convert_adj_equ_sym
+from . import hpwl_dimensioning
 
 
 def floorplan_to_st(E, min_width, min_height, max_width, max_height, ver_list, hor_list, min_ar, max_ar, plot_width, plot_height):
@@ -42,6 +43,9 @@ def floorplan_to_st(E, min_width, min_height, max_width, max_height, ver_list, h
     rows = len(E)
     columns = len(E[0])
     E = np.array(E)
+    # Pre-shift copy for the opt-in HPWL objective (room ids as the caller
+    # sent them); taken before the in-place +1 below.
+    E_orig = np.array(E)
     # E=[[5,5,5,5,6],[3,3,4,4,4],[0,1,1,2,2]]
     # E = np.array(E)
     rows = len(E)
@@ -105,7 +109,18 @@ def floorplan_to_st(E, min_width, min_height, max_width, max_height, ver_list, h
     [f_HOR, A_HOR, Aeq_HOR, Beq_HOR] = convert_adj_equ_sym(
         HOR, hor_list, plot_height)
 
-    [width, height, status] = solve_linear(f_VER, A_VER, Aeq_VER, Beq_VER, f_HOR, A_HOR,
+    # Opt-in HPWL objective (see hpwl_dimensioning.py): active only when the
+    # caller installed nets for this request; otherwise, and on any failure,
+    # the historical path below runs unchanged.
+    result = None
+    if hpwl_dimensioning.active():
+        result = hpwl_dimensioning.solve_linear_hpwl(
+            E_orig, f_VER, A_VER, Aeq_VER, Beq_VER, f_HOR, A_HOR, Aeq_HOR, Beq_HOR,
+            min_width, max_width, min_height, max_height, min_ar, max_ar)
+    if result is not None:
+        [width, height, status] = result
+    else:
+        [width, height, status] = solve_linear(f_VER, A_VER, Aeq_VER, Beq_VER, f_HOR, A_HOR,
                                            Aeq_HOR, Beq_HOR, min_width, max_width, min_height, max_height, min_ar, max_ar)
 
     width = np.round(width, 3)
