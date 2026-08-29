@@ -34,10 +34,18 @@ Three phases, all pure geometry on (x0, y0, x1, y1) rects in feet, y-down:
    its rooms have inside their own ceilings - so the outline stays a rectangle
    and no room passes its cap. `plot_width`/`plot_height` are a HARD cap on
    every phase: no phase may push the plan outside the plot.
+   With `exact_fill` (the caller ENFORCED the plot) the release does not stop
+   at those ceilings: it climbs a class-ordered ladder - social, then kitchen,
+   then private, and wet/service only when nothing else can reach the void -
+   until the outline closes on the plot exactly. `exact_fill` also forces the
+   rectangle preference of phase 4 on, because a trim nobody can reabsorb is
+   the very empty notch the rule ranks below an oversized room.
 
 Priority order, highest first: plot cap, room floors + doors + no overlap/hole,
 rectangular outline, NBC ceilings. Phases 4 and 5 are what makes the outline
-outrank the ceilings, and both report exactly what they traded.
+outrank the ceilings, and both report exactly what they traded. Under
+`exact_fill` the plot moves above the ceilings too: FILLING it exactly outranks
+every NBC maximum, and every release that trade needs is named in the report.
 
 Every phase is validated (no overlaps, no interior holes, door overlaps kept);
 a phase that breaks an invariant is rolled back for that plan and reported.
@@ -84,6 +92,14 @@ DEFAULT_OPTIONS = {
     "prefer_rectangle": True,# phase 4: reclose the outline of a plan that was
                              # gapless before post-processing
     "fill_target": True,     # phase 5: grow a gapless plan to the target
+    "exact_fill": False,     # phase 5 escalation: the caller ENFORCED this plot
+                             # (enforce_plot), so filling it exactly outranks
+                             # the NBC room maxima and the release ladder keeps
+                             # going - raised, then uncapped, by room class -
+                             # until the outline closes on the plot. Set
+                             # automatically from the request's enforce_plot on
+                             # the generation path; False leaves the
+                             # class-capped behaviour byte-for-byte unchanged.
     "notch_close_slack": 0.25,
                              # phase 4 only: how far past its span/area ceiling
                              # a room may go to close the outline. The aspect
@@ -339,6 +355,15 @@ def build_bounds(names, opts, user_min_w=None, user_min_h=None,
             "cap_short": cap_short, "cap_long": cap_long,
             "floor_short": floor_short, "floor_long": floor_long,
             "known": known, "room_class": rule["room_class"],
+            # Functional tier for the exact-fill release ladder. The rulebook
+            # files the kitchen under "service" with the store and the utility,
+            # which is right for the area hierarchy and wrong for "who should
+            # absorb the leftover plot": a kitchen carries surplus far better
+            # than a store does. Derived here from the canonical name so the
+            # ladder can rank it on its own; every other class passes through.
+            "fill_class": ("kitchen"
+                           if nbc_rules.canonical_name(name) == "Kitchen"
+                           else rule["room_class"]),
         })
     return bounds
 
@@ -1003,8 +1028,81 @@ def _tiered_release_bounds(bounds):
     return out
 
 
+# ── the exact-fill escalation ladder (`exact_fill`, 2026-08-29) ─────────────
+# The stages above stop at the client's gross-oversize lines, which is the
+# right trade when the plot is a preference. It is the WRONG trade when the
+# caller enforced the plot: the user rule is that filling an enforced plot
+# EXACTLY outranks the NBC room maxima - an empty notch is worse than an
+# oversized living room - so the release keeps going instead of leaving the
+# outline open.
+#
+# A room's release is graded, and every grade is reached class by class:
+#
+#   1  the class-capped release above (1.55 habitable / 1.45 wet-service),
+#      aspect band untouched;
+#   2  span and area ceilings gone, aspect band untouched;
+#   3  span and area gone, aspect band widened by _ASPECT_RELEASE;
+#   4  nothing left: the room may take whatever shape closes the outline.
+#
+# Grade 2 alone is usually NOT enough and that is measured, not assumed: with
+# the ceilings gone the ASPECT band is what pins a whole-side advance, because
+# _axis_ceilings caps growth at ar_hi * h (a bedroom at 1.8 cannot lengthen a
+# foot further whatever its area ceiling says). Hence grades 3 and 4.
+#
+# Order of spending: social (living, dining) first, then the kitchen, then the
+# private rooms (bedrooms). Wet and service rooms stay at grade 1 until every
+# other class is fully free, so a bathroom is stretched only when nothing else
+# could geometrically absorb what was left - and a plan that needs that is
+# named in the report like any other release.
+_ASPECT_RELEASE = 1.6
+
+_FILL_ESCALATION_LADDER = (
+    {"social": 2, "kitchen": 1, "private": 1, "wet": 1, "service": 1, "open": 1},
+    {"social": 3, "kitchen": 2, "private": 2, "wet": 1, "service": 1, "open": 1},
+    {"social": 4, "kitchen": 3, "private": 3, "wet": 1, "service": 1, "open": 1},
+    {"social": 4, "kitchen": 4, "private": 4, "wet": 2, "service": 2, "open": 2},
+    {"social": 4, "kitchen": 4, "private": 4, "wet": 3, "service": 3, "open": 3},
+    {"social": 4, "kitchen": 4, "private": 4, "wet": 4, "service": 4, "open": 4},
+)
+
+
+def _escalated_bounds(bounds, grades):
+    """Per-class copy of `bounds` for one escalation rung.
+
+    `grades[class]` is one of the grades documented above. A class the rung
+    does not name falls back to the service grade, so an unknown room type is
+    never released ahead of a habitable one.
+    """
+    fallback = grades.get("service", 1)
+    out = []
+    for b in bounds:
+        if b is None:
+            out.append(None)
+            continue
+        key = str(b.get("fill_class") or b.get("room_class") or "")
+        grade = grades.get(key, fallback)
+        if grade <= 1:
+            slack = _FILL_RELEASE_BY_CLASS.get(
+                str(b.get("room_class", "")), _FILL_RELEASE_STAGE_ONE)
+            out.append(_relaxed_bounds([b], slack)[0])
+            continue
+        nb = dict(b)
+        for cap in ("cap_short", "cap_long", "maxw", "maxh"):
+            nb[cap] = _INF
+        nb["maxarea"] = _INF
+        if grade == 3:
+            nb["ar_hi"] = nb["ar_hi"] * _ASPECT_RELEASE
+            nb["ar_lo"] = nb["ar_lo"] / _ASPECT_RELEASE
+        elif grade >= 4:
+            nb["ar_hi"] = _INF
+            nb["ar_lo"] = 1e-6
+        out.append(nb)
+    return out
+
+
 def _expand_to_target(work, bounds, door_reqs, eps, target,
-                      plot_limits, actions, allowances, slack_rooms=None):
+                      plot_limits, actions, allowances, slack_rooms=None,
+                      exact_fill=False, escalation=None):
     """Phase 5. Fill the plan out to `target` EXACTLY (2026-08-17, user
     decision: the typed plot is not just a cap, plans must BE the plot).
 
@@ -1023,12 +1121,20 @@ def _expand_to_target(work, bounds, door_reqs, eps, target,
          stages (_FILL_RELEASE_STAGES), still headroom-ordered. Rooms pushed
          past their true ceiling are recorded in `slack_rooms` (the caller
          exempts them from the no-regress gate and reports them).
+      E. `exact_fill` only (the caller ENFORCED this plot): B+C again up the
+         _FILL_ESCALATION_LADDER, which raises and finally removes the span
+         and area ceilings class by class - social, then kitchen, then
+         private, and wet/service only on the last rung. Runs until the
+         outline closes on the plot exactly; every room it moves lands in
+         `slack_rooms` and is disclosed by the caller.
 
     Release never runs when the target exceeds the PROGRAM maximum (the sum
     of every room's area ceiling): a plot bigger than the program can legally
     occupy keeps ceiling-true rooms and an open ring (the client centres the
-    plan there). Never shrinks and never crosses the plot cap. Returns feet
-    gained per axis.
+    plan there). `exact_fill` overrides that too - an enforced plot is the
+    size, not a preference - which is why the escalation is gated on the flag
+    rather than on the program maximum. Never shrinks and never crosses the
+    plot cap. Returns feet gained per axis.
     """
     if target is None:
         return (0.0, 0.0)
@@ -1055,52 +1161,71 @@ def _expand_to_target(work, bounds, door_reqs, eps, target,
     entry_over = {i for i in range(len(work)) if _over_true_ceiling(i)}
 
     # ── A. rectangle-preserving side growth ─────────────────────────────────
-    sides = ("E", "S", "W", "N")
-    for _ in range(6):
-        moved = False
-        for side in sides:
-            bx0, by0, bx1, by1 = _bbox(work)
-            gap = (limit_w - (bx1 - bx0)) if side in ("E", "W") \
-                else (limit_h - (by1 - by0))
-            if gap <= 0.05:
-                continue
-            if side == "E":
-                idxs = [i for i, r in enumerate(work) if r[2] >= bx1 - eps]
-            elif side == "W":
-                idxs = [i for i, r in enumerate(work) if r[0] <= bx0 + eps]
-            elif side == "S":
-                idxs = [i for i, r in enumerate(work) if r[3] >= by1 - eps]
-            else:
-                idxs = [i for i, r in enumerate(work) if r[1] <= by0 + eps]
-            if not idxs:
-                continue
-            advance = min([gap] + [_side_growth_limit(work, bounds, i, side,
-                                                      allowances)
-                                   for i in idxs])
-            if advance <= 0.05:
-                continue
-            snapshot = list(work)
-            for i in idxs:
-                x0, y0, x1, y1 = work[i]
+    def side_growth(stage_bounds, stage_allow, tolerate_notch=False):
+        """Advance whole boundary sides. The outline stays a rectangle and the
+        tiling stays gapless by construction, so this is the cheapest fill
+        there is: the escalation rungs below re-run it with released ceilings
+        BEFORE they try anything that opens a notch.
+
+        `tolerate_notch` judges the void MONOTONICALLY (an advance may not make
+        it worse) instead of demanding zero, which is what lets the escalation
+        re-run this on a plan that already carries a notch. The first call
+        leaves it False, so a plan entering phase 5 notched behaves exactly as
+        before.
+        """
+        sides = ("E", "S", "W", "N")
+        base_notch = _void_metrics(work)[0] if tolerate_notch else 0.0
+        grew = False
+        for _ in range(6):
+            moved = False
+            for side in sides:
+                bx0, by0, bx1, by1 = _bbox(work)
+                gap = (limit_w - (bx1 - bx0)) if side in ("E", "W") \
+                    else (limit_h - (by1 - by0))
+                if gap <= 0.05:
+                    continue
                 if side == "E":
-                    work[i] = (x0, y0, x1 + advance, y1)
+                    idxs = [i for i, r in enumerate(work) if r[2] >= bx1 - eps]
                 elif side == "W":
-                    work[i] = (x0 - advance, y0, x1, y1)
+                    idxs = [i for i, r in enumerate(work) if r[0] <= bx0 + eps]
                 elif side == "S":
-                    work[i] = (x0, y0, x1, y1 + advance)
+                    idxs = [i for i, r in enumerate(work) if r[3] >= by1 - eps]
                 else:
-                    work[i] = (x0, y0 - advance, x1, y1)
-            if (_rects_overlap(work, eps) or _void_metrics(work)[0] > eps
-                    or not _doors_ok(work, door_reqs, eps)
-                    or not _within_limits(work, plot_limits, eps)):
-                work[:] = snapshot
-                continue
-            for i in idxs:
-                actions.setdefault(i, []).append(
-                    "grew %.1f ft toward %s to fill the plot" % (advance, side))
-            moved = True
-        if not moved:
-            break
+                    idxs = [i for i, r in enumerate(work) if r[1] <= by0 + eps]
+                if not idxs:
+                    continue
+                advance = min([gap] + [_side_growth_limit(work, stage_bounds, i,
+                                                          side, stage_allow)
+                                       for i in idxs])
+                if advance <= 0.05:
+                    continue
+                snapshot = list(work)
+                for i in idxs:
+                    x0, y0, x1, y1 = work[i]
+                    if side == "E":
+                        work[i] = (x0, y0, x1 + advance, y1)
+                    elif side == "W":
+                        work[i] = (x0 - advance, y0, x1, y1)
+                    elif side == "S":
+                        work[i] = (x0, y0, x1, y1 + advance)
+                    else:
+                        work[i] = (x0, y0 - advance, x1, y1)
+                if (_rects_overlap(work, eps)
+                        or _void_metrics(work)[0] > base_notch + eps
+                        or not _doors_ok(work, door_reqs, eps)
+                        or not _within_limits(work, plot_limits, eps)):
+                    work[:] = snapshot
+                    continue
+                for i in idxs:
+                    actions.setdefault(i, []).append(
+                        "grew %.1f ft toward %s to fill the plot"
+                        % (advance, side))
+                moved = grew = True
+            if not moved:
+                break
+        return grew
+
+    side_growth(bounds, allowances)
 
     # ── B-D. exact fill ─────────────────────────────────────────────────────
     def deficits():
@@ -1201,6 +1326,47 @@ def _expand_to_target(work, bounds, door_reqs, eps, target,
             actions.update(action_snapshot)
             break
 
+    # ── E. escalation: an ENFORCED plot outranks the NBC ceilings ───────────
+    # The stages above stop at the client's gross-oversize lines and leave the
+    # residual open. Under enforce_plot that residual is the defect: keep
+    # releasing, class by class, until the outline actually closes.
+    if exact_fill:
+        for rung, grades in enumerate(_FILL_ESCALATION_LADDER):
+            dw, dh = deficits()
+            notch, hole = _void_metrics(work)
+            if dw <= 0.05 and dh <= 0.05 and notch <= eps and hole <= eps:
+                break
+            if release_baseline is None:
+                release_baseline = list(work)
+            stage_bounds = _escalated_bounds(bounds, grades)
+            snapshot = list(work)
+            action_snapshot = copy.deepcopy(actions)
+            # whole sides first: it cannot open a notch, so it is always the
+            # better way to spend a released ceiling
+            side_growth(stage_bounds, None, tolerate_notch=True)
+            reach_lines(stage_bounds)
+            for _ in range(8):
+                if not _absorb_pass(work, stage_bounds, eps, actions,
+                                    allowances=None):
+                    break
+            if (_rects_overlap(work, eps)
+                    or _void_metrics(work)[1] > eps
+                    or not _doors_ok(work, door_reqs, eps)
+                    or not _within_limits(work, plot_limits, eps)):
+                # This rung is given back, but the ladder is NOT abandoned: a
+                # greedy absorb can seal a notch into an interior hole at one
+                # release level and not at the next, and stopping here would
+                # ship the open outline the escalation exists to close.
+                work[:] = snapshot
+                actions.clear()
+                actions.update(action_snapshot)
+                continue
+            if escalation is not None and any(
+                    any(abs(a - b) > 0.02 for a, b in zip(before, after))
+                    for before, after in zip(snapshot, work)):
+                escalation["used"] = True
+                escalation["rung"] = rung + 1
+
     # Exempt/disclose set: every room the release stages MOVED (grew), plus
     # any room now past its true ceiling that was not over at entry. Both are
     # the fill's doing; rooms already over at entry (door-locked keepers, the
@@ -1223,7 +1389,22 @@ def _expand_to_target(work, bounds, door_reqs, eps, target,
 # the per-plan driver
 # ---------------------------------------------------------------------------
 
-def _shift_overcap_walls(work, bounds, door_reqs, eps, actions, rounds=24):
+# Who should be holding surplus floor area, best first. Same order the
+# escalation ladder spends its releases in, reused by phase 6 to move area
+# that landed in the wrong room back up the order.
+_FILL_PRIORITY = {"social": 0, "kitchen": 1, "private": 2,
+                  "service": 3, "open": 3, "wet": 4}
+
+
+def _fill_priority(b):
+    if b is None:
+        return _FILL_PRIORITY["service"]
+    key = str(b.get("fill_class") or b.get("room_class") or "")
+    return _FILL_PRIORITY.get(key, _FILL_PRIORITY["service"])
+
+
+def _shift_overcap_walls(work, bounds, door_reqs, eps, actions, rounds=24,
+                         exact_fill=False, slack_rooms=None):
     """Shift shared walls off over-ceiling rooms into full-span neighbours.
 
     For every room past its area or span ceiling: find a wall that exactly
@@ -1307,6 +1488,18 @@ def _shift_overcap_walls(work, bounds, door_reqs, eps, actions, rounds=24):
                     nw, nh = na1 - na0, nb1 - nb0
                     if bounds[j] is None:
                         head = _INF
+                    elif (exact_fill
+                          and _fill_priority(bounds[j])
+                          < _fill_priority(bounds[i])):
+                        # The enforced plot is already filled: the total area
+                        # is fixed and the only question left is WHO holds it.
+                        # A neighbour that outranks this room functionally may
+                        # take the strip past its own ceiling - a living room
+                        # 40 sqft over is the trade the release order exists to
+                        # make, and it is what stops the fill from parking the
+                        # surplus in a toilet. Strictly-better only, so the
+                        # shifts cannot cycle.
+                        head = _INF
                     else:
                         ntw, nth = _axis_ceilings(bounds[j], nw, nh,
                                                   aspect_floors=False)
@@ -1351,6 +1544,13 @@ def _shift_overcap_walls(work, bounds, door_reqs, eps, actions, rounds=24):
                 for j in nbrs:
                     actions.setdefault(j, []).append(
                         "took %.1f ft from an over-ceiling neighbour" % delta)
+                    # A neighbour that took the strip past its OWN ceiling did
+                    # so under the release order, exactly like a fill release:
+                    # it must be exempted from the no-regress gate and
+                    # disclosed, or the gate reverts the whole exact fill for
+                    # the living room it just handed the toilet's floor to.
+                    if exact_fill and slack_rooms is not None:
+                        slack_rooms.add(j)
                 moved = moved_any = True
                 break
             if moved:
@@ -1545,7 +1745,14 @@ def postprocess_plan(rects, names, options=None, edges=None,
     rectangle_restored = False
     reclose_slack_used = False
     trims_reverted = False
-    if opts["prefer_rectangle"] and gapless_before:
+    # `exact_fill` forces the rectangle preference on whatever the caller sent.
+    # The generation client ships prefer_rectangle: false (2026-08-06: capped
+    # rooms beat a perfect outline), and that trade is simply not available on
+    # an ENFORCED plot - a trim nobody can reabsorb is exactly the empty notch
+    # the user rule ranks below an oversized room. Reverting those trims here
+    # also hands phase 5 a gapless rectangle to grow, which is the only shape
+    # it can grow to the plot without reopening the outline.
+    if (opts["prefer_rectangle"] or opts["exact_fill"]) and gapless_before:
         rectangle_restored, reclose_slack_used, trims_reverted = \
             _close_notches(work, bounds, door_reqs, eps, opts, actions,
                            allowances, plot_limits, rect_state, rect_actions)
@@ -1566,11 +1773,14 @@ def postprocess_plan(rects, names, options=None, edges=None,
     # input geometry) skips the phase.
     filled = (0.0, 0.0)
     fill_slack_rooms = set()
+    fill_escalation = {}
     if opts["fill_target"] and target is not None \
             and _void_metrics(work)[1] <= eps:
         filled = _expand_to_target(work, bounds, door_reqs, eps,
                                    target, plot_limits, actions, allowances,
-                                   slack_rooms=fill_slack_rooms)
+                                   slack_rooms=fill_slack_rooms,
+                                   exact_fill=bool(opts["exact_fill"]),
+                                   escalation=fill_escalation)
         if filled[0] > 0.05 or filled[1] > 0.05:
             note("grown %.1f x %.1f ft to fill the plot" % filled)
 
@@ -1585,14 +1795,23 @@ def postprocess_plan(rects, names, options=None, edges=None,
         # construction, bbox untouched. Conservative on purpose: only walls a
         # single neighbour spans entirely move, doors are re-checked per
         # shift, and a shift is capped by the neighbour's own ceilings.
-        if _shift_overcap_walls(work, bounds, door_reqs, eps, actions):
+        if _shift_overcap_walls(work, bounds, door_reqs, eps, actions,
+                                exact_fill=bool(opts["exact_fill"]),
+                                slack_rooms=fill_slack_rooms):
             note("room sizes rebalanced inside the filled plot")
 
         if fill_slack_rooms:
             over_now = _over_ceiling_rooms(work, bounds, names)
             if over_now:
-                note("ceilings released to fill the plot: %s"
-                     % ", ".join(over_now))
+                if fill_escalation.get("used"):
+                    # Same disclosure channel and shape as the class-capped
+                    # release above; the wording says which trade was made.
+                    note("ceilings released PAST the NBC room limits to fill"
+                         " the enforced plot exactly (the plot outranks the"
+                         " ceilings): %s" % ", ".join(over_now))
+                else:
+                    note("ceilings released to fill the plot: %s"
+                         % ", ".join(over_now))
 
     # -- the gate: is the whole sequence worth shipping? ---------------------
     # The promise that outranks all heuristics: post-processing never makes
@@ -1630,6 +1849,7 @@ def postprocess_plan(rects, names, options=None, edges=None,
         trims_reverted = False
         reclose_slack_used = False
         filled = (0.0, 0.0)
+        fill_escalation = {}
         if regressed:
             phase_notes.append(
                 "all changes reverted (%s would have regressed on a"
@@ -1667,6 +1887,11 @@ def postprocess_plan(rects, names, options=None, edges=None,
                                or fill_slack_rooms else []),
         "plot_fit": _within_limits(work, plot_limits, eps),
         "filled_toward_plot": [round(filled[0], 2), round(filled[1], 2)],
+        # True when phase 5 had to climb the exact-fill escalation ladder
+        # (enforce_plot): room limits were released past their NBC ceilings so
+        # the outline could close on the plot. The rooms are in
+        # `over_ceiling_rooms` and the trade is named in `phase_notes`.
+        "fill_escalated": bool(fill_escalation.get("used")),
         "extent_before": [round(bbox_before[2] - bbox_before[0], 2),
                           round(bbox_before[3] - bbox_before[1], 2)],
         "extent_after": [round(bbox_after[2] - bbox_after[0], 2),
@@ -1725,6 +1950,11 @@ def _summary_line(reports):
                               for v in (r.get("filled_toward_plot") or [0, 0])))
     if filled:
         line += " %d were grown toward the plot." % filled
+    escalated = sum(1 for r in reports if r and r.get("fill_escalated"))
+    if escalated:
+        line += (" %d floorplan(s) filled the enforced plot exactly by"
+                 " releasing room limits past their NBC ceilings; the rooms"
+                 " are named per plan in over_ceiling_rooms." % escalated)
     if skipped:
         line += (" %d floorplan(s) with non-rectangular rooms were left"
                  " untouched." % skipped)
@@ -1782,6 +2012,13 @@ def postprocess_ui_output(ui, nodes_list, edges_list, options, plan_count,
             value = col(lambda g=getter: getattr(params, g)())
             if value:
                 options[key] = value
+    # enforce_plot rides the same channel: a caller that made the plot HARD
+    # gets the exact-fill escalation without sending a second flag. An
+    # explicit postprocess_options value still wins (False turns it back off);
+    # a request without enforce_plot never sees the ladder at all.
+    if options.get("exact_fill") is None and col(
+            lambda: bool(getattr(params, "get_enforce_plot", lambda: False)())):
+        options["exact_fill"] = True
 
     reports = []
     for index in range(min(plan_count, len(plans))):

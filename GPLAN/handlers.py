@@ -388,8 +388,28 @@ def solve_min_dim(floorplan_data, plot_width, plot_height, capped):
     return status, out_data, bool(status)
 
 
+def _minimums_toward_floors(base, floors, lam):
+    """Copy of `base` with every room minimum interpolated `lam` of the way
+    from the request's band minimum DOWN to the rulebook floor (lam=1 IS the
+    floor). A floor at or above the request minimum is left alone."""
+    data = copy.deepcopy(base)
+    for i, node in enumerate(data['nodes']):
+        if floors is None or i >= len(floors) or floors[i] is None:
+            continue
+        fw, fh = floors[i]
+        for key_min, floor_value in (("min_width", fw), ("min_height", fh)):
+            try:
+                lo = float(node.get(key_min) or 0)
+            except (TypeError, ValueError):
+                continue
+            if lo <= 0 or floor_value is None or float(floor_value) >= lo:
+                continue
+            node[key_min] = lo + lam * (float(floor_value) - lo)
+    return data
+
+
 def solve_min_dim_fill(floorplan_data, plot_width, plot_height, capped,
-                       targets=None, area_caps=None):
+                       targets=None, area_caps=None, floors=None):
     """solve_min_dim, then raise the minimums TOWARD THE ALLOCATOR TARGETS as
     far as this topology can fit them (enforce_plot exact fill, 2026-08-17).
 
@@ -403,11 +423,48 @@ def solve_min_dim_fill(floorplan_data, plot_width, plot_height, capped,
     A per-axis uniform-factor fallback covers programs the allocator does
     not know.
 
+    `floors` is the per-room (min_width, min_height) RULEBOOK floor. It turns
+    the search into a two-sided one: a topology that does not fit the enforced
+    plot even at the request's band minimums first relaxes those minimums
+    DOWNWARD toward the floors (2026-08-29, the plot-wins rule) and the
+    bisection toward the targets then runs from whatever it landed on. Without
+    it the behaviour is exactly as before: such a topology fails here and
+    re-enters as a labeled expanded plan.
+
     Returns (status, out_data, released) exactly like solve_min_dim.
     """
     base = copy.deepcopy(floorplan_data)
     status, out_data, released = solve_min_dim(
         copy.deepcopy(base), plot_width, plot_height, capped)
+    if not status and floors is not None \
+            and plot_width > 0 and plot_height > 0:
+        # The topology does not fit the ENFORCED plot at the request's band
+        # minimums. Those minimums are a proportional PREFERENCE (the client
+        # aims each room at ~75% of its thumb-rule share); the rulebook floor
+        # underneath them is the hard number. The user rule is that the typed
+        # plot wins over room preferences, so relax the minimums downward
+        # toward those floors - never below one - and keep the SMALLEST
+        # relaxation that fits. A plan a hair under its preferred room sizes
+        # inside the plot beats a labeled expanded plan outside it, and phase
+        # 5 of post-processing grows it back out to the plot exactly.
+        s, o, r = solve_min_dim(_minimums_toward_floors(base, floors, 1.0),
+                                plot_width, plot_height, capped)
+        if s:
+            lo_s, hi_s = 0.0, 1.0        # lo fails, hi solves
+            best_lam = 1.0
+            status, out_data, released = s, o, r
+            for _ in range(5):
+                mid = (lo_s + hi_s) / 2.0
+                s, o, r = solve_min_dim(
+                    _minimums_toward_floors(base, floors, mid),
+                    plot_width, plot_height, capped)
+                if s:
+                    hi_s = mid
+                    best_lam = mid
+                    status, out_data, released = s, o, r
+                else:
+                    lo_s = mid
+            base = _minimums_toward_floors(base, floors, best_lam)
     if not status or plot_width <= 0 or plot_height <= 0:
         return status, out_data, released
 
@@ -2021,6 +2078,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             if enforce_plot and (plot_width <= 0 or plot_height <= 0):
                 enforce_plot = False
             fill_targets = None
+            fill_floors = None
             if enforce_plot:
                 # Tier-aware per-room targets for the fill solver: the
                 # allocator hands the plot's surplus to living/bedrooms and
@@ -2043,11 +2101,19 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         float(room["max_area"]) * (1.5 if room.get("tier", 3) <= 2
                                                    else 1.4)
                         for room in _alloc["rooms"]]
+                    # Per-room RULEBOOK floors (rect feet, walls included).
+                    # The two-sided fill search relaxes DOWN to these when a
+                    # topology cannot fit the enforced plot at the request's
+                    # band minimums - the typed plot outranks a room's
+                    # preferred size, never its NBC floor.
+                    fill_floors = [(room["min_width"], room["min_height"])
+                                   for room in _alloc["rooms"]]
                 except Exception as _exc:
                     print("enforce_plot: allocator unavailable (%s); uniform"
                           " fill fallback" % _exc)
                     fill_targets = None
                     fill_area_caps = None
+                    fill_floors = None
             input_dims = [min_width, min_height, plot_width, plot_height]
             input_dims = copy.deepcopy(input_dims)
             if plot_width == 0 and plot_height == 0:
@@ -2148,7 +2214,8 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     # SOLVER, room by room until each ceiling clamps.
                     _solver = solve_min_dim_fill if enforce_plot else solve_min_dim
                     _kw = ({"targets": fill_targets,
-                            "area_caps": fill_area_caps} if enforce_plot else {})
+                            "area_caps": fill_area_caps,
+                            "floors": fill_floors} if enforce_plot else {})
                     status, out_data, released = _solver(
                         floorplan_data, plot_width, plot_height,
                         max_width is not None or max_height is not None, **_kw)
@@ -2263,7 +2330,10 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     _solver = solve_min_dim_fill if enforce_plot else solve_min_dim
                     _kw = ({"targets": [None if t is None else (t[1], t[0])
                                         for t in fill_targets],
-                            "area_caps": fill_area_caps}
+                            "area_caps": fill_area_caps,
+                            "floors": [None if f is None else (f[1], f[0])
+                                       for f in fill_floors]
+                            if fill_floors else None}
                            if enforce_plot and fill_targets else
                            ({"targets": None} if enforce_plot else {}))
                     status, out_data, released = _solver(
@@ -2426,7 +2496,10 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                                 targets=([None if t is None else (t[1], t[0])
                                           for t in fill_targets]
                                          if fill_targets else None),
-                                area_caps=fill_area_caps)
+                                area_caps=fill_area_caps,
+                                floors=([None if f is None else (f[1], f[0])
+                                         for f in fill_floors]
+                                        if fill_floors else None))
                             if status == True:
                                 max_dims_released = max_dims_released or released
                                 bdy_fplans += 1
@@ -2599,6 +2672,7 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             if enforce_plot and (plot_width <= 0 or plot_height <= 0):
                 enforce_plot = False
             fill_targets = None
+            fill_floors = None
             if enforce_plot:
                 # Tier-aware per-room targets for the fill solver: the
                 # allocator hands the plot's surplus to living/bedrooms and
@@ -2621,11 +2695,19 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         float(room["max_area"]) * (1.5 if room.get("tier", 3) <= 2
                                                    else 1.4)
                         for room in _alloc["rooms"]]
+                    # Per-room RULEBOOK floors (rect feet, walls included).
+                    # The two-sided fill search relaxes DOWN to these when a
+                    # topology cannot fit the enforced plot at the request's
+                    # band minimums - the typed plot outranks a room's
+                    # preferred size, never its NBC floor.
+                    fill_floors = [(room["min_width"], room["min_height"])
+                                   for room in _alloc["rooms"]]
                 except Exception as _exc:
                     print("enforce_plot: allocator unavailable (%s); uniform"
                           " fill fallback" % _exc)
                     fill_targets = None
                     fill_area_caps = None
+                    fill_floors = None
             input_dims = [min_width, min_height, plot_width, plot_height]
             input_dims = copy.deepcopy(input_dims)
             if plot_width == 0 and plot_height == 0:
@@ -2693,7 +2775,8 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     # SOLVER, room by room until each ceiling clamps.
                     _solver = solve_min_dim_fill if enforce_plot else solve_min_dim
                     _kw = ({"targets": fill_targets,
-                            "area_caps": fill_area_caps} if enforce_plot else {})
+                            "area_caps": fill_area_caps,
+                            "floors": fill_floors} if enforce_plot else {})
                     status, out_data, released = _solver(
                         floorplan_data, plot_width, plot_height,
                         max_width is not None or max_height is not None, **_kw)

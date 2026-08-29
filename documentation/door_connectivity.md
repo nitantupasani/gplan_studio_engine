@@ -172,6 +172,21 @@ The property of adjacency and non adjacency of the rooms (nodes) are depicted us
   topologies degrade to the legacy expanded batch, labeled, never empty.
   Backends predating the flag ignore all three fields.
 
+  *(2026-08-29, the plot-wins rule.)* Two more consequences, both scoped to
+  this flag. **The fill solver's search is two-sided:** a topology that does
+  not fit even at the request's band minimums first relaxes those minimums
+  DOWNWARD toward the allocator's rulebook floors - never below one - and the
+  bisection toward the allocated targets then runs from wherever that landed,
+  so a plan a hair under its preferred room sizes INSIDE the plot is preferred
+  to a labeled expanded plan outside it. **Post-processing fills the plot
+  exactly:** `postprocess_options.exact_fill` is switched on for you, which
+  forces the rectangle preference back on (a trim nobody can reabsorb is an
+  empty notch, and the plot outranks the ceilings) and lets phase 5 keep
+  releasing room limits, class by class, until the outline closes on the plot.
+  Every such release is disclosed - `over_ceiling_rooms`, `fill_escalated` and
+  a `phase_notes` line per plan, plus a sentence in the task message. See
+  [postprocess_api.md](postprocess_api.md).
+
 `strict_plot_width : int`, `strict_plot_height : int` *(with `enforce_plot`)*
 
 : The REAL plot footprint to enforce, feet.
