@@ -1,0 +1,267 @@
+{
+  "id": "hd-masonry",
+  "name": "Load Bearing House",
+  "floors": [
+    {
+      "id": "hm-ground",
+      "level": 0,
+      "label": "Ground",
+      "boundary": [
+        [0, 0],
+        [30, 0],
+        [30, 40],
+        [0, 40]
+      ],
+      "segments": [
+        {"id": "seg-h14", "x1": 0, "y1": 14, "x2": 30, "y2": 14},
+        {"id": "seg-h27", "x1": 0, "y1": 27, "x2": 30, "y2": 27},
+        {"id": "seg-v17a", "x1": 17, "y1": 0, "x2": 17, "y2": 14},
+        {"id": "seg-v17b", "x1": 17, "y1": 27, "x2": 17, "y2": 40}
+      ],
+      "shapes": [
+        {
+          "id": "shape-stairs-g",
+          "points": [
+            [17, 27],
+            [30, 27],
+            [30, 40],
+            [17, 40]
+          ],
+          "core": {
+            "id": "core-stairs",
+            "kind": "stairs"
+          }
+        }
+      ],
+      "regionContent": {
+        "0,0;17,0;17,14;0,14": {
+          "generated": {
+            "requestedType": "1BHK",
+            "builtType": "1BHK",
+            "selectedPlanId": "pl-g1",
+            "genW": 17,
+            "genH": 14,
+            "plans": [
+              {
+                "id": "pl-g1",
+                "label": "Front",
+                "taskId": "t-hm-g1",
+                "floorWidth": 17,
+                "floorHeight": 14,
+                "createdAt": "2026-08-30T00:00:00Z",
+                "placements": [
+                  {"name": "Living Room", "x": 0, "y": 0, "width": 17, "height": 9, "color": "#1C4C82"},
+                  {"name": "Kitchen", "x": 0, "y": 9, "width": 17, "height": 5, "color": "#8C6A3F"}
+                ]
+              }
+            ]
+          }
+        },
+        "17,0;30,0;30,14;17,14": {
+          "generated": {
+            "requestedType": "1BHK",
+            "builtType": "1BHK",
+            "selectedPlanId": "pl-g2",
+            "genW": 13,
+            "genH": 14,
+            "plans": [
+              {
+                "id": "pl-g2",
+                "label": "Front right",
+                "taskId": "t-hm-g2",
+                "floorWidth": 13,
+                "floorHeight": 14,
+                "createdAt": "2026-08-30T00:00:00Z",
+                "placements": [
+                  {"name": "Bedroom 1", "x": 0, "y": 0, "width": 13, "height": 9, "color": "#6A5ACD"},
+                  {"name": "Bathroom 1", "x": 0, "y": 9, "width": 13, "height": 5, "color": "#3F7A8C"}
+                ]
+              }
+            ]
+          }
+        },
+        "0,14;30,14;30,27;0,27": {
+          "generated": {
+            "requestedType": "2BHK",
+            "builtType": "2BHK",
+            "selectedPlanId": "pl-g3",
+            "genW": 30,
+            "genH": 13,
+            "plans": [
+              {
+                "id": "pl-g3",
+                "label": "Middle",
+                "taskId": "t-hm-g3",
+                "floorWidth": 30,
+                "floorHeight": 13,
+                "createdAt": "2026-08-30T00:00:00Z",
+                "placements": [
+                  {"name": "Bedroom 2", "x": 0, "y": 0, "width": 13, "height": 13, "color": "#6A5ACD"},
+                  {"name": "Corridor", "x": 13, "y": 0, "width": 4, "height": 13, "color": "#9AA3AD"},
+                  {"name": "Bedroom 3", "x": 17, "y": 0, "width": 13, "height": 13, "color": "#6A5ACD"}
+                ]
+              }
+            ]
+          }
+        },
+        "0,27;17,27;17,40;0,40": {
+          "generated": {
+            "requestedType": "1BHK",
+            "builtType": "1BHK",
+            "selectedPlanId": "pl-g4",
+            "genW": 17,
+            "genH": 13,
+            "plans": [
+              {
+                "id": "pl-g4",
+                "label": "Rear",
+                "taskId": "t-hm-g4",
+                "floorWidth": 17,
+                "floorHeight": 13,
+                "createdAt": "2026-08-30T00:00:00Z",
+                "placements": [
+                  {"name": "Study", "x": 0, "y": 0, "width": 17, "height": 8, "color": "#1C4C82"},
+                  {"name": "Utility", "x": 0, "y": 8, "width": 17, "height": 5, "color": "#7A8C3F"}
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "hm-first",
+      "level": 1,
+      "label": "First",
+      "boundary": [
+        [0, 0],
+        [30, 0],
+        [30, 40],
+        [0, 40]
+      ],
+      "segments": [
+        {"id": "seg-h14", "x1": 0, "y1": 14, "x2": 30, "y2": 14},
+        {"id": "seg-h27", "x1": 0, "y1": 27, "x2": 30, "y2": 27},
+        {"id": "seg-v17a", "x1": 17, "y1": 0, "x2": 17, "y2": 14},
+        {"id": "seg-v17b", "x1": 17, "y1": 27, "x2": 17, "y2": 40}
+      ],
+      "shapes": [
+        {
+          "id": "shape-stairs-1",
+          "points": [
+            [17, 27],
+            [30, 27],
+            [30, 40],
+            [17, 40]
+          ],
+          "core": {
+            "id": "core-stairs",
+            "kind": "stairs"
+          }
+        }
+      ],
+      "regionContent": {
+        "0,0;17,0;17,14;0,14": {
+          "generated": {
+            "requestedType": "1BHK",
+            "builtType": "1BHK",
+            "selectedPlanId": "pl-f1",
+            "genW": 17,
+            "genH": 14,
+            "plans": [
+              {
+                "id": "pl-f1",
+                "label": "Front upper",
+                "taskId": "t-hm-f1",
+                "floorWidth": 17,
+                "floorHeight": 14,
+                "createdAt": "2026-08-30T00:00:00Z",
+                "placements": [
+                  {"name": "Bedroom 4", "x": 0, "y": 0, "width": 17, "height": 9, "color": "#6A5ACD"},
+                  {"name": "Store", "x": 0, "y": 9, "width": 17, "height": 5, "color": "#7A8C3F"}
+                ]
+              }
+            ]
+          }
+        },
+        "17,0;30,0;30,14;17,14": {
+          "generated": {
+            "requestedType": "1BHK",
+            "builtType": "1BHK",
+            "selectedPlanId": "pl-f2",
+            "genW": 13,
+            "genH": 14,
+            "plans": [
+              {
+                "id": "pl-f2",
+                "label": "Front right upper",
+                "taskId": "t-hm-f2",
+                "floorWidth": 13,
+                "floorHeight": 14,
+                "createdAt": "2026-08-30T00:00:00Z",
+                "placements": [
+                  {"name": "Bedroom 5", "x": 0, "y": 0, "width": 13, "height": 9, "color": "#6A5ACD"},
+                  {"name": "Bathroom 2", "x": 0, "y": 9, "width": 13, "height": 5, "color": "#3F7A8C"}
+                ]
+              }
+            ]
+          }
+        },
+        "0,14;30,14;30,27;0,27": {
+          "generated": {
+            "requestedType": "2BHK",
+            "builtType": "2BHK",
+            "selectedPlanId": "pl-f3",
+            "genW": 30,
+            "genH": 13,
+            "plans": [
+              {
+                "id": "pl-f3",
+                "label": "Middle upper",
+                "taskId": "t-hm-f3",
+                "floorWidth": 30,
+                "floorHeight": 13,
+                "createdAt": "2026-08-30T00:00:00Z",
+                "placements": [
+                  {"name": "Bedroom 6", "x": 0, "y": 0, "width": 13, "height": 13, "color": "#6A5ACD"},
+                  {"name": "Passage", "x": 13, "y": 0, "width": 4, "height": 13, "color": "#9AA3AD"},
+                  {"name": "Bedroom 7", "x": 17, "y": 0, "width": 13, "height": 13, "color": "#6A5ACD"}
+                ]
+              }
+            ]
+          }
+        },
+        "0,27;17,27;17,40;0,40": {
+          "generated": {
+            "requestedType": "1BHK",
+            "builtType": "1BHK",
+            "selectedPlanId": "pl-f4",
+            "genW": 17,
+            "genH": 13,
+            "plans": [
+              {
+                "id": "pl-f4",
+                "label": "Rear upper",
+                "taskId": "t-hm-f4",
+                "floorWidth": 17,
+                "floorHeight": 13,
+                "createdAt": "2026-08-30T00:00:00Z",
+                "placements": [
+                  {"name": "Study 2", "x": 0, "y": 0, "width": 17, "height": 8, "color": "#1C4C82"},
+                  {"name": "Wash", "x": 0, "y": 8, "width": 17, "height": 5, "color": "#7A8C3F"}
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "wallDisplay": {
+    "showInteriorWalls": true,
+    "interiorWallFt": 0.75
+  },
+  "roof": "flat",
+  "entry": [0, 4.5],
+  "createdAt": "2026-08-30T00:00:00Z"
+}

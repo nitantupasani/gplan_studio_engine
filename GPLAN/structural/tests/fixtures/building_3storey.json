@@ -1,0 +1,135 @@
+{
+  "id": "bldg-fx1",
+  "name": "Fixture Tower",
+  "type": "Low-Rise Residential",
+  "boundary": {
+    "kind": "rect",
+    "width": 84,
+    "height": 51
+  },
+  "far": 1.5,
+  "totalFloors": 3,
+  "fixedElements": [
+    {
+      "id": "fe-stair",
+      "type": "staircase",
+      "label": "Staircase",
+      "x": 69,
+      "y": 4,
+      "width": 12,
+      "height": 10
+    },
+    {
+      "id": "fe-lift",
+      "type": "lift",
+      "label": "Lift",
+      "x": 69,
+      "y": 16,
+      "width": 8,
+      "height": 8
+    }
+  ],
+  "floors": [
+    {
+      "id": "fl-0",
+      "floorNumber": 0,
+      "label": "Stilt",
+      "kind": "stilt",
+      "units": [],
+      "parking": [],
+      "corridors": []
+    },
+    {
+      "id": "fl-1",
+      "floorNumber": 1,
+      "label": "Floor 1",
+      "kind": "units",
+      "units": [
+        {
+          "id": "u-a",
+          "name": "Unit A",
+          "type": "2BHK",
+          "width": 30,
+          "height": 40,
+          "x": 2,
+          "y": 2,
+          "rotation": 0,
+          "isFixed": false,
+          "spaces": [],
+          "floorplans": [],
+          "activeFloorplanIndex": 0
+        },
+        {
+          "id": "u-b",
+          "name": "Unit B",
+          "type": "2BHK",
+          "width": 30,
+          "height": 40,
+          "x": 36,
+          "y": 2,
+          "rotation": 0,
+          "isFixed": false,
+          "spaces": [],
+          "floorplans": [],
+          "activeFloorplanIndex": 0
+        }
+      ],
+      "corridors": [
+        {
+          "id": "cor-1",
+          "x": 2,
+          "y": 44,
+          "width": 64,
+          "height": 6,
+          "role": "spine"
+        }
+      ]
+    },
+    {
+      "id": "fl-2",
+      "floorNumber": 2,
+      "label": "Floor 2",
+      "kind": "units",
+      "units": [
+        {
+          "id": "u-a",
+          "name": "Unit A",
+          "type": "2BHK",
+          "width": 30,
+          "height": 40,
+          "x": 2,
+          "y": 2,
+          "rotation": 0,
+          "isFixed": false,
+          "spaces": [],
+          "floorplans": [],
+          "activeFloorplanIndex": 0
+        },
+        {
+          "id": "u-b",
+          "name": "Unit B",
+          "type": "2BHK",
+          "width": 30,
+          "height": 40,
+          "x": 36,
+          "y": 2,
+          "rotation": 0,
+          "isFixed": false,
+          "spaces": [],
+          "floorplans": [],
+          "activeFloorplanIndex": 0
+        }
+      ],
+      "corridors": [
+        {
+          "id": "cor-1",
+          "x": 2,
+          "y": 44,
+          "width": 64,
+          "height": 6,
+          "role": "spine"
+        }
+      ]
+    }
+  ]
+}

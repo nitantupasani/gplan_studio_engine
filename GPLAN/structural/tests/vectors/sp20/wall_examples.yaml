@@ -1,0 +1,208 @@
+# End to end masonry wall checks, SP 20 style.
+#
+# Provenance, stated plainly: these three examples are HAND WORKED here, in the
+# worked-example style of SP 20 (S&T):1991, against the IS 1905:1987 tables as
+# transcribed in data/is1905_tables.yaml. They are not copied out of the
+# handbook, and no claim is made that a printed SP 20 example carries these
+# exact numbers. They pin the whole callable chain end to end: Table 4, Table 5,
+# Table 6, Cl 5.2, Table 7, Table 8, Table 9, Cl 5.4.1.2, Table 10, Cl 5.4.1 and
+# Cl 5.4.2, arithmetic shown in the comment above each block.
+#
+# verify: "print" therefore means two things here: verify the table values these
+# examples read, and replace these examples with genuine printed SP 20 vectors
+# once a copy is to hand.
+#
+# UPDATED 2026-08-30 (task J4). The IS 1905:1987 Table 8 read of sp20-w1 was
+# recomputed after the table itself was corrected against the printed standard:
+# an M1 mortar on a 7.5 N/mm2 unit is 0.74 MPa in the print, not the 0.59 this
+# file carried, so fb, fc and the utilization moved with it. The arithmetic is
+# unchanged, and sp20-w2 and sp20-w3 read cells the correction did not touch.
+# These are still hand worked examples, not printed SP 20 vectors.
+#
+# Units: lengths m, stresses MPa (N/mm2), loads kN per metre run of wall, shear
+# kN on the whole segment. A per-metre load w over a thickness t gives a stress
+# of w / (1000 t) MPa.
+
+source: "SP 20 (S&T):1991 Handbook on Masonry Design and Construction, worked-example style; values recomputed against IS 1905:1987 Tables 4 to 10"
+edition: "SP 20 (S&T):1991 style, IS 1905:1987 tables"
+verify: "print"
+
+examples:
+
+  # ---------------------------------------------------------------------
+  # sp20-w1, hand arithmetic
+  #   heff = 0.75 x 2.850            = 2.1375 m        (Table 4, full/full)
+  #   leff = 1.00 x 3.600            = 3.6000 m        (Table 5, cross/cross)
+  #   teff = 0.230 m                                   (Table 6, solid)
+  #   SR   = min(2.1375/0.230, 3.600/0.230)
+  #        = min(9.29348, 15.65217)  = 9.29348         (Cl 5.2)
+  #   cap  = 27, cement mortar M1, so the wall is inside it (Table 7)
+  #   fb   = 0.74 MPa                                  (Table 8, 7.5 MPa / M1)
+  #   ks   : row 8 = 0.95, row 10 = 0.89 at e/t = 0
+  #          f = (9.29348 - 8)/2     = 0.646739
+  #          ks = 0.95 - 0.06 x 0.646739 = 0.911196    (Table 9)
+  #   A    = 0.230 x 3.600 = 0.828 m2 >= 0.2, so ka = 1.0     (Cl 5.4.1.2)
+  #   kp   = 1.0, modular brick, h/w = 0.75            (Table 10)
+  #   fc   = 0.74 x 0.911196 x 1.0 x 1.0 = 0.674285 MPa (Cl 5.4.1)
+  #   fa   = 60 / (1000 x 0.230)     = 0.260870 MPa
+  #   util = 0.260870 / 0.674285     = 0.386883        OK
+  # ---------------------------------------------------------------------
+  - id: sp20-w1
+    title: "Interior ground storey wall of a two storey house, concentric, 230 brick in M1"
+    verify: "print"
+    geometry:
+      thickness_m: 0.230
+      clear_height_m: 2.850
+      length_m: 3.600
+      top_restraint: full
+      bottom_restraint: full
+      end_conditions: [cross_wall, cross_wall]
+      loaded_area_m2: 0.828
+      unit_h_over_w: 0.75
+    materials:
+      unit_strength_mpa: 7.5
+      mortar_grade: M1
+      storeys: 2
+    loads:
+      axial_kn_per_m: 60.0
+      dead_axial_kn_per_m: null
+      shear_kn: null
+      e_over_t: 0.0
+    expected:
+      heff_m: 2.1375
+      leff_m: 3.6000
+      teff_m: 0.2300
+      slenderness_ratio: 9.29348
+      slenderness_ok: true
+      fb_mpa: 0.74
+      ks: 0.911196
+      ka: 1.0
+      kp: 1.0
+      fc_mpa: 0.674285
+      fa_mpa: 0.260870
+      utilization_compression: 0.386883
+      fs_mpa: null
+      tau_mpa: null
+      utilization_shear: null
+      verdict: OK
+
+  # ---------------------------------------------------------------------
+  # sp20-w2, hand arithmetic
+  #   heff = 0.75 x 3.000            = 2.2500 m        (Table 4, full/full)
+  #   leff = 0.90 x 4.500            = 4.0500 m        (Table 5, continuous/cross)
+  #   teff = 0.230 m                                   (Table 6, solid)
+  #   SR   = min(2.250/0.230, 4.050/0.230)
+  #        = min(9.782609, 17.608696) = 9.782609       (Cl 5.2)
+  #   cap  = 27, cement mortar M2, inside it           (Table 7)
+  #   fb   = 0.44 MPa                                  (Table 8, 5.0 MPa / M2)
+  #   ks   : column e/t = 1/6, row 8 = 0.93, row 10 = 0.85
+  #          f = (9.782609 - 8)/2    = 0.891304
+  #          ks = 0.93 - 0.08 x 0.891304 = 0.858696    (Table 9)
+  #   A    = 0.230 x 4.500 = 1.035 m2 >= 0.2, so ka = 1.0
+  #   kp   = 1.0
+  #   fc   = 0.44 x 0.858696         = 0.377826 MPa
+  #   fa   = 25 / (1000 x 0.230)     = 0.108696 MPa
+  #   util = 0.108696 / 0.377826     = 0.287688        OK
+  # This is the case the report flags: the top storey exterior wall carries the
+  # least pre-compression and the full t/6 slab eccentricity, so it governs the
+  # material prescription far more often than the heavily loaded ground storey.
+  # ---------------------------------------------------------------------
+  - id: sp20-w2
+    title: "Top storey exterior wall, slab bearing one side, e/t = 1/6, weak 5 MPa unit in M2"
+    verify: "print"
+    geometry:
+      thickness_m: 0.230
+      clear_height_m: 3.000
+      length_m: 4.500
+      top_restraint: full
+      bottom_restraint: full
+      end_conditions: [continuous, cross_wall]
+      loaded_area_m2: 1.035
+      unit_h_over_w: 0.75
+    materials:
+      unit_strength_mpa: 5.0
+      mortar_grade: M2
+      storeys: 2
+    loads:
+      axial_kn_per_m: 25.0
+      dead_axial_kn_per_m: null
+      shear_kn: null
+      e_over_t: 0.1666666666666667
+    expected:
+      heff_m: 2.2500
+      leff_m: 4.0500
+      teff_m: 0.2300
+      slenderness_ratio: 9.782609
+      slenderness_ok: true
+      fb_mpa: 0.44
+      ks: 0.858696
+      ka: 1.0
+      kp: 1.0
+      fc_mpa: 0.377826
+      fa_mpa: 0.108696
+      utilization_compression: 0.287688
+      fs_mpa: null
+      tau_mpa: null
+      utilization_shear: null
+      verdict: OK
+
+  # ---------------------------------------------------------------------
+  # sp20-w3, hand arithmetic
+  #   heff = 0.75 x 2.700            = 2.0250 m        (Table 4, full/full)
+  #   leff = none: the pier is measured on the height term alone
+  #   teff = 0.230 m                                   (Table 6, solid)
+  #   SR   = 2.025 / 0.230           = 8.804348        (Cl 5.2)
+  #   cap  = 27, cement mortar H2, inside it           (Table 7)
+  #   fb   = 0.96 MPa                                  (Table 8, 10 MPa / H2)
+  #   ks   : column e/t = 1/12, row 8 = 0.94, row 10 = 0.87
+  #          f = (8.804348 - 8)/2    = 0.402174
+  #          ks = 0.94 - 0.07 x 0.402174 = 0.911848    (Table 9)
+  #   A    = 0.230 x 0.600 = 0.138 m2 < 0.2, so
+  #          ka = 0.7 + 1.5 x 0.138  = 0.907           (Cl 5.4.1.2)
+  #   kp   = 1.0
+  #   fc   = 0.96 x 0.911848 x 0.907 = 0.793964 MPa
+  #   fa   = 120 / (1000 x 0.230)    = 0.521739 MPa
+  #   util = 0.521739 / 0.793964     = 0.657133        OK
+  #   fd   = 90 / (1000 x 0.230)     = 0.391304 MPa    (dead load only)
+  #   fs   = 0.1 + 0.391304/6        = 0.165217 MPa, under the 0.5 cap
+  #   tau  = 12 / (1000 x 0.230 x 0.600) = 0.086957 MPa
+  #   util = 0.086957 / 0.165217     = 0.526316        OK
+  # ---------------------------------------------------------------------
+  - id: sp20-w3
+    title: "Short ground storey pier between openings, small loaded area, in plane shear checked"
+    verify: "print"
+    geometry:
+      thickness_m: 0.230
+      clear_height_m: 2.700
+      length_m: 0.600
+      top_restraint: full
+      bottom_restraint: full
+      end_conditions: null
+      loaded_area_m2: 0.138
+      unit_h_over_w: 0.75
+    materials:
+      unit_strength_mpa: 10.0
+      mortar_grade: H2
+      storeys: 2
+    loads:
+      axial_kn_per_m: 120.0
+      dead_axial_kn_per_m: 90.0
+      shear_kn: 12.0
+      e_over_t: 0.0833333333333333
+    expected:
+      heff_m: 2.0250
+      leff_m: null
+      teff_m: 0.2300
+      slenderness_ratio: 8.804348
+      slenderness_ok: true
+      fb_mpa: 0.96
+      ks: 0.911848
+      ka: 0.907
+      kp: 1.0
+      fc_mpa: 0.793964
+      fa_mpa: 0.521739
+      utilization_compression: 0.657133
+      fs_mpa: 0.165217
+      tau_mpa: 0.086957
+      utilization_shear: 0.526316
+      verdict: OK

@@ -1,0 +1,848 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gplan.in/schema/structural_response-1.0.json",
+  "title": "GPLAN structural response envelope",
+  "description": "The envelope every entry point of GPLAN/structural/api.py returns: run_options, run_layout, run_design and run_check, refusals included. Frozen contract 6 of CRITIC_RESOLUTIONS.md. Geometry is FEET y-down, section dimensions are millimetres, engineering quantities are SI, and every numeric key carries its unit suffix. Clients must tolerate unknown fields: an additive field is a minor bump, a rename or a unit change is a major one. SIZE REGIME (`output.detail`, default `compact`): a design response ships at one of two levels and BOTH validate against this document. `compact` elides the bulk -- a passing member's check rows, notes, bars and stirrups, the per-element load and analysis rows, the per-bar schedule, the per-element concrete volumes, the element cards -- and keeps the disclaimer, every disclosure, the layout metrics, the whole BOQ and the section, reinforcement, status, utilization and governing check of every designed element. A BLOCKED or FAILED element keeps its whole design result at both levels. Eliding is never silent: an elided block keeps its type and gains `<key>_total`, `<key>_elided`, `<key>_ref` and `<key>_elided_reason` siblings, and `entry.detail` names the level and where the policy is published (`run_options().detail.policy`).",
+  "type": "object",
+  "required": ["status", "message", "response", "disclaimer"],
+  "additionalProperties": true,
+  "properties": {
+    "status": {
+      "description": "SUCCESS even with warnings and with failed member designs; ERROR only when no valid model could be produced or the request was refused.",
+      "enum": ["SUCCESS", "ERROR"]
+    },
+    "message": {"type": "string"},
+    "disclaimer": {
+      "description": "The verbatim PRELIMINARY ENGINEERING NOTICE, present on EVERY response path including refusals (finding 29). Its wrapping may differ; its words may not.",
+      "type": "string",
+      "minLength": 200,
+      "pattern": "PRELIMINARY ENGINEERING NOTICE"
+    },
+    "response": {
+      "type": "object",
+      "required": ["Documents"],
+      "additionalProperties": true,
+      "properties": {
+        "Documents": {"$ref": "#/$defs/documents"}
+      }
+    }
+  },
+  "$defs": {
+    "documents": {
+      "type": "object",
+      "required": ["structural", "batch_summary", "schema_version", "engine_fingerprint"],
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/schema_version"},
+        "engine_fingerprint": {
+          "description": "sha256 prefix over the schema version and the data/ table versions; the backend folds it into its dedup key.",
+          "type": "string",
+          "pattern": "^st-[0-9a-f]{16}$"
+        },
+        "structural": {
+          "description": "ALWAYS a list (finding 16): length 1 for a plan, a building, a check or the options answer, and one entry per BUILT plot stack for housing.",
+          "type": "array",
+          "items": {"$ref": "#/$defs/entry"}
+        },
+        "batch_summary": {"$ref": "#/$defs/batch_summary"},
+        "error": {"$ref": "#/$defs/error"}
+      }
+    },
+
+    "schema_version": {
+      "description": "One version field at the Documents.structural level, echoed inside structural_model by to_dict (finding 28). The engine validates the MAJOR prefix only.",
+      "type": "string",
+      "pattern": "^structural-1(\\.[0-9]+)?$"
+    },
+
+    "batch_summary": {
+      "type": "object",
+      "required": ["plans", "ok", "warnings", "refused"],
+      "additionalProperties": true,
+      "properties": {
+        "plans": {"type": "integer", "minimum": 0},
+        "ok": {"type": "integer", "minimum": 0},
+        "warnings": {"type": "integer", "minimum": 0},
+        "refused": {"type": "integer", "minimum": 0},
+        "schema_version": {"$ref": "#/$defs/schema_version"}
+      }
+    },
+
+    "error": {
+      "description": "Present only on a refusal. `field` names the request key a validation failure is about; `code` is a model.REGISTRY ERROR code when the refusal came from an adapter.",
+      "type": "object",
+      "required": ["message", "type"],
+      "additionalProperties": true,
+      "properties": {
+        "message": {"type": "string"},
+        "type": {"enum": ["ValidationError", "PayloadTooLarge", "EngineError"]},
+        "field": {"type": "string"},
+        "code": {"type": "string", "pattern": "^E_[A-Z0-9_]+$"},
+        "details": {"type": "object"}
+      }
+    },
+
+    "entry": {
+      "description": "One per-plan (or per-plot-stack) object. run_options and run_check use the same wrapper with their own bodies; every entry carries schema_version, units and the disclaimer.",
+      "type": "object",
+      "required": ["schema_version", "units", "disclaimer"],
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/schema_version"},
+        "engine_fingerprint": {"type": "string"},
+        "units": {"$ref": "#/$defs/units"},
+        "disclaimer": {"type": "string", "pattern": "PRELIMINARY ENGINEERING NOTICE"},
+        "source": {"enum": ["plan", "building", "housing", "plan_json", "model"]},
+        "system": {
+          "description": "The system actually used; the frozen internal enum (finding 26).",
+          "enum": ["rc_frame", "load_bearing_masonry", "confined_masonry", "mixed"]
+        },
+        "status": {"enum": ["ok", "ok_with_warnings", "refused"]},
+        "report_status": {"enum": ["ok", "ok_with_warnings", "refused"]},
+        "partial": {"type": "boolean"},
+        "footings_sized": {
+          "description": "false on a layout response: a footing is sized from a takedown layout never runs (finding 18).",
+          "type": "boolean"
+        },
+        "validate_only": {"type": "boolean"},
+        "stopped_at": {
+          "description": "Present only on a partial: the stage that could not run, named. The geometry placed before the stop still ships.",
+          "type": "string"
+        },
+        "input_ref": {"$ref": "#/$defs/input_ref"},
+        "options_echo": {"$ref": "#/$defs/options_echo"},
+        "detail": {"$ref": "#/$defs/detail"},
+        "placement": {"$ref": "#/$defs/placement"},
+        "layout_score": {"$ref": "#/$defs/layout_score"},
+        "structural_model": {"$ref": "#/$defs/structural_model"},
+        "analysis": {"$ref": "#/$defs/analysis"},
+        "design": {"$ref": "#/$defs/design"},
+        "quantities": {"$ref": "#/$defs/quantities"},
+        "report": {"$ref": "#/$defs/report"},
+        "errors": {"type": "array", "items": {"$ref": "#/$defs/disclosure"}},
+        "warnings": {"type": "array", "items": {"$ref": "#/$defs/disclosure"}},
+        "scope": {"enum": ["placement", "full"]},
+        "verdict": {"enum": ["PASS", "FAIL"]},
+        "hard_violations": {"type": "array", "items": {"$ref": "#/$defs/disclosure"}},
+        "element_checks": {"type": "array", "items": {"$ref": "#/$defs/element_check"}},
+        "element_check_count": {"type": "integer", "minimum": 0},
+        "element_checks_failed": {"type": "integer", "minimum": 0},
+        "changed_hint": {"type": "array", "items": {"type": "string"}},
+        "limits": {"$ref": "#/$defs/limits"},
+        "sources": {"type": "array", "items": {"type": "string"}},
+        "systems": {"type": "array", "items": {"type": "string"}},
+        "seismic_zones": {"type": "object", "additionalProperties": {"type": "number"}},
+        "grades": {"type": "object"},
+        "endpoints": {"type": "object"}
+      }
+    },
+
+    "units": {
+      "description": "The unit contract, stated on every response so nothing has to be inferred from a key name.",
+      "type": "object",
+      "required": ["geometry", "sections", "forces", "moments", "loads", "stresses"],
+      "additionalProperties": true,
+      "properties": {
+        "geometry": {"const": "ft"},
+        "sections": {"const": "mm"},
+        "forces": {"const": "kN"},
+        "moments": {"const": "kNm"},
+        "loads": {"const": "kPa"},
+        "stresses": {"const": "MPa"}
+      }
+    },
+
+    "input_ref": {
+      "description": "What this entry was computed from. `hash` is a sha256 over the canonical request, so the backend has a stable dedup key.",
+      "type": "object",
+      "required": ["source", "hash"],
+      "additionalProperties": true,
+      "properties": {
+        "source": {"type": "string"},
+        "hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "plan_index": {"type": ["integer", "null"]},
+        "plot_id": {"type": ["string", "null"]},
+        "model_id": {"type": "string"}
+      }
+    },
+
+    "options_echo": {
+      "description": "Every resolved option beside where it came from, so a default is never silent.",
+      "type": "object",
+      "required": ["values", "origins"],
+      "additionalProperties": true,
+      "properties": {
+        "values": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "system": {"type": "string"},
+            "seismic_zone": {"enum": ["II", "III", "IV", "V"]},
+            "frame_ductility": {"enum": ["OMRF", "SMRF"]},
+            "soil": {"$ref": "#/$defs/soil"},
+            "spans": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "min_m": {"type": "number", "exclusiveMinimum": 0},
+                "max_m": {"type": "number", "exclusiveMinimum": 0}
+              }
+            },
+            "cantilever": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "max_m": {"type": "number", "maximum": 2.5},
+                "refuse_m": {"const": 2.5}
+              }
+            },
+            "output": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "trace": {"type": "boolean"},
+                "detail": {"enum": ["compact", "full"]},
+                "include_report": {"type": "boolean"},
+                "include_boq": {"type": "boolean"},
+                "include_quantities": {"type": "boolean"},
+                "report_format": {"type": "string"}
+              }
+            }
+          }
+        },
+        "origins": {"type": "object", "additionalProperties": {"type": "string"}},
+        "unapplied": {
+          "description": "Options this engine accepted on the request and did NOT use, each with the reason. Empty is the normal case.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["field", "reason"],
+            "additionalProperties": true,
+            "properties": {
+              "field": {"type": "string"},
+              "reason": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+
+    "detail": {
+      "description": "The size regime. On a DESIGN entry it says which level built the response: `level` is the resolved value of `output.detail` (or `params.detail`), `origin` says whether it came from the request, the default or `output.trace`, and the two row counts say how many design results are whole and how many are abbreviated. On the OPTIONS entry the same key publishes the policy instead -- every block `compact` elides, what it keeps, why, and the key that names where the whole thing lives -- which is the one authoritative copy of the table.",
+      "type": "object",
+      "required": ["levels"],
+      "additionalProperties": true,
+      "properties": {
+        "level": {"enum": ["compact", "full"]},
+        "levels": {"type": "array", "items": {"enum": ["compact", "full"]}},
+        "default": {"enum": ["compact", "full"]},
+        "request_flag": {"const": "output.detail"},
+        "also_accepted": {"type": "string"},
+        "trace_implies": {"enum": ["compact", "full"]},
+        "origin": {"type": "string"},
+        "policy_ref": {"type": "string"},
+        "policy": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["block", "elided", "kept", "reason"],
+            "additionalProperties": true,
+            "properties": {
+              "block": {"type": "string"},
+              "elided": {"type": "array", "items": {"type": "string"}},
+              "kept": {"type": "array", "items": {"type": "string"}},
+              "reason": {"type": "string"}
+            }
+          }
+        },
+        "design_rows_full": {"type": "integer", "minimum": 0},
+        "design_rows_compact": {"type": "integer", "minimum": 0},
+        "full_detail_always": {"type": "string"},
+        "never_elided": {"type": "string"},
+        "disclosures_total": {"type": "integer", "minimum": 0}
+      }
+    },
+
+    "soil": {
+      "description": "The one frozen soil block (finding 30). founding_depth_m is 1.5 everywhere unless the caller states otherwise.",
+      "type": "object",
+      "required": ["type", "sbc_kpa", "soft", "founding_depth_m"],
+      "additionalProperties": true,
+      "properties": {
+        "type": {"enum": ["I", "II", "III"]},
+        "sbc_kpa": {"type": "number", "exclusiveMinimum": 0},
+        "soft": {"type": "boolean"},
+        "founding_depth_m": {"type": "number", "exclusiveMinimum": 0},
+        "water_table_m": {"type": ["number", "null"]},
+        "assumed": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+
+    "placement": {
+      "type": "object",
+      "required": ["system"],
+      "additionalProperties": true,
+      "properties": {
+        "system": {"enum": ["rc_frame", "load_bearing_masonry", "confined_masonry", "mixed"]},
+        "valid": {"type": "boolean"},
+        "axes_source": {"type": "string"},
+        "system_decision": {"$ref": "#/$defs/system_decision"},
+        "layout_score": {"$ref": "#/$defs/layout_score"},
+        "masonry": {"type": "object"},
+        "masonry_attempt": {
+          "description": "An abandoned masonry attempt, kept for the record when the placer escalated to rc_frame. Its geometry is NOT in the delivered model.",
+          "type": "object"
+        }
+      }
+    },
+
+    "system_decision": {
+      "description": "choose_system's answer verbatim, with its row-by-row trace and its refusal (finding 27).",
+      "type": "object",
+      "required": ["system", "system_requested", "trace"],
+      "additionalProperties": true,
+      "properties": {
+        "system": {"type": "string"},
+        "system_requested": {"type": "string"},
+        "system_used": {"type": "string"},
+        "category": {"type": "string"},
+        "labeled": {"type": "boolean"},
+        "trace": {"type": "array", "items": {"type": "string"}},
+        "refused": {
+          "type": ["object", "null"],
+          "additionalProperties": true,
+          "properties": {
+            "clause": {"type": "string"},
+            "reason": {"type": "string"},
+            "code": {"type": "string"}
+          }
+        }
+      }
+    },
+
+    "layout_score": {
+      "description": "placement-frame's metrics block mirrored field for field, plus the mandatory score_version (finding 33). Both are null on the masonry path, which places no frame and invents no score.",
+      "type": "object",
+      "required": ["score", "score_version"],
+      "additionalProperties": true,
+      "properties": {
+        "score": {"type": ["integer", "number", "null"]},
+        "score_version": {"type": ["string", "null"]},
+        "hard_violations": {"type": ["object", "integer"]},
+        "hard_violation_count": {"type": "integer", "minimum": 0},
+        "valid": {"type": "boolean"},
+        "basis": {"type": "string"},
+        "metrics": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "axis_count": {"type": ["object", "integer"]},
+            "columns_per_100m2": {"type": ["number", "null"]},
+            "beams_under_walls_pct": {"type": ["number", "null"]},
+            "column_eccentricity_mm": {"type": ["object", "number", "null"]},
+            "load_path_depth": {"type": ["integer", "number", "null"]},
+            "span_histogram": {"type": ["object", "array"]},
+            "torsion_proxy_pct": {"type": ["object", "number", "null"]}
+          }
+        },
+        "placed": {"type": "object"},
+        "recomputed": {"type": "object"}
+      }
+    },
+
+    "structural_model": {
+      "description": "StructuralModel.to_dict(): feet geometry, millimetre sections, SI engineering. The bulky stage outputs live here once, in the slots findings 6 and 14 make the model's own, and the entry-level analysis / design / quantities blocks name them rather than repeat them. At `output.detail=compact` the model's geometry slots are untouched and four blocks fold: `design` carries compact rows for everything that is neither blocked nor failed, `loads.cases[]` keeps its case roster without the per-element rows, `analysis` keeps its results without the force envelopes, and `warnings` keeps every ERROR and points at the entry-level ladder, which carries every entry in full.",
+      "type": "object",
+      "required": [
+        "schema_version", "id", "source", "system", "fingerprint", "units", "meta",
+        "storeys", "axes", "walls", "rooms", "cores", "columns", "beams", "slabs",
+        "bands", "lintels", "footings", "loads", "seismic", "analysis", "design",
+        "quantities", "warnings"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/schema_version"},
+        "id": {"type": "string"},
+        "source": {"enum": ["plan_json", "building", "housing"]},
+        "system": {"enum": ["rc_frame", "load_bearing_masonry", "confined_masonry", "mixed"]},
+        "fingerprint": {"type": "string"},
+        "units": {"$ref": "#/$defs/units"},
+        "meta": {"type": "object"},
+        "storeys": {"type": "array", "items": {"$ref": "#/$defs/storey"}},
+        "axes": {
+          "type": "object",
+          "required": ["x", "y"],
+          "additionalProperties": false,
+          "properties": {
+            "x": {"type": "array", "items": {"$ref": "#/$defs/axis"}},
+            "y": {"type": "array", "items": {"$ref": "#/$defs/axis"}}
+          }
+        },
+        "walls": {"type": "array"},
+        "rooms": {"type": "array"},
+        "cores": {"type": "array"},
+        "columns": {"type": "array", "items": {"$ref": "#/$defs/column"}},
+        "beams": {"type": "array", "items": {"$ref": "#/$defs/beam"}},
+        "slabs": {"type": "array", "items": {"$ref": "#/$defs/slab"}},
+        "bands": {"type": "array"},
+        "lintels": {"type": "array"},
+        "footings": {"type": "array", "items": {"$ref": "#/$defs/footing"}},
+        "loads": {"type": ["object", "null"]},
+        "seismic": {"type": ["object", "null"]},
+        "analysis": {"type": ["object", "null"]},
+        "design": {"type": "array", "items": {"$ref": "#/$defs/design_row"}},
+        "quantities": {"type": ["object", "null"]},
+        "warnings": {"type": "array", "items": {"$ref": "#/$defs/disclosure"}},
+        "warnings_total": {"type": "integer", "minimum": 0},
+        "warnings_elided": {"type": "boolean"},
+        "warnings_ref": {"type": "string"}
+      }
+    },
+
+    "storey": {
+      "type": "object",
+      "required": ["index"],
+      "additionalProperties": true,
+      "properties": {
+        "index": {"type": "integer", "minimum": 0},
+        "height_ft": {"type": "number"},
+        "bottom_z_ft": {"type": "number"},
+        "kind": {"enum": ["units", "stilt", "roof"]}
+      }
+    },
+
+    "axis": {
+      "type": "object",
+      "required": ["id", "dir", "pos_ft", "label", "source"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {"type": "string"},
+        "dir": {"enum": ["x", "y"]},
+        "pos_ft": {"type": "number"},
+        "label": {"type": "string"},
+        "source": {"enum": ["outline", "corridor", "party", "wall", "core", "inserted"]},
+        "storeys": {"type": "array", "items": {"type": "integer"}}
+      }
+    },
+
+    "column": {
+      "type": "object",
+      "required": ["id", "storey", "x_ft", "y_ft", "b_mm", "d_mm"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {"type": "string"},
+        "stack_id": {"type": "string"},
+        "storey": {"type": "integer", "minimum": 0},
+        "x_ft": {"type": "number"},
+        "y_ft": {"type": "number"},
+        "b_mm": {"type": "number", "exclusiveMinimum": 0},
+        "d_mm": {"type": "number", "exclusiveMinimum": 0},
+        "rot": {"type": "integer"},
+        "on_grid": {"type": ["array", "null"]},
+        "placed_by": {"type": "string"}
+      }
+    },
+
+    "beam": {
+      "type": "object",
+      "required": ["id", "storey", "a_ft", "b_ft", "b_mm", "kind"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {"type": "string"},
+        "storey": {"type": "integer"},
+        "a_ft": {"$ref": "#/$defs/point_ft"},
+        "b_ft": {"$ref": "#/$defs/point_ft"},
+        "b_mm": {"type": "number", "exclusiveMinimum": 0},
+        "d_mm": {"type": ["number", "null"]},
+        "kind": {
+          "description": "The frozen superset (finding 11); bands are Band elements, never a beam role.",
+          "enum": [
+            "primary", "secondary", "plinth", "tie", "trimmer",
+            "cantilever", "spandrel", "landing", "lintel"
+          ]
+        },
+        "supports_wall_id": {"type": ["string", "null"]},
+        "placed_by": {"type": "string"}
+      }
+    },
+
+    "slab": {
+      "type": "object",
+      "required": ["id", "storey", "polygon_ft"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {"type": "string"},
+        "storey": {"type": "integer"},
+        "polygon_ft": {"type": "array", "items": {"$ref": "#/$defs/point_ft"}},
+        "thickness_mm": {"type": ["number", "null"]},
+        "two_way": {"type": ["boolean", "null"]},
+        "lx_ft": {"type": "number"},
+        "ly_ft": {"type": "number"},
+        "kind": {"enum": ["floor", "roof", "landing"]}
+      }
+    },
+
+    "footing": {
+      "description": "On a layout response w_ft, h_ft and depth_ft are null: the marker says where a footing goes, never what size it is.",
+      "type": "object",
+      "required": ["id", "kind", "supports", "x_ft", "y_ft"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {"type": "string"},
+        "kind": {"enum": ["isolated", "combined", "strip", "strap"]},
+        "supports": {"type": "array", "items": {"type": "string"}},
+        "x_ft": {"type": "number"},
+        "y_ft": {"type": "number"},
+        "w_ft": {"type": ["number", "null"]},
+        "h_ft": {"type": ["number", "null"]},
+        "depth_ft": {"type": ["number", "null"]},
+        "placed_by": {"type": "string"}
+      }
+    },
+
+    "point_ft": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"type": "number"}
+    },
+
+    "disclosure": {
+      "description": "One ladder entry. Codes come from model.REGISTRY and are carried unchanged from producer to report to API to the frontend tag key (finding 8).",
+      "type": "object",
+      "required": ["code", "severity", "message", "element_ids"],
+      "additionalProperties": true,
+      "properties": {
+        "code": {"type": "string", "pattern": "^[EWN]_[A-Z0-9_]+$"},
+        "severity": {"enum": ["error", "warning", "note"]},
+        "message": {"type": "string"},
+        "element_ids": {"type": "array", "items": {"type": "string"}},
+        "clause": {"type": ["string", "null"]},
+        "stage": {"type": "string"}
+      }
+    },
+
+    "analysis": {
+      "type": ["object", "null"],
+      "required": ["method", "combos_used"],
+      "additionalProperties": true,
+      "properties": {
+        "method": {"type": "string"},
+        "storey_weight_source": {"type": "string"},
+        "referral_re_passes": {"type": "integer", "minimum": 0, "maximum": 1},
+        "combos_used": {"type": "array", "items": {"type": "string"}},
+        "combos": {"type": "array"},
+        "combos_ref": {
+          "description": "Present at output.detail=compact: `combos` is the same table structural_model.loads.combos carries, so it rides once and this names it.",
+          "const": "structural_model.loads.combos"
+        },
+        "combos_total": {"type": "integer", "minimum": 0},
+        "combos_elided": {"type": "boolean"},
+        "cases_used": {"type": "array", "items": {"type": "string"}},
+        "seismic": {"type": ["object", "null"]},
+        "wind": {"type": ["object", "null"]},
+        "lateral": {
+          "description": "At output.detail=compact the per-column `base_forces`, the per-pier `storeys[].elements` and the stage `disclosures` are elided, each with its own `_total` / `_elided` / `_ref` siblings; every storey scalar, the overturning check and the assumptions stay.",
+          "type": ["object", "null"]
+        },
+        "storey_shears": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "x": {"type": "object", "additionalProperties": {"type": "number"}},
+            "y": {"type": "object", "additionalProperties": {"type": "number"}}
+          }
+        },
+        "foundations": {"type": "object"},
+        "loads_ref": {"type": "string"},
+        "takedown_ref": {"type": "string"}
+      }
+    },
+
+    "design": {
+      "type": "object",
+      "required": ["code_set", "results_ref", "results_count", "failed", "failed_count"],
+      "additionalProperties": true,
+      "properties": {
+        "code_set": {"type": "array", "items": {"type": "string"}},
+        "materials": {"type": "object"},
+        "results_ref": {"const": "structural_model.design"},
+        "results_count": {"type": "integer", "minimum": 0},
+        "trace_included": {"type": "boolean"},
+        "failed": {
+          "description": "Every member whose design came back `fail`. At output.detail=compact the warning texts are absent and the sibling `failed_warnings_ref` points at the member's own design row, which is never abbreviated at any level; `warnings_total` counts them either way.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["element_id", "check"],
+            "additionalProperties": true,
+            "properties": {
+              "element_id": {"type": "string"},
+              "element_type": {"type": "string"},
+              "check": {"type": "string"},
+              "utilization": {"type": "number"},
+              "warnings": {"type": "array", "items": {"type": "string"}},
+              "warnings_total": {"type": "integer", "minimum": 0}
+            }
+          }
+        },
+        "failed_warnings_ref": {"type": "string"},
+        "failed_count": {"type": "integer", "minimum": 0},
+        "coverage": {"type": "object"},
+        "undesigned": {"type": "array", "items": {"type": "string"}},
+        "undesigned_count": {"type": "integer", "minimum": 0},
+        "referrals": {
+          "description": "Design referrals grouped by action. An action the orchestrator acts on is always a list, one object per element. At output.detail=compact an action nobody executes folds into one object carrying its count, its element ids and the note every row repeats, with `rows_elided: true`.",
+          "type": "object",
+          "additionalProperties": {"type": ["array", "object"]}
+        },
+        "referral_re_passes": {
+          "description": "Finding 19: exactly one bounded re-pass, so this is 0 or 1 and never more.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "referrals_applied": {"type": "array"},
+        "referrals_outstanding": {
+          "description": "What the one re-pass left open, per action. The ladder merges by code, so this block is the authoritative record.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["action", "count"],
+            "additionalProperties": true,
+            "properties": {
+              "action": {"type": "string"},
+              "count": {"type": "integer", "minimum": 0}
+            }
+          }
+        },
+        "referrals_outstanding_ids": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+
+    "design_row": {
+      "description": "One row of structural_model.design, at whichever level the response was built. `detail: \"compact\"` marks the abbreviated projection; every other row is a whole DesignResult. Inside a COMPACT response the blocked and failed members still ship whole and are marked `detail: \"full\"`, so a client can tell the two apart on the row itself.",
+      "oneOf": [
+        {"$ref": "#/$defs/design_result"},
+        {"$ref": "#/$defs/design_result_compact"}
+      ]
+    },
+
+    "design_result": {
+      "description": "design/common.py DesignResult, the one shape every material returns (finding 6). `trace` is empty unless output.trace was set, and `trace_elided` says so. This is the whole row: every row at `output.detail=full`, and at `compact` every row of a BLOCKED or FAILED element, which is never abbreviated at any level.",
+      "type": "object",
+      "required": ["element_id", "element_type", "status", "checks"],
+      "additionalProperties": true,
+      "properties": {
+        "element_id": {"type": "string"},
+        "element_type": {"type": "string"},
+        "status": {"enum": ["pass", "resized", "fail"]},
+        "section": {"type": "object"},
+        "materials": {"type": "object"},
+        "bars": {"type": "array"},
+        "stirrups": {"type": "array"},
+        "checks": {"type": "array", "items": {"$ref": "#/$defs/check_row"}},
+        "referrals": {"type": "array"},
+        "utilization_max": {"type": "number"},
+        "governing_check": {"type": "string"},
+        "warnings": {"type": "array", "items": {"type": "string"}},
+        "notes": {"type": "array", "items": {"type": "string"}},
+        "trace": {"type": "array"},
+        "trace_elided": {"type": "boolean"},
+        "detail": {"const": "full"}
+      }
+    },
+
+    "design_result_compact": {
+      "description": "One design result at `output.detail=compact`: what a reader acts on. The section dimensions and descriptors (the derived numbers -- effective depths, clear spans, panel spans, bearing pressures, table cases -- are elided), the reinforcement as the display string report.reinforcement_text builds off `bars` + `stirrups`, the status, the utilization, the registry codes naming this element, and the GOVERNING CHECK as the whole row it came from, clause, demand, capacity and unit included. `checks_total` is how many check rows `full` would have shown; `bars`, `stirrups`, `notes`, `materials`, `referrals` and `resize_history` are absent, and `output.detail=full` returns every one of them. `design.referrals` still groups every referral by action with its element ids.",
+      "type": "object",
+      "required": [
+        "element_id", "element_type", "status", "section", "reinforcement",
+        "governing_check", "checks", "checks_total", "utilization_max", "detail"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "element_id": {"type": "string"},
+        "element_type": {"type": "string"},
+        "status": {"enum": ["pass", "resized", "fail"]},
+        "section": {
+          "description": "The dimensions (b_mm, D_mm, bx_mm, ly_mm, thickness_mm, waist_mm, depth_mm, cover_mm) and every non-numeric descriptor the designer put there (wall_id, support, kind, short_axis, two_way).",
+          "type": "object"
+        },
+        "reinforcement": {"type": "string"},
+        "governing_check": {"type": "string"},
+        "checks": {
+          "description": "The governing check row, alone. `checks_total` says how many rows the full result carries.",
+          "type": "array",
+          "maxItems": 1,
+          "items": {"$ref": "#/$defs/check_row"}
+        },
+        "checks_total": {"type": "integer", "minimum": 0},
+        "utilization_max": {"type": "number"},
+        "disclosure_codes": {
+          "type": "array",
+          "items": {"type": "string", "pattern": "^[EWN]_[A-Z0-9_]+$"}
+        },
+        "warnings": {"type": "array", "items": {"type": "string"}},
+        "trace": {"type": "array", "maxItems": 0},
+        "trace_elided": {"const": true},
+        "detail": {"const": "compact"}
+      }
+    },
+
+    "check_row": {
+      "type": "object",
+      "required": ["name", "clause", "status"],
+      "additionalProperties": true,
+      "properties": {
+        "name": {"type": "string"},
+        "clause": {"type": "string"},
+        "demand": {"type": ["number", "null"]},
+        "capacity": {"type": ["number", "null"]},
+        "ratio": {"type": ["number", "null"]},
+        "status": {"enum": ["pass", "fail"]},
+        "units": {"type": "string"}
+      }
+    },
+
+    "element_check": {
+      "description": "run_check scope full: one row per designed element, with the clause its verdict came from.",
+      "type": "object",
+      "required": ["element_id", "element_type", "pass", "status"],
+      "additionalProperties": true,
+      "properties": {
+        "element_id": {"type": "string"},
+        "element_type": {"type": "string"},
+        "status": {"enum": ["pass", "resized", "fail"]},
+        "pass": {"type": "boolean"},
+        "check": {"type": "string"},
+        "clause": {"type": "string"},
+        "utilization": {"type": "number"}
+      }
+    },
+
+    "quantities": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "takeoff_ref": {"const": "structural_model.quantities.takeoff"},
+        "bbs_ref": {"const": "structural_model.quantities.bbs"},
+        "boq_ref": {"const": "structural_model.quantities.boq"},
+        "totals": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "concrete_m3": {"type": "number", "minimum": 0},
+            "formwork_m2": {"type": "number", "minimum": 0},
+            "masonry_m3": {"type": "number", "minimum": 0},
+            "steel_kg": {"type": "number", "minimum": 0},
+            "excavation_m3": {"type": "number", "minimum": 0}
+          }
+        },
+        "builtup_area_m2": {"type": "number", "minimum": 0},
+        "bbs_total_with_wastage_kg": {"type": ["number", "null"]},
+        "boq_total": {"type": ["number", "null"]},
+        "currency": {"type": ["string", "null"]}
+      }
+    },
+
+    "report": {
+      "description": "report.py build_report: the human-readable face of the run, disclaimer included.",
+      "type": "object",
+      "required": ["meta", "summary", "element_cards", "disclosures", "disclaimer", "trace_available"],
+      "additionalProperties": true,
+      "properties": {
+        "meta": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "report_version": {"type": "string"},
+            "schema_version": {"$ref": "#/$defs/schema_version"},
+            "generated_at": {
+              "description": "null unless a caller injected a timestamp: nothing in a computed value reads the clock.",
+              "type": ["string", "null"]
+            }
+          }
+        },
+        "summary": {
+          "type": "object",
+          "required": ["status", "system", "storeys", "totals", "element_counts"],
+          "additionalProperties": true,
+          "properties": {
+            "status": {"enum": ["ok", "ok_with_warnings", "refused"]},
+            "system": {"type": "string"},
+            "storeys": {"type": "integer", "minimum": 0},
+            "height_m": {"type": "number"},
+            "engineer_review_required": {"type": "boolean"},
+            "blocked_element_count": {"type": "integer", "minimum": 0},
+            "refusal_reasons": {"type": "array"},
+            "totals": {"type": "object"},
+            "element_counts": {"type": "object"},
+            "layout_score": {"type": "object"},
+            "disclosure_counts": {"type": "object"}
+          }
+        },
+        "element_cards": {
+          "description": "Empty at output.detail=compact: a card repeats a design row field for field and that row is in the same response, so `detail.element_cards_ref` names it and `blocked_elements` still lists every blocked and failed element with its codes and its reason.",
+          "type": "array"
+        },
+        "element_cards_total": {"type": "integer", "minimum": 0},
+        "cards_elided": {"type": ["integer", "boolean"]},
+        "disclosures": {
+          "description": "The ladder. At output.detail=compact it keeps the ERROR entries -- what blocks an element -- and `detail.disclosures_ref` points at the entry-level `warnings`, which carries EVERY entry in full on every response path.",
+          "type": "array",
+          "items": {"$ref": "#/$defs/disclosure"}
+        },
+        "warnings_summary": {"type": "object"},
+        "layout_metrics": {"type": "object"},
+        "blocked_elements": {"type": "array"},
+        "boq": {
+          "description": "Never elided at any level: the priced bill is what a reader costs the building from.",
+          "type": "object"
+        },
+        "bbs": {
+          "description": "At output.detail=compact `items` is empty with `items_total`, `items_shown`, `items_elided` and `items_ref`; every aggregate -- mass_by_dia, mass_by_class, total_kg, total_with_wastage_kg, blocked_mass_kg -- stays whole.",
+          "type": "object"
+        },
+        "detail": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "level": {"enum": ["compact", "full"]},
+            "element_cards_ref": {"const": "structural_model.design"},
+            "disclosures_total": {"type": "integer", "minimum": 0},
+            "disclosures_elided": {"type": "boolean"},
+            "bbs_items_elided": {"type": "boolean"}
+          }
+        },
+        "disclaimer": {"type": "string", "pattern": "PRELIMINARY ENGINEERING NOTICE"},
+        "trace_available": {"type": "boolean"},
+        "trace": {"type": "array"}
+      }
+    },
+
+    "limits": {
+      "description": "The validation caps run_options publishes; each is the constant the pipeline enforces, never a second literal. Cantilever caps are METRES (finding 3).",
+      "type": "object",
+      "required": [
+        "max_storeys_rc", "max_storeys_masonry", "max_rooms_per_floor",
+        "max_cantilever_m", "refuse_cantilever_m", "max_body_bytes"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "max_storeys_rc": {"type": "integer", "minimum": 1},
+        "max_storeys_masonry": {"type": "integer", "minimum": 1},
+        "max_storeys_masonry_zone_v": {"type": "integer", "minimum": 1},
+        "max_rooms_per_floor": {"type": "integer", "minimum": 1},
+        "max_housing_floors": {"type": "integer", "minimum": 1},
+        "max_cantilever_m": {"type": "number", "maximum": 2.5},
+        "refuse_cantilever_m": {"const": 2.5},
+        "min_span_m": {"type": "number", "exclusiveMinimum": 0},
+        "max_span_m": {"type": "number", "exclusiveMinimum": 0},
+        "hard_max_span_m": {"type": "number", "exclusiveMinimum": 0},
+        "max_body_bytes": {"type": "integer", "minimum": 1},
+        "referral_re_passes": {"const": 1}
+      }
+    }
+  }
+}

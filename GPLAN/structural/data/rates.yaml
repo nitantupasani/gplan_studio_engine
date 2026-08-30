@@ -1,0 +1,42 @@
+# Item rates for the BOQ.
+#
+# PLACEHOLDER. No published schedule of rates is transcribed here: these are
+# order-of-magnitude Indian figures that let the cost density metrics run and
+# nothing more. Any schedule carrying `placeholder: true` forces the
+# W_PLACEHOLDER_RATES disclosure onto every priced response, and the report
+# must never present these numbers as a tender estimate.
+#
+# A district or client schedule is added as another named entry under
+# `schedules`, or as an `overrides` mapping merged over a base schedule; a rate
+# that came from an override is reported with rate_source "override".
+schema_version: 1
+source: "PLACEHOLDER: not transcribed from any published schedule. Replace with a CPWD DSR or the relevant state Schedule of Rates before commercial use."
+edition: "none (placeholder, basis year 2026)"
+disclosure_code: "W_PLACEHOLDER_RATES"
+
+units:
+  concrete: m3
+  steel: kg
+  masonry: m3
+  formwork: m2
+  excavation: m3
+  pcc: m3
+  backfill: m3
+
+default_schedule: "default_india"
+
+schedules:
+  default_india:
+    label: "Generic India (CPWD-like) PLACEHOLDER"
+    placeholder: true          # forces the placeholder_rates disclosure
+    currency: INR
+    basis_year: 2026
+    verify: "print"
+    items:
+      concrete_m3: {M20: 7200, M25: 7800, M30: 8400}
+      steel_kg: {Fe500: 78}
+      masonry_m3: {brick_230: 6800, block_190: 5900}
+      formwork_m2: {column: 620, beam: 560, slab: 480, footing: 380}
+      excavation_m3: 220
+      pcc_m3: 5600
+      backfill_m3: 140

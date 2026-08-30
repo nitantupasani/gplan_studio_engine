@@ -2203,3 +2203,106 @@ class Documents:
             return multi_ptpg_pipeline.run(request_data)
         finally:
             builtins.print = original_print
+
+    # -----------------------------------------------------------------
+    # structural module (documentation/structural_api.md)
+    #
+    # Four thin delegations and nothing else: GPLAN/structural/api.py owns
+    # every rule, and these exist so the bridge, the Django views and the
+    # Celery tasks all reach the engine through the same facade the rest of
+    # this class provides. The import sits INSIDE each method on purpose -
+    # the structural package pulls in numpy, shapely and the YAML code
+    # tables, and a package that fails to import must not take
+    # get_floorplans down with it.
+    #
+    # Every one of them returns the full engine envelope
+    # {status, message, response: {Documents: {structural: [...],
+    # batch_summary, ...}}, disclaimer} rather than the (response, message)
+    # pair the older methods return: the structural responses carry a
+    # status of their own (a refusal is still a 200 with an ERROR envelope)
+    # and the verbatim disclaimer, and splitting that into a tuple would
+    # lose both.
+    # -----------------------------------------------------------------
+
+    @staticmethod
+    def layout_structure(payload, **options):
+        """Placement only: grid, columns, beams, slabs, walls, bands, and
+        UNSIZED footing markers at the ground column stacks.
+
+        Fast and synchronous (sub-second to a few seconds): the same adapt /
+        validate / place prefix ``design_structure`` runs, stopping before the
+        load model, so layout and design can never disagree on geometry. A
+        footing is sized from a takedown layout never runs, so none is sized
+        here.
+
+        Args:
+            payload: the structural request - ``source`` plus the matching
+                ``plan`` / ``building`` / ``housing`` block, optional
+                ``params`` and ``output``. May also arrive wrapped in the
+                engine envelope.
+            options: per-call overrides merged over ``payload["output"]``
+                (and ``params=`` / ``output=`` sub-dicts).
+
+        Returns:
+            The engine envelope. ``status`` is ``"ERROR"`` for a refusal, and
+            the response still carries the disclaimer and the reason.
+        """
+        from GPLAN.structural.api import run_layout
+        return run_layout(payload, **options)
+
+    @staticmethod
+    def design_structure(payload, **options):
+        """The full pipeline: placement, loads, takedown, foundations,
+        diaphragm, member design, quantities and the clause-traced report.
+
+        Seconds to a minute, which is why the HTTP surface runs it through
+        Celery. The orchestration sequence is fixed in
+        ``GPLAN/structural/api.py`` and is not this facade's business.
+
+        Args:
+            payload: as ``layout_structure``.
+            options: as ``layout_structure``; ``output={"validate_only": True}``
+                short-circuits after validation for a cheap pre-dispatch check.
+
+        Returns:
+            The engine envelope, footings sized, one entry per plan or per
+            built plot stack.
+        """
+        from GPLAN.structural.api import run_design
+        return run_design(payload, **options)
+
+    @staticmethod
+    def check_structure(payload, **options):
+        """Re-validate a ``structural_model`` this engine returned earlier,
+        possibly hand-edited.
+
+        Nothing here moves an element. ``scope: "placement"`` re-runs the hard
+        rules and the score; ``scope: "full"`` adds the loads, the gravity
+        takedown and the per-member checks against the edited geometry.
+
+        Args:
+            payload: ``{"source": "model", "model": {...}, "scope": ...}``.
+            options: as ``layout_structure``.
+
+        Returns:
+            The engine envelope carrying ``verdict``, ``hard_violations``,
+            ``layout_score`` and ``element_checks``.
+        """
+        from GPLAN.structural.api import run_check
+        return run_check(payload, **options)
+
+    @staticmethod
+    def structural_options():
+        """Static capability discovery: sources, systems, code profiles,
+        seismic zones, soils, grades, spans, limits and the disclosure
+        registry.
+
+        Every list is generated from the constant the pipeline enforces, so a
+        client that reads this can never drift from the engine. Pure and
+        cheap; takes no request.
+
+        Returns:
+            The engine envelope with one entry describing the engine.
+        """
+        from GPLAN.structural.api import run_options
+        return run_options()

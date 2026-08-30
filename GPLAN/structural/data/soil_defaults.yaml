@@ -1,0 +1,64 @@
+# Soil defaults for foundation sizing and the seismic spectrum.
+#
+# Critic resolution 30 froze one soil vocabulary: params.soil is
+# {type: "I"|"II"|"III", sbc_kpa: 150, soft: false, founding_depth_m: 1.5}.
+# Founding depth is 1.5 m everywhere; the 1.0 m that appeared in an earlier
+# placement draft is gone. `aliases` maps the request words hard/medium/soft
+# onto the three types; structural/api.py is the only consumer of that map
+# (resolution 30: one mapping table feeds all three consumers).
+#
+# Nothing here is a site investigation. Whenever a default below is used
+# instead of a supplied value, the caller raises the disclosure named in
+# `defaults.disclosures`.
+schema_version: 1
+source: "IS 1893 (Part 1):2016 Cl 6.4.2.1 soil types I, II and III; IS 6403:1981 (shallow foundation bearing capacity); IS 1904:1986 Cl 5 (minimum depth of foundation)"
+edition: "IS 1893 (Part 1):2016; IS 6403:1981 (reaffirmed 2003); IS 1904:1986 (reaffirmed 2006)"
+
+units:
+  sbc: kPa
+  depth: m
+  unit_weight: kN/m3
+  cohesion: kPa
+  angle: degrees
+
+defaults:
+  type: "II"
+  sbc_kpa: 150.0
+  soft: false
+  founding_depth_m: 1.5
+  gamma_knm3: 18.0
+  phi_deg: 30.0
+  c_kpa: 0.0
+  water_table_depth_m: null   # null = no water table modelled
+  disclosures:
+    sbc_kpa: "W_ASSUMED_SBC"
+    founding_depth_m: "W_ASSUMED_FOUNDING_DEPTH"
+
+types:
+  "I":
+    label: "Type I: rock or hard soil"
+    description: "Well graded gravel and sand-gravel mixtures with or without clay binder, and clayey sands poorly graded or sand-clay mixtures; N above 30."
+    soft: false
+    n_value_range: "> 30"
+    typical_sbc_kpa: 330.0
+    verify: "print"
+  "II":
+    label: "Type II: medium or stiff soil"
+    description: "All soils with N between 10 and 30, and poorly graded sands or gravelly sands with little or no fines."
+    soft: false
+    n_value_range: "10 to 30"
+    typical_sbc_kpa: 150.0
+    verify: "print"
+  "III":
+    label: "Type III: soft soil"
+    description: "All soils other than SP with N less than 10."
+    soft: true
+    n_value_range: "< 10"
+    typical_sbc_kpa: 75.0
+    verify: "print"
+
+# Request vocabulary of the HTTP layer mapped onto the code types.
+aliases:
+  hard: "I"
+  medium: "II"
+  soft: "III"

@@ -1,0 +1,58 @@
+# Reinforcement bar catalogue.
+#
+# Owner: design-rcc (critic resolution 25). This is the single rebar table;
+# data/steel_mass.yaml holds the rounded trade masses quantities.py prices
+# against and must agree with the unit masses here (guarded by a test).
+#
+# Nominal covers are deliberately ABSENT: cover is always read from
+# DesignResult.section, never defaulted in a schedule (critic resolution 25).
+schema_version: 1
+source: "IS 1786:2008 Table 1 (nominal sizes, nominal mass 0.006165 d^2 kg/m); IS 2502:1963 Cl 5 (bending and hook allowances); IS 13920:2016 Cl 7.3.2 (135 degree stirrup hook)"
+edition: "IS 1786:2008; IS 2502:1963 (reaffirmed 2004); IS 13920:2016"
+
+units:
+  dia: mm
+  area: mm2
+  unit_mass: kg/m
+
+area_formula: "pi / 4 * d^2 mm2"
+unit_mass_formula: "0.006165 * d^2 kg/m"
+
+# Dias the designers are allowed to select from, ascending. Anything outside
+# these lists is a detailing decision the engine does not take.
+main_dias_mm: [8, 10, 12, 16, 20, 25, 32]
+stirrup_dias_mm: [8, 10, 12]
+
+# Keyed by nominal diameter in mm.
+bars:
+  8:
+    area_mm2: 50.27
+    unit_mass_kg_m: 0.39456
+  10:
+    area_mm2: 78.54
+    unit_mass_kg_m: 0.61650
+  12:
+    area_mm2: 113.10
+    unit_mass_kg_m: 0.88776
+  16:
+    area_mm2: 201.06
+    unit_mass_kg_m: 1.57824
+  20:
+    area_mm2: 314.16
+    unit_mass_kg_m: 2.46600
+  25:
+    area_mm2: 490.87
+    unit_mass_kg_m: 3.853125
+  32:
+    area_mm2: 804.25
+    unit_mass_kg_m: 6.31296
+
+# Cut-length allowances, in bar diameters unless the key says mm. These feed
+# the bar-schedule lengths quantities.py measures; they are not design rules.
+bend_allowances:
+  source: "IS 2502:1963 Cl 5 (bending dimensions); IS 13920:2016 Cl 7.3.2 (seismic hook)"
+  hook_135_deg_dia: 10       # extension beyond the bend, per hook
+  hook_90_deg_dia: 8         # extension beyond the bend, per bend
+  stirrup_two_hook_dia: 20   # flat allowance for a closed stirrup (2 x 135 deg)
+  min_hook_extension_mm: 75  # floor on either hook extension
+  verify: "print"

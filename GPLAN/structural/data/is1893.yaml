@@ -1,0 +1,164 @@
+# Seismic data for the equivalent static method. Read through
+# GPLAN.structural.codes.is1893; never parsed anywhere else.
+source: "IS 1893 (Part 1) : 2016, Table 3 (zone factor Z), Table 8 (importance factor I), Table 9 (response reduction factor R), Cl 6.4.2 (design acceleration spectrum), Cl 7.2.2 (minimum base shear), Cl 7.6.2 (approximate fundamental period), Cl 7.6.3 (vertical distribution), Cl 7.8.2 (design eccentricity), Table 10 (imposed load in seismic weight), Cl 7.11.1.1 (storey drift limit)"
+edition: "2016"
+units:
+  zone_factor: "dimensionless"
+  period: "s"
+  drift_limit: "fraction of storey height"
+
+# Table 3: seismic zone factor Z (corresponds to the maximum considered
+# earthquake, halved in the Ah expression to give the design basis earthquake).
+zone_factor:
+  source: "IS 1893 (Part 1) : 2016, Table 3, seismic zone factor Z"
+  values:
+    "II": 0.10
+    "III": 0.16
+    "IV": 0.24
+    "V": 0.36
+
+# Table 8: importance factor I.
+importance_factor:
+  source: "IS 1893 (Part 1) : 2016, Table 8, importance factor I"
+  values:
+    residential: 1.0
+    important: 1.2
+    essential: 1.5
+  entries:
+    residential:
+      source: "Table 8, all buildings other than the two rows below"
+    important:
+      source: "Table 8, residential or commercial buildings with an occupancy of more than 200 persons"
+    essential:
+      # 1.5 for important service and community buildings agrees with Table 6
+      # of the printed IS 1893 (Part 1):2002, read 2026-08-30. The block still
+      # carries the flag because it declares the 2016 edition, whose Table 8
+      # could not be obtained; the 1.2 row above is a 2016 addition with no
+      # 2002 counterpart to check it against.
+      source: "Table 8, important service and community buildings, and structures with critical post earthquake function"
+      verify: "print"
+
+# Table 9: response reduction factor R.
+#
+# DISCREPANCY recorded 2026-08-30, values deliberately left alone, and this is
+# the single most important open item in this data directory.
+#
+# The masonry ladder below (1.5 / 2.0 / 2.5 / 3.0) does not match Table 7 of
+# IS 1893 (Part 1):2002, the nearest edition that could be read in full
+# (law.resource.org BIS scan is.1893.1.2002). That printed table gives, under
+# "Load bearing masonry wall buildings":
+#   a) Unreinforced                                                     1.5
+#   b) Reinforced with horizontal RC bands                              2.5
+#   c) Reinforced with horizontal RC bands and vertical bars at corners
+#      of rooms and jambs of openings                                   3.0
+# and has no confined masonry row at all. So urm_bands should read 2.5 and
+# urm_bands_vertical should read 3.0 if the 2016 Table 9 carries these rows
+# unchanged, which every secondary source says it does but none of them prints.
+#
+# The values are NOT changed here for three reasons: the block declares the
+# 2016 edition and only the 2002 print could be obtained; R divides the base
+# shear, so raising it LOWERS the design earthquake force and makes the answer
+# less conservative; and 1.5 / 2.0 / 2.5 is the safe side of the disagreement.
+# A person with the printed IS 1893 (Part 1):2016 should settle Table 9 first,
+# ahead of everything else still flagged in this directory.
+#
+# The OMRF 3.0 and SMRF 5.0 rows agree with the 2002 print and with the STAAD
+# and infralens reproductions of the 2016 Table 9.
+response_reduction:
+  source: "IS 1893 (Part 1) : 2016, Table 9 (Cl 7.2.6), response reduction factor R for building systems"
+  verify: "print"
+  note: "spec defaults carried through unchanged. The masonry rows disagree with the printed IS 1893 (Part 1):2002 Table 7; see the comment above this block before any design ships. No default system is applied here: an unknown key raises."
+  values:
+    omrf: 3.0
+    smrf: 5.0
+    urm: 1.5
+    urm_bands: 2.0
+    urm_bands_vertical: 2.5
+    confined_masonry: 3.0
+  entries:
+    omrf:
+      source: "Table 9, ordinary reinforced concrete moment resisting frame"
+    smrf:
+      source: "Table 9, special reinforced concrete moment resisting frame detailed to IS 13920"
+    urm:
+      source: "Table 9, unreinforced masonry designed to IS 1905 without horizontal reinforced concrete seismic bands"
+    urm_bands:
+      source: "Table 9, unreinforced masonry with horizontal reinforced concrete seismic bands"
+    urm_bands_vertical:
+      source: "Table 9, unreinforced masonry with horizontal bands and vertical reinforcement at corners and jambs"
+    confined_masonry:
+      source: "Table 9, confined masonry with reinforced concrete confining elements"
+
+# Cl 6.4.2: design acceleration coefficient Sa/g for 5 percent damping.
+# Three branches: rising 1 + 15 T below plateau_start_s, the 2.5 plateau to the
+# soil corner period, then decay_numerator / T out to max_period_s.
+#
+# Every constant below was read on 2026-08-30 against Cl 6.4.5 of the printed
+# IS 1893 (Part 1):2002, which gives 1 + 15T to 0.10 s, a 2.50 plateau, and
+# 1.00/T from 0.40 s, 1.36/T from 0.55 s and 1.67/T from 0.67 s out to 4.00 s
+# for soil types I, II and III. The 2016 edition restates the same spectra.
+# The block carries no flag of its own and is left that way.
+spectra:
+  source: "IS 1893 (Part 1) : 2016, Cl 6.4.2, design acceleration coefficient Sa/g for 5 percent damping, and Fig. 2"
+  damping: 0.05
+  rising_slope: 15.0
+  rising_intercept: 1.0
+  plateau: 2.5
+  plateau_start_s: 0.10
+  max_period_s: 4.0
+  clamp_note: "the code tabulates Sa/g to 4 s only; longer periods are clamped at the 4 s value and the clamp is returned as a flag"
+  soils:
+    "I":
+      corner_period_s: 0.40
+      decay_numerator: 1.00
+      source: "Cl 6.4.2, soil type I, rock or hard soil"
+    "II":
+      corner_period_s: 0.55
+      decay_numerator: 1.36
+      source: "Cl 6.4.2, soil type II, medium stiff soil"
+    "III":
+      corner_period_s: 0.67
+      decay_numerator: 1.67
+      source: "Cl 6.4.2, soil type III, soft soil"
+  discontinuity_note: "the printed spectra step down at the corner period, for example 1.36 / 0.55 = 2.473 against the 2.5 plateau; the code as printed is followed, not smoothed"
+
+# Cl 7.6.2: approximate fundamental translational period.
+period:
+  source: "IS 1893 (Part 1) : 2016, Cl 7.6.2"
+  bare_rc:
+    coefficient: 0.075
+    exponent: 0.75
+    source: "Cl 7.6.2(a), bare moment resisting reinforced concrete frame, Ta = 0.075 h^0.75"
+  infilled:
+    coefficient: 0.09
+    source: "Cl 7.6.2(c), reinforced concrete frame with brick infill panels or a masonry building, Ta = 0.09 h / sqrt(d)"
+
+# Cl 7.2.2: minimum design horizontal base shear coefficient rho by zone.
+min_base_shear_coeff:
+  source: "IS 1893 (Part 1) : 2016, Cl 7.2.2, minimum design earthquake horizontal lateral force"
+  values:
+    "II": 0.007
+    "III": 0.011
+    "IV": 0.016
+    "V": 0.024
+
+# Table 10: fraction of the imposed load carried into the seismic weight.
+live_load_fraction:
+  source: "IS 1893 (Part 1) : 2016, Table 10, percentage of imposed load to be included in the seismic weight"
+  threshold_kpa: 3.0
+  at_or_below: 0.25
+  above: 0.50
+  roof_imposed_included: false
+  roof_source: "Cl 7.3.2, the imposed load on the roof is not included in the seismic weight"
+
+# Cl 7.8.2: design eccentricity, both branches, the more severe governs.
+eccentricity:
+  source: "IS 1893 (Part 1) : 2016, Cl 7.8.2, design eccentricity edi"
+  amplification: 1.5
+  accidental: 0.05
+
+# Cl 7.11.1.1: storey drift limit under the design lateral force with a partial
+# load factor of 1.0.
+drift_limit:
+  value: 0.004
+  source: "IS 1893 (Part 1) : 2016, Cl 7.11.1.1, storey drift shall not exceed 0.004 times the storey height"

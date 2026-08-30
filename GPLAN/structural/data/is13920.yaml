@@ -1,0 +1,69 @@
+# IS 13920 edition constants for codes/is13920.py.
+#
+# Values are transcribed from the submodule specification and are vetted
+# defaults, not a substitute for the printed standard. Keys listed under
+# `verify:` carry the value "print": read them against the printed clause
+# before the release that ships them to an engineer.
+#
+# Lengths are millimetres, stresses MPa, everything else dimensionless.
+
+schema_version: 1
+source: "IS 13920:2016 Ductile design and detailing of reinforced concrete structures subjected to seismic forces (Cl 1.1 applicability, Cl 6 flexural members, Cl 7 columns, Cl 9 beam-column joints)"
+edition: "2016"
+
+beam:
+  # Cl 6.1 geometry
+  min_width_mm: 200
+  min_width_over_depth: 0.3
+  max_depth_over_clear_span: 0.25
+  # Cl 6.2 longitudinal reinforcement (rho on b x d, d effective)
+  rho_min_coeff: 0.24
+  rho_max: 0.025
+  min_bars_each_face: 2
+  sagging_ratio_at_face: 0.5
+  hogging_ratio_along_span: 0.25
+  # Cl 6.3 transverse reinforcement
+  capacity_shear_factor: 1.4
+  hoop:
+    end_zone_depth_factor: 2.0
+    first_hoop_from_face_mm: 50
+    min_dia_mm: 8
+    min_dia_long_span_mm: 10
+    long_span_threshold_mm: 5000
+    spacing_depth_divisor: 4.0
+    spacing_bar_multiple: 8
+    spacing_floor_mm: 100
+    mid_span_spacing_depth_divisor: 2.0
+
+column:
+  # Cl 7.1 geometry
+  min_dimension_mm: 300
+  beam_bar_dia_multiple: 20
+  min_width_over_depth: 0.45
+  # Cl 7.2 strong column, weak beam (flag only, never an auto resize)
+  strong_column_ratio: 1.4
+  # Cl 7.6 special confining reinforcement
+  confining:
+    ash_area_ratio_coeff: 0.18
+    ash_floor_coeff: 0.05
+    max_hoop_leg_mm: 300
+    lo_min_mm: 450
+    lo_clear_height_divisor: 6.0
+    spacing_min_dim_divisor: 4.0
+    spacing_bar_multiple: 6
+    spacing_cap_mm: 100
+    spacing_floor_mm: 75
+
+applicability:
+  # Cl 1.1: ductile detailing is mandatory in these zones, and for any special
+  # moment resisting frame whatever the zone (IS 1893 response reduction).
+  zones: ["III", "IV", "V"]
+  smrf_any_zone: true
+
+verify:
+  beam.hoop.min_dia_long_span_mm: "print"
+  beam.hoop.long_span_threshold_mm: "print"
+  beam.hogging_ratio_along_span: "print"
+  column.confining.spacing_bar_multiple: "print"
+  column.confining.spacing_floor_mm: "print"
+  column.confining.spacing_cap_mm: "print"

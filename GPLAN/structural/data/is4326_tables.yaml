@@ -1,0 +1,183 @@
+# IS 4326:1993 tables for earthquake resistant masonry construction.
+#
+# One file, one owner: the seismic category map, the Table 4 opening rules, the
+# Table 6 band steel grid and the Table 7 vertical steel grid all live here and
+# are read only by codes/is4326.py. placement/masonry.py calls those callables,
+# it does not carry a second copy of these numbers.
+#
+# Read back against the printed standard on 2026-08-30 (task J4). Two
+# independent copies of IS 4326:1993 were used and agree cell for cell: the
+# Public.Resource.Org BIS scan (law.resource.org/pub/in/bis/S03/is.4326.1993.pdf)
+# and the BIS Edition 3.2 (2002-04) reprint. Four transcription errors were
+# found and corrected on that date; each correction is marked below. Blocks that
+# still carry verify: "print" have NOT been read back.
+#
+# Note the table numbering: the building category table is Table 2 of the 1993
+# edition (Clause 7.1.1), not Table 1. Table 1 is "Gap Width for Adjoining
+# Structures".
+#
+# Units: lengths mm in the tables (that is how the code prints them), converted
+# to metres by the callables. Spans m.
+
+source: "IS 4326:1993, Earthquake Resistant Design and Construction of Buildings, Code of Practice, Tables 2, 4, 6, 7 and Cl 7, 8.3, 8.4"
+edition: "1993, second revision (incorporating Amendment No. 4, October 2008)"
+verify: "verified 2026-08-30 against IS 4326:1993, law.resource.org BIS scan and the Edition 3.2 (2002-04) reprint"
+
+seismic_category_map:
+  source: "IS 4326:1993 Cl 7.1.1 with Table 2, building categories for earthquake resistant features, read against the IS 1893 (Part 1):2002 zone map"
+  edition: "1993 categories, 2002 zones"
+  # Printed Table 2: importance factor 1.0 gives B/C/D/E for zones II/III/IV/V,
+  # importance factor 1.5 gives C/D/E/E. That is exactly the base ladder below
+  # with a one step bump capped at E. The printed NOTE says "Category A is now
+  # defunct as zone I does not exist any more", which is what zone_note records.
+  verify: "verified 2026-08-30 against IS 4326:1993 Table 2 (Cl 7.1.1)"
+  ladder: [A, B, C, D, E]
+  # Importance factor 1.0, the ordinary residential building this engine designs.
+  base:
+    "I": A
+    "II": B
+    "III": C
+    "IV": D
+    "V": E
+  # An important building moves one step up the ladder and stops at E.
+  importance_bump_at: 1.5
+  bump_steps: 1
+  zone_note: "zone I is the pre-2002 zone, merged into zone II by IS 1893 (Part 1):2002. It is kept in the map so category A stays reachable for a caller that still carries the old zoning."
+
+table_4_openings:
+  source: "IS 4326:1993 Table 4 with Cl 8.3.1 and Fig. 7, size and position of openings in bearing walls"
+  edition: "1993, second revision"
+  # CORRECTED 2026-08-30 against the print. The printed table has THREE category
+  # columns, "A and B", "C" and "D and E", not the two this file used to carry,
+  # and every number below changed except h3 and the A column. What was here
+  # before was the printed "D and E" column used as an A-C row, plus an invented
+  # tighter row for D-E. Printed Table 4, verbatim:
+  #                                   A and B    C        D and E
+  #   1. b5 from inside corner, Min   Zero mm    230 mm   450 mm
+  #   2. total opening ratio
+  #        a) one storeyed            0.60       0.55     0.50
+  #        b) two storeyed            0.50       0.46     0.42
+  #        c) 3 or 4 storeyed         0.42       0.37     0.33
+  #   3. pier width b4, Min           340 mm     450 mm   560 mm
+  #   4. h3 vertical gap, Min         600 mm     600 mm   600 mm
+  #   5. ventilator width b8, Max     900 mm     900 mm   900 mm
+  # Row 5 (b8) is not encoded: the engine sizes no ventilators.
+  verify: "verified 2026-08-30 against IS 4326:1993 Table 4, rows 1 to 4"
+  # b5: distance from the jamb of an opening to the inside corner of the wall.
+  b5_corner_min_mm: {A: 0, B: 0, C: 230, D: 450, E: 450}
+  # b4: width of the pier between two consecutive openings.
+  b4_pier_min_mm: {A: 340, B: 340, C: 450, D: 560, E: 560}
+  # h3: clear vertical distance between two openings one above the other.
+  h3_vertical_gap_min_mm: 600
+  # Total opening width along a wall segment between cross walls, over the
+  # segment length. Three category classes, three storey rows.
+  opening_ratio_max:
+    class_of: {A: "A-B", B: "A-B", C: "C", D: "D-E", E: "D-E"}
+    by_storeys:
+      "A-B": {"1": 0.60, "2": 0.50, "3": 0.42}
+      "C": {"1": 0.55, "2": 0.46, "3": 0.37}
+      "D-E": {"1": 0.50, "2": 0.42, "3": 0.33}
+  max_storeys_encoded: 3
+  storey_clamp_note: "the printed row 2(c) covers 3 or 4 storeys, so a storey count above 3 correctly reads the 3 storey row; load bearing masonry above 3 storeys is refused upstream with E_MASONRY_LIMIT anyway, so the clamp is never the governing decision. Amendment No. 4 (October 2008) adds the footnote 'Four storey building not allowed in Category E'."
+  ratio_measurement_note: "the opening ratio is measured on the union of the plan spans of every opening on the segment, so an opening stacked above another is counted once"
+
+table_6_band_steel:
+  source: "IS 4326:1993 Table 6 with Cl 8.4.5, recommended longitudinal steel in reinforced concrete bands"
+  edition: "1993, second revision"
+  # CORRECTED 2026-08-30 against the print: two cells were wrong, span 6 m
+  # category C carried [2,10] where the print says [2,8], and span 7 m category
+  # B carried [2,10] where the print says [2,8]. Both were more steel than the
+  # code asks for. Printed Table 6, verbatim (bars x dia):
+  #   span   B      C      D      E
+  #   5 or less  2-8    2-8    2-8    2-10
+  #   6          2-8    2-8    2-10   2-12
+  #   7          2-8    2-10   2-12   4-10
+  #   8          2-10   2-12   4-10   4-12
+  verify: "verified 2026-08-30 against IS 4326:1993 Table 6 and its Notes 3, 4 and 6"
+  # Row key is the span band in metres. Printed Note 1 defines the span as the
+  # distance between the CENTRE LINES of the cross walls or buttresses, not the
+  # clear span; the caller rounds up to 5, 6, 7 or 8 m. Value is [number of
+  # bars, bar diameter in mm], HYSD bars, one on each face.
+  span_bands_m: [5, 6, 7, 8]
+  categories: [B, C, D, E]
+  values:
+    "5": {B: [2, 8], C: [2, 8], D: [2, 8], E: [2, 10]}
+    "6": {B: [2, 8], C: [2, 8], D: [2, 10], E: [2, 12]}
+    "7": {B: [2, 8], C: [2, 10], D: [2, 12], E: [4, 10]}
+    "8": {B: [2, 10], C: [2, 12], D: [4, 10], E: [4, 12]}
+  categories_without_band: [A]
+  # A two bar band is 75 mm deep. Four bars need two layers, so the band
+  # deepens to 150 mm; the same applies where a bar is thicker than 12 mm.
+  depth_mm_base: 75
+  depth_mm_two_layer: 150
+  two_layer_bars_n: 4
+  two_layer_bar_dia_mm: 12
+  link_dia_mm: 6
+  link_spacing_mm: 150
+  # Printed Note 5 asks for grade M15 of IS 456 or 1:2:4 by volume as the
+  # MINIMUM. M20 is the engine's own specification, above that minimum and in
+  # line with current practice; it is not a transcription of Note 5.
+  concrete_grade: M20
+  # Printed Note 2: the tabulated diameters are for high strength deformed bars
+  # and give mild steel equivalents 8->10, 10->12, 12->16, 16->20, 20->25. Only
+  # the HYSD column is encoded; Fe415 is the engine's HYSD grade.
+  steel_grade: Fe415
+  width_source: wall_thickness
+  # Used where a band has no meaningful span, for instance a plinth band on a
+  # short return, or a gable band called without a span.
+  nominal: {bars_n: 2, bar_dia_mm: 8}
+  roof_band_exempt_roofs: [flat]
+  roof_band_exempt_note: "Cl 8.4.6: a cast-in-situ reinforced concrete roof slab is itself the roof band, so the band is omitted. A precast or non-monolithic roof forces the band back on. The omission is disclosed, never silent."
+  plinth_band_note: "Cl 8.4.7: the plinth band is mandatory on soft or filled soil and for categories D and E; elsewhere it is recommended, not required."
+  gable_band_roofs: [gable, shed]
+  gable_band_note: "a gable band follows the raking top of a gable or shed end wall and ties into the eaves band at both ends. A hip roof has no raking end, so the level eaves band is enough and no gable band is issued."
+  roof_types: [flat, gable, hip, shed]
+
+table_7_vertical_steel:
+  source: "IS 4326:1993 Table 7 with Cl 8.4.9, vertical steel reinforcement in masonry walls with rectangular masonry units, single HYSD bar per location"
+  edition: "1993, second revision"
+  # CORRECTED 2026-08-30 against the print. The one and two storey rows were
+  # wrong: category C takes NO vertical steel below three storeys, and the
+  # two storey bottom values for D and E were 10 and 12 where the print says
+  # 12 and 16. The three storey rows were already right. Printed Table 7,
+  # verbatim (Nil shown as null here):
+  #   storeys  storey   B    C    D    E
+  #   One      -        Nil  Nil  10   12
+  #   Two      Top      Nil  Nil  10   12
+  #            Bottom   Nil  Nil  12   16
+  #   Three    Top      Nil  10   10   12
+  #            Middle   Nil  10   12   16
+  #            Bottom   Nil  12   12   16
+  #   Four     Top      10   10   10   not permitted
+  #            Third    10   10   12
+  #            Second   10   12   16
+  #            Bottom   12   12   20
+  verify: "verified 2026-08-30 against IS 4326:1993 Table 7, the one to three storey rows"
+  # Position lists are indexed by storey_index, 0 = ground, matching the
+  # engine's 0 based storey numbering everywhere else.
+  max_storeys_encoded: 3
+  storeys_note: "IS 4326 Table 7 continues to 4 storeys, where category B first takes steel and category E is not permitted at all. Only 1 to 3 are transcribed because load bearing masonry above 3 storeys is refused upstream with E_MASONRY_LIMIT; the callable refuses a taller stack rather than reading a row that is not here."
+  positions:
+    "1": [bottom]
+    "2": [bottom, top]
+    "3": [bottom, middle, top]
+  values:
+    "1":
+      bottom: {C: null, D: 10, E: 12}
+    "2":
+      bottom: {C: null, D: 12, E: 16}
+      top: {C: null, D: 10, E: 12}
+    "3":
+      bottom: {C: 12, D: 12, E: 16}
+      middle: {C: 10, D: 12, E: 16}
+      top: {C: 10, D: 10, E: 12}
+  # Category A has no column in Table 7 at all and category B is Nil for every
+  # row up to three storeys, which is the whole range encoded here.
+  categories_without_steel: [A, B]
+  locations:
+    C: [corner, junction]
+    D: [corner, junction, jamb]
+    E: [corner, junction, jamb]
+  bars_per_location: 1
+  steel_grade: Fe415
+  locations_note: "Cl 8.4.9: bars run full height from the footing through every band to the roof band. Category C takes bars at wall corners and T or X junctions; categories D and E add the jambs of every opening."

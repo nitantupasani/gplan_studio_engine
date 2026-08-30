@@ -1,0 +1,102 @@
+# Imposed (live) load data for residential occupancies, roofs and the
+# multi-storey reduction. Read through GPLAN.structural.codes.is875
+# (part2_imposed, part2_sloped_roof_live, part2_reduction_factor).
+source: "IS 875 (Part 2) : 1987, Table 1 (imposed floor loads), Table 2 (imposed loads on roofs), Cl 3.2.1 and Cl 3.2.2 (reduction in imposed loads)"
+edition: "1987, reaffirmed 2018"
+units:
+  imposed: "kPa"
+  angle: "deg"
+
+# Table 1, residential rows only. Occupancy keys are the loads vocabulary;
+# model.Occupancy members are mapped onto them by codes.is875.OCCUPANCY_TO_IS875.
+occupancies:
+  residential_room:
+    q_kpa: 2.0
+    source: "Table 1, item 1(a) dwelling houses: all rooms and kitchens"
+  toilet_bath:
+    q_kpa: 2.0
+    source: "Table 1, item 1(a) dwelling houses: toilet and bath rooms"
+  corridor_stair:
+    q_kpa: 3.0
+    source: "Table 1, item 1(a) dwelling houses: corridors, passages, staircases including fire escapes and store rooms"
+  balcony:
+    q_kpa: 3.0
+    source: "Table 1, item 1(a) dwelling houses: balconies, minimum value"
+    note: "the code also asks for a 1.5 kN/m concentrated line load at the outer edge; the balcony member check owns that, not this table"
+  # DISCREPANCY recorded 2026-08-30, value deliberately left alone. 5.0 kPa is
+  # in NO storage row of the printed Table 1. The printed rows are: a dwelling
+  # house store room at 3.0 kPa (item 1(a)(3), the same row as corridors and
+  # staircases), and a storage building at "2.4 kN/m2 per each metre of storage
+  # height with a minimum of 7.5 kN/m2" (item viii(a)). 5.0 sits between the
+  # two and belongs to neither, so the old source line was wrong. It is kept
+  # because it is conservative against the row that actually applies to a
+  # dwelling, and because moving it either way changes real designs: 3.0 would
+  # drop the load by 40 percent and 7.5 would raise it by half again. A person
+  # holding the print must choose, which is why the flag stays.
+  store:
+    q_kpa: 5.0
+    source: "engine default, not a printed row: a dwelling house store room is 3.0 kPa (Table 1 item 1(a)(3)) and a storage building is 2.4 kPa per metre of height with a 7.5 kPa minimum (Table 1 item viii(a))"
+    verify: "print"
+    note: "conservative against the 3.0 kPa dwelling row that applies to a store room inside a house; see the comment above this entry"
+  garage_light:
+    q_kpa: 2.5
+    source: "Table 1 item 1(e), garage floors including parking area and repair workshops for passenger cars and vehicles not exceeding 2.5 tonnes gross weight, to be calculated but not less than 2.5 kN/m2"
+    verify: "verified 2026-08-30 against IS 875 (Part 2):1987 Table 1, law.resource.org BIS scan is.875.2.1987"
+
+# Table 2, flat roofs.
+roofs:
+  roof_accessible:
+    q_kpa: 1.5
+    source: "Table 2, flat roof with access provided"
+  roof_non_accessible:
+    q_kpa: 0.75
+    source: "Table 2, flat roof with access provided for maintenance only, slope up to 10 deg"
+
+# Table 2 sloping roof rule, access for maintenance only.
+sloped_roof:
+  base_q_kpa: 0.75
+  slope_threshold_deg: 10.0
+  per_degree_kpa: 0.02
+  min_q_kpa: 0.4
+  source: "Table 2: 0.75 kN/m2 reduced by 0.02 kN/m2 for every degree of slope above 10 deg, subject to a minimum of 0.4 kN/m2"
+
+# Cl 3.2.1 reduction in imposed load on columns, walls and foundations that
+# carry more than one floor. Bands are read in listed order, first match wins.
+# The six reduction bands below were read against the print on 2026-08-30 and
+# match it exactly: 1 floor 0 percent, 2 floors 10, 3 floors 20, 4 floors 30,
+# 5 to 10 floors 40, over 10 floors 50.
+#
+# The 5 kPa gate is a conservative reading, not a transcription, and the clause
+# it used to cite was the wrong one. Cl 3.2.2 is the beam reduction (5 percent
+# per 50 m2 of supported floor, capped at 25 percent), which this engine does
+# not apply at all. The gate belongs to Cl 3.2.1.1, and what that clause
+# actually says is that NO reduction applies to plant, machinery, storage
+# buildings, warehouses or garages, while other buildings whose floors are
+# designed for 5.0 kN/m2 or more MAY still reduce provided the result is not
+# lighter than designing every floor for 5.0 with no reduction. Refusing all
+# reduction above 5 kPa is safe against that and is what the engine does.
+reduction:
+  source: "IS 875 (Part 2) : 1987, Cl 3.2.1 and its table of percentage reductions"
+  no_reduction_above_kpa: 5.0
+  no_reduction_source: "IS 875 (Part 2) : 1987, Cl 3.2.1.1, read conservatively: this engine takes no reduction at all above 5 kN/m2, see the comment above this block"
+  roof_counts_as_a_floor: true
+  applies_to: "columns, walls and foundations only; never to slab or beam design forces"
+  bands:
+    - floors_carried_min: 1
+      floors_carried_max: 1
+      reduction: 0.00
+    - floors_carried_min: 2
+      floors_carried_max: 2
+      reduction: 0.10
+    - floors_carried_min: 3
+      floors_carried_max: 3
+      reduction: 0.20
+    - floors_carried_min: 4
+      floors_carried_max: 4
+      reduction: 0.30
+    - floors_carried_min: 5
+      floors_carried_max: 10
+      reduction: 0.40
+    - floors_carried_min: 11
+      floors_carried_max: null
+      reduction: 0.50

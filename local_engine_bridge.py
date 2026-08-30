@@ -13,9 +13,17 @@ Endpoints:
     POST /api/generate/<shape>       run Documents.get_floorplans, return task id
     POST /api/postprocess/floorplans NBC post-processing, synchronous 200
     POST /api/allocate               area-budget allocation, synchronous 200
+    GET  /api/structural/options/    structural capability discovery, sync 200
+    POST /api/structural/layout/     structural placement, synchronous 200
+    POST /api/structural/check/      re-check an edited model, synchronous 200
+    POST /api/structural/design/     full structural pipeline, task id (fake async)
     GET  /api/task/<task_id>/        return the stored result
     POST /users/auth/token/refresh/  dummy token so the frontend auth flow passes
     POST /api/v1/authentication/login/  same
+
+Every structural route is registered in both its trailing-slash and its bare
+form (finding 37): the frontend calls the slashed path, the Django spec writes
+the bare one, and a POST body does not survive an APPEND_SLASH redirect.
 """
 import os
 import sys
@@ -195,6 +203,147 @@ def allocate_program():
         return jsonify({"status": "error", "data": {},
                         "error": {"message": str(exc),
                                   "type": type(exc).__name__}}), 500
+
+
+# ---------------------------------------------------------------------------
+# structural module (documentation/structural_api.md)
+#
+# Registered BEFORE the /api/generate/<shape> catch-all, next to the
+# postprocess routes. The engine call always happens inside the route body,
+# never at import time, so a structural package that cannot import takes only
+# these four routes down and leaves generation working.
+# ---------------------------------------------------------------------------
+
+
+def _structural_refusal(envelope):
+    """The engine's own error block, when the request was one it will not run.
+
+    The structural entry points never raise for a bad request: they return
+    their ERROR envelope with `response.Documents.error` naming the field.
+    That block is the difference between "this request is wrong" (400) and
+    "here is your answer, and one plan came back refused" (200, envelope
+    status ERROR, partial model attached).
+    """
+    if not isinstance(envelope, dict):
+        return None
+    documents = (envelope.get("response") or {}).get("Documents") or {}
+    error = documents.get("error")
+    return error if isinstance(error, dict) else None
+
+
+def _structural_500(exc):
+    """A stage that raised out of the engine, in the bridge's error shape."""
+    traceback.print_exc()
+    return jsonify({"status": "error", "data": {},
+                    "error": {"message": str(exc),
+                              "type": type(exc).__name__}}), 500
+
+
+def _structural_counts(envelope):
+    """'2 entries, 1 refused' for the console line."""
+    documents = (envelope.get("response") or {}).get("Documents") or {}
+    summary = documents.get("batch_summary") or {}
+    return "%s entr%s, %s refused" % (
+        summary.get("plans", 0),
+        "y" if summary.get("plans", 0) == 1 else "ies",
+        summary.get("refused", 0))
+
+
+@app.get("/api/structural/options/")
+@app.get("/api/structural/options")
+def structural_options():
+    """Static capability discovery: systems, zones, soils, grades, limits.
+
+    Pure and cheap, takes no request; the frontend reads it so it never
+    hardcodes a grade list or a zone factor.
+    """
+    try:
+        envelope = Documents.structural_options()
+        return jsonify(envelope), 200
+    except Exception as exc:
+        return _structural_500(exc)
+
+
+@app.post("/api/structural/layout/")
+@app.post("/api/structural/layout")
+def structural_layout():
+    """Structural placement, synchronous like the real one: pure geometry,
+    200 with the result directly (no task id, no polling). Footings come back
+    as unsized markers - sizing needs a takedown layout does not run.
+
+    A request the engine refuses to run is a 400 carrying the engine's own
+    error envelope verbatim, so the caller keeps the field name AND the
+    disclaimer; a plan that came back refused is still a 200.
+    """
+    try:
+        body = request.get_json(force=True) or {}
+        envelope = Documents.layout_structure(body)
+    except Exception as exc:
+        return _structural_500(exc)
+    error = _structural_refusal(envelope)
+    if error:
+        print("[bridge] structural layout: refused - %s" % error.get("message"))
+        return jsonify(envelope), 400
+    print("[bridge] structural layout: %s; %s"
+          % (envelope.get("message"), _structural_counts(envelope)))
+    return jsonify(envelope), 200
+
+
+@app.post("/api/structural/check/")
+@app.post("/api/structural/check")
+def structural_check():
+    """Re-check a structural_model this engine returned, possibly hand-edited.
+
+    The bridge is ALWAYS synchronous here; Django picks sync or async by size.
+    Nothing moves an element: the answer is a verdict, the hard violations,
+    the score and the per-member checks.
+    """
+    try:
+        body = request.get_json(force=True) or {}
+        envelope = Documents.check_structure(body)
+    except Exception as exc:
+        return _structural_500(exc)
+    error = _structural_refusal(envelope)
+    if error:
+        print("[bridge] structural check: refused - %s" % error.get("message"))
+        return jsonify(envelope), 400
+    print("[bridge] structural check: %s" % envelope.get("message"))
+    return jsonify(envelope), 200
+
+
+@app.post("/api/structural/design/")
+@app.post("/api/structural/design")
+def structural_design():
+    """Full structural pipeline. Fake-async, exactly like the generate routes:
+    computed synchronously here (no Celery, no Redis locally), stored under a
+    task id in the terminal shape the poller expects, answered 202 so the
+    frontend polls GET /api/task/<id>/ the same way it does against Django.
+
+    A request the engine will not run is a 400 straight away rather than a
+    task that fails a poll later; a stage that raises becomes a stored
+    FAILURE, which is what the generate routes do.
+    """
+    task_id = str(uuid.uuid4())
+    try:
+        body = request.get_json(force=True) or {}
+        envelope = Documents.design_structure(body)
+    except Exception as exc:
+        traceback.print_exc()
+        with _results_lock:
+            _results[task_id] = {"status": "FAILURE",
+                                 "error": {"message": str(exc),
+                                           "type": type(exc).__name__}}
+        print("[bridge] structural design: stage raised - %s" % exc)
+        return jsonify({"task_id": task_id, "status": "started"}), 202
+    error = _structural_refusal(envelope)
+    if error:
+        print("[bridge] structural design: refused - %s" % error.get("message"))
+        return jsonify(envelope), 400
+    with _results_lock:
+        _results[task_id] = envelope
+    print("[bridge] structural design: %s; %s"
+          % (envelope.get("message"), _structural_counts(envelope)))
+    return jsonify({"task_id": task_id, "status": "started"}), 202
 
 
 @app.post("/api/generate/multi-ptpg")
