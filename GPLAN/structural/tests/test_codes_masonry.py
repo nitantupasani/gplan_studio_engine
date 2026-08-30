@@ -303,14 +303,27 @@ def test_permissible_compressive_stress_is_the_product():
 
 
 def test_permissible_shear_rises_with_dead_stress_then_caps_at_half_an_mpa():
-    assert permissible_shear(0.0) == pytest.approx(0.1)
-    assert permissible_shear(0.6) == pytest.approx(0.2)
+    assert permissible_shear(0.0, "M1") == pytest.approx(0.1)
+    assert permissible_shear(0.6, "M1") == pytest.approx(0.2)
     # 0.1 + 2.4/6 lands exactly on the cap.
-    assert permissible_shear(2.4) == pytest.approx(0.5)
-    assert permissible_shear(3.0) == pytest.approx(0.5)
-    assert permissible_shear(50.0) == pytest.approx(0.5)
+    assert permissible_shear(2.4, "M1") == pytest.approx(0.5)
+    assert permissible_shear(3.0, "H2") == pytest.approx(0.5)
+    assert permissible_shear(50.0, "H1") == pytest.approx(0.5)
     with pytest.raises(CodeInputError):
-        permissible_shear(-0.1)
+        permissible_shear(-0.1, "M1")
+
+
+def test_permissible_shear_is_restricted_to_mortar_not_leaner_than_m1():
+    # The printed clause reads "in case of walls built in mortar not leaner
+    # than Grade M1"; a leaner grade gets no shear value from the formula,
+    # mirroring the permitted_mortars restriction the tension clause carries.
+    for grade in ("H1", "H2", "M1"):
+        assert permissible_shear(0.6, grade) == pytest.approx(0.2), grade
+    for grade in ("M2", "M3", "L1", "L2"):
+        assert permissible_shear(0.6, grade) == 0.0, grade
+        assert permissible_shear(0.0, grade) == 0.0, grade
+    with pytest.raises(CodeInputError):
+        permissible_shear(0.6, "M9")
 
 
 def test_permissible_tension_is_zero_under_the_default_policy():
@@ -740,7 +753,7 @@ def _run_example(example):
     }
     if loads["dead_axial_kn_per_m"] is not None and loads["shear_kn"] is not None:
         fd = float(loads["dead_axial_kn_per_m"]) / (1000.0 * thickness)
-        fs = permissible_shear(fd)
+        fs = permissible_shear(fd, materials["mortar_grade"])
         tau = float(loads["shear_kn"]) / (1000.0 * thickness * float(geometry["length_m"]))
         computed["fs_mpa"] = fs
         computed["tau_mpa"] = tau

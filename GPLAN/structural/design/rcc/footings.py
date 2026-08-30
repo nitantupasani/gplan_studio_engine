@@ -394,9 +394,11 @@ class StripLoads:
     `n_service_kn_per_m` is the unfactored line load per metre run of wall that
     `analysis/takedown.py` accumulated down the stack and divided by the wall
     length; `nu_kn_per_m` is the factored one and defaults to 1.5 times service.
-    A strip carries no moment in v1: the gravity takedown produces none, and a
-    party wall's eccentricity is a placement fact the placer already resolved by
-    widening, not a demand this designer invents.
+    A strip carries no moment in v1: the gravity takedown produces none. A party
+    wall strip is FLUSHED inside the boundary by `placement/foundations.py`, which
+    owns that geometry and hands the offset over as `StripGeometry.eccentric` /
+    `e_m`; this designer checks bearing on the uniform pressure basis and warns
+    that no eccentricity moment is taken, so neither module hides the offset.
     """
 
     n_service_kn_per_m: float
@@ -451,6 +453,7 @@ class StripGeometry:
     orient: str = ""
     kind: str = "strip"
     eccentric: bool = False
+    e_m: float = 0.0
 
     @staticmethod
     def from_mapping(data: Mapping) -> "StripGeometry":
@@ -485,6 +488,7 @@ class StripGeometry:
             orient=str(data.get("orient", "") or ""),
             kind=str(data.get("kind", "strip") or "strip"),
             eccentric=bool(data.get("eccentric", False)),
+            e_m=float(data.get("e_m", 0.0) or 0.0),
         )
 
     @staticmethod
@@ -503,6 +507,7 @@ class StripGeometry:
             wall_ids=tuple(str(one) for one in (getattr(strip, "wall_ids", None) or ())),
             orient=str(getattr(strip, "orient", "") or ""),
             eccentric=bool(getattr(strip, "eccentric", False)),
+            e_m=float(getattr(strip, "e_m", 0.0) or 0.0),
         )
 
 
@@ -3458,8 +3463,10 @@ def _strip_body(
             result.add_resize(_mm_text(placed), _mm_text(plan.width_mm), "width enlarged: " + plan.driver)
     if geom.eccentric:
         result.add_warning(
-            "this strip is eccentric to its wall (a party wall on the boundary); v1 designs it on the "
-            "uniform pressure the placer widened it for and takes no eccentricity moment"
+            "this strip is flushed inside a boundary and its wall line bears "
+            + _n(geom.e_m, 3)
+            + " m off the strip centre; v1 checks bearing as uniform pressure and takes no "
+            "eccentricity moment, so the eccentric bearing peak is disclosed here, not designed for"
         )
 
     # -- the projection past the wall face decides which member this is -----

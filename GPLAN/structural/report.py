@@ -203,10 +203,14 @@ _BLOCKED_DESIGN_MARK = "design_status:fail"
 #: (spec 2.2). The spec names the conditions; these are their registry codes.
 #: `E_MASONRY_LIMIT` stands in for the spec's `zone_v_masonry`: the registry
 #: ships no separate zone V warning, and the masonry seismic-category refusal
-#: is the closest registered condition.
+#: is the closest registered condition. `W_INFILL_EXCLUDED` triggers because
+#: excluding infill from the lateral stiffness moves the drift, the centre of
+#: rigidity and the torsion verdicts of every frame with masonry walls, and
+#: that idealization must reach a human (analysis/diaphragm.py docstring).
 REVIEW_TRIGGER_CODES = (
     "E_MASONRY_LIMIT",
     "E_TRANSFER_REQUIRED",
+    "W_INFILL_EXCLUDED",
     "W_RELEASED_CAP",
     "W_TALL",
     "W_TORSION",

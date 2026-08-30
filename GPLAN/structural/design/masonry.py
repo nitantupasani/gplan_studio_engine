@@ -116,6 +116,11 @@ DEFAULT_UNIT_STRENGTHS_MPA = (3.5, 5.0, 7.5, 10.0, 12.5)
 #: Mortar grades offered by default, WEAKEST (cheapest) FIRST. This ordering is
 #: the cost model: a weaker mortar is the cheaper mortar. Lime grades are not
 #: offered by default because their Table 7 slenderness cap is 20, not 27.
+#: M2 stays on offer as the legitimate cheap grade for a gravity-only wall,
+#: but the printed permissible-shear clause stops at M1
+#: (`is1905.SHEAR_MORTAR_FLOOR`), so a wall carrying in-plane shear can never
+#: adopt it: `is1905.permissible_shear` returns 0.0 for grades leaner than M1
+#: and the sweep escalates past them.
 DEFAULT_MORTAR_GRADES = ("M2", "M1", "H2", "H1")
 
 #: Standard brick wall thicknesses the escalation ladder climbs, mm.
@@ -144,6 +149,19 @@ _ETA = 1.0e-9
 
 #: Decimals on every exported float, matching `design/common.py`.
 _DP = 6
+
+#: Kern comparison tolerance. It must be NO FINER than the 6-decimal rounding
+#: every export applies (`_DP` here, and the takedown's own `to_dict`), or the
+#: canonical exterior-wall value e/t = 1/6 flips from pass to fail depending
+#: on whether the caller hands over the live dataclass or its serialized form,
+#: both of which `design_masonry_walls` documents as accepted inputs.
+_KERN_TOL = 1.0e-6
+
+#: Tension demands below this absolute value are reported as zero. Half a unit
+#: in the last exported decimal place: a demand that rounds to 0.0 on the wire
+#: must never drive the 999 utilization sentinel, or the exported row reads
+#: demand=0.0 capacity=0.0 ratio=999.0 status=fail, which contradicts itself.
+_TENSION_FLOOR_MPA = 5.0e-7
 
 
 def _r(value: float) -> float:
@@ -604,22 +622,34 @@ def evaluate_segment(
         fc_mpa = is1905.permissible_compressive_stress(fb_mpa, reduction.ks, ka, kp)
 
     # A per-metre service load in kN/m over a thickness in mm is already MPa.
-    fa_mpa = float(segment.n_kn_per_m) / t_mm
+    # The takedown reports the axial per GROSS metre of wall, but the load
+    # stands on the net length left between the openings, the same bearing
+    # section the shear area and the Cl 5.4.1.2 loaded area already use, so
+    # the bed-joint stress carries the gross-over-net factor. On a wall with
+    # no openings the factor is exactly 1.
+    net_length_mm = max(float(segment.net_length_mm), _ETA)
+    bearing_factor = max(float(segment.length_mm) / net_length_mm, 1.0)
+    fa_mpa = float(segment.n_kn_per_m) * bearing_factor / t_mm
     utilization_compression = _ratio(fa_mpa, fc_mpa)
 
+    # fd stays on the gross length: understating the dead pre-compression
+    # understates fs, which is the conservative side of the shear clause.
     fd_mpa = float(segment.dead_kn_per_m) / t_mm
-    fs_mpa = is1905.permissible_shear(fd_mpa)
-    net_length_mm = max(float(segment.net_length_mm), _ETA)
+    fs_mpa = is1905.permissible_shear(fd_mpa, grade)
     tau_mpa = abs(float(segment.shear_kn)) * 1.0e3 / (t_mm * net_length_mm)
     utilization_shear = _ratio(tau_mpa, fs_mpa)
 
     ft_mpa = is1905.permissible_tension(options.bending_plane, grade, options.tension_policy)
     # Elastic stress at the far face of an eccentrically loaded section: the
     # section is in full compression up to the kern, e/t = 1/6, and develops
-    # fa (6 e/t - 1) of tension past it.
+    # fa (6 e/t - 1) of tension past it. The kern tolerance is `_KERN_TOL`,
+    # never finer than the export rounding, and a demand below
+    # `_TENSION_FLOOR_MPA` is reported as the zero it rounds to on the wire.
     tension_demand_mpa = 0.0
-    if float(segment.e_over_t) > (1.0 / 6.0) + _ETA:
+    if float(segment.e_over_t) > (1.0 / 6.0) + _KERN_TOL:
         tension_demand_mpa = fa_mpa * (6.0 * float(segment.e_over_t) - 1.0)
+        if tension_demand_mpa < _TENSION_FLOOR_MPA:
+            tension_demand_mpa = 0.0
     utilization_tension = _ratio(tension_demand_mpa, ft_mpa)
 
     rows = (
@@ -839,39 +869,58 @@ def _is_masonry(wall: WallLine) -> bool:
 def _pier_params(
     model: StructuralModel, wall: WallLine, thickness_mm: float
 ) -> Tuple[Optional[float], Optional[float], Optional[float]]:
-    """Table 6 pier inputs from the pilasters `placement/masonry.py` injected.
+    """Table 6 pier inputs from the stiffeners `placement/masonry.py` injected.
 
-    The stiffening spacing is the LONGEST bay between consecutive pilasters
+    Two placement kinds count. `pilasters` are the t x 3t projections the
+    load-bearing placer injects, depth = wall thickness plus the projection.
+    `tie_columns` are what the CONFINED conversion writes; without reading
+    them here the conversion a referral asks for would change nothing this
+    chain evaluates. A tie column is cast flush, so its depth equals the wall
+    thickness and the Table 6 coefficient it earns is 1.0 until a placer
+    projects it; the geometry still flows, honestly, rather than silently
+    not at all. Where the two kinds mix, the smallest section governs, which
+    is the conservative Table 6 reading.
+
+    The stiffening spacing is the LONGEST bay between consecutive stiffeners
     with the two wall ends counted as stiffened, which is the bay that governs.
-    A wall with no pilaster returns three Nones and is checked solid.
+    A wall with no stiffener returns three Nones and is checked solid.
     """
     placement = model.meta.get("masonry_placement")
     if not isinstance(placement, Mapping):
         return (None, None, None)
-    rows = placement.get("pilasters") or []
     axis = wall_axis(wall)
     if axis is None:
         return (None, None, None)
     orient, _position_m, low_m, high_m = axis
     stations = []  # type: List[float]
-    width_mm = None  # type: Optional[float]
-    projection_mm = None  # type: Optional[float]
-    for row in rows:
+    widths_mm = []  # type: List[float]
+    depths_mm = []  # type: List[float]
+    for row in placement.get("pilasters") or []:
         if str(_get(row, "wall_id", "")) != wall.id:
             continue
         if int(_get(row, "storey", wall.storey)) != int(wall.storey):
             continue
-        station = float(_get(row, "x_m", 0.0)) if orient == "h" else float(_get(row, "y_m", 0.0))
-        stations.append(station)
-        width_mm = float(_get(row, "t_mm", thickness_mm))
-        projection_mm = float(_get(row, "projection_mm", 0.0))
-    if not stations or width_mm is None or projection_mm is None:
+        stations.append(float(_get(row, "x_m", 0.0)) if orient == "h" else float(_get(row, "y_m", 0.0)))
+        widths_mm.append(float(_get(row, "t_mm", thickness_mm)))
+        depths_mm.append(thickness_mm + float(_get(row, "projection_mm", 0.0)))
+    for row in placement.get("tie_columns") or []:
+        if str(_get(row, "wall_id", "") or "") != wall.id:
+            continue
+        storeys = _get(row, "storeys", None)
+        if storeys is not None and int(wall.storey) not in [int(item) for item in storeys]:
+            continue
+        stations.append(float(_get(row, "x_m", 0.0)) if orient == "h" else float(_get(row, "y_m", 0.0)))
+        widths_mm.append(float(_get(row, "w_mm", thickness_mm)))
+        depths_mm.append(float(_get(row, "d_mm", thickness_mm)))
+    if not stations:
         return (None, None, None)
+    width_mm = min(widths_mm)
+    depth_mm = min(depths_mm)
     marks = sorted([low_m] + stations + [high_m])
     spacing_m = max(marks[index + 1] - marks[index] for index in range(len(marks) - 1))
-    if spacing_m <= _ETA or width_mm <= _ETA:
+    if spacing_m <= _ETA or width_mm <= _ETA or depth_mm <= _ETA:
         return (None, None, None)
-    return (spacing_m * 1.0e3, width_mm, thickness_mm + projection_mm)
+    return (spacing_m * 1.0e3, width_mm, depth_mm)
 
 
 def resolve_segments(
@@ -1200,17 +1249,75 @@ def _prescribe(segment: WallSegment, options: MasonryOptions) -> _Adopted:
         best = (strongest, evaluate_segment(segment, strongest, options))
     best_thickness_mm = float(best[1].thickness_mm)
 
+    # The referral gate keys on the governing CHECK, because that is what
+    # decides whether confinement can help at all. Tie columns and bands
+    # subdivide the panel, which is a slenderness remedy, and a confined line
+    # carries a higher response reduction factor, which is a shear remedy.
+    # Neither raises the permissible compressive or tensile stress of the
+    # masonry itself, so a wall beaten on those is refused outright however
+    # small its overload. `confined_relief_cap` stays as a secondary bound on
+    # the recoverable branches; the number compared against it is the
+    # shortfall on the governing check, never the 999 sentinel a zero or
+    # absent capacity reports.
+    governing = best[1].governing_check
+    if governing == CHECK_SLENDERNESS:
+        relief = _ratio(best[1].slenderness_ratio, best[1].slenderness_limit)
+    elif governing == CHECK_SHEAR:
+        relief = best[1].utilization_shear
+    else:
+        relief = best[1].utilization_max
+    recoverable = governing in (CHECK_SLENDERNESS, CHECK_SHEAR)
+    within_cap = relief < _RATIO_CAP and relief <= float(options.confined_relief_cap) + 1.0e-9
+
     referral = False
-    if options.allow_confined_referral and best[1].utilization_max <= float(options.confined_relief_cap) + 1.0e-9:
+    if not options.allow_confined_referral:
+        steps.append(
+            _step(
+                STEP_CONFINED,
+                "refused",
+                "confinement is not offered: the confined masonry referral is switched off by option",
+                utilization_max=_r(best[1].utilization_max),
+                governing_check=governing,
+            )
+        )
+    elif recoverable and within_cap:
         referral = True
+        if governing == CHECK_SLENDERNESS:
+            detail = (
+                "referred back to placement for confined masonry: tie columns and bands shorten the panel, "
+                "which is exactly the slenderness this wall is beaten by"
+            )
+        else:
+            detail = (
+                "referred back to placement for confined masonry: a confined line carries a higher response "
+                "reduction factor, which lowers the in-plane shear this wall is beaten by"
+            )
         steps.append(
             _step(
                 STEP_CONFINED,
                 "referred",
-                "referred back to placement for confined masonry: tie columns and bands shorten the panel and "
-                "restore the slenderness and integrity this wall is short of",
+                detail,
                 utilization_max=_r(best[1].utilization_max),
-                governing_check=best[1].governing_check,
+                governing_check=governing,
+                relief_utilization=_r(relief),
+            )
+        )
+    elif not recoverable:
+        shortfall = ""
+        if relief < _RATIO_CAP:
+            shortfall = " of " + _two_sf(relief)
+        steps.append(
+            _step(
+                STEP_CONFINED,
+                "refused",
+                "confinement is not offered: the shortfall"
+                + shortfall
+                + " on "
+                + governing
+                + " is a permissible stress, which tie columns and bands do not raise; what they recover is "
+                "panel slenderness and in-plane shear",
+                utilization_max=_r(best[1].utilization_max),
+                governing_check=governing,
             )
         )
     else:
@@ -1219,11 +1326,13 @@ def _prescribe(segment: WallSegment, options: MasonryOptions) -> _Adopted:
                 STEP_CONFINED,
                 "refused",
                 "confinement is not offered: the shortfall of "
-                + _two_sf(best[1].utilization_max)
+                + _two_sf(relief)
                 + " on "
-                + best[1].governing_check
-                + " is past what tie columns recover, which is panel slenderness and integrity, not permissible stress",
+                + governing
+                + " is past the confined relief cap of "
+                + _two_sf(options.confined_relief_cap),
                 utilization_max=_r(best[1].utilization_max),
+                governing_check=governing,
             )
         )
     steps.append(
@@ -1602,9 +1711,27 @@ def _wall_result(segment: WallSegment, options: MasonryOptions, adopted: _Adopte
     for note in (segment.height_source, segment.dead_source, segment.shear_source):
         if note:
             result.add_note(note)
+    if float(segment.net_length_mm) < float(segment.length_mm) - _ETA:
+        factor = float(segment.length_mm) / max(float(segment.net_length_mm), _ETA)
+        result.add_note(
+            "the axial demand arrives per gross metre of wall; the Cl 5.4.1 compressive stress is taken on the "
+            "net bearing length between the openings, a factor of "
+            + _two_sf(factor)
+            + " on this wall"
+        )
+    if not is1905.shear_mortar_permitted(adopted.material.mortar_grade):
+        result.add_warning(
+            "mortar grade "
+            + adopted.material.mortar_grade
+            + " is leaner than "
+            + is1905.SHEAR_MORTAR_FLOOR
+            + ": the IS 1905 permissible shear formula is restricted to mortar not leaner than "
+            + is1905.SHEAR_MORTAR_FLOOR
+            + ", so this wall's permissible shear is zero and it must carry no in-plane shear demand"
+        )
     if segment.pier_spacing_mm is not None:
         result.add_note(
-            "stiffened by pilasters: the effective thickness follows IS 1905 Table 6 on the longest bay, "
+            "stiffened by pilasters or tie columns: the effective thickness follows IS 1905 Table 6 on the longest bay, "
             + str(int(round(segment.pier_spacing_mm)))
             + " mm"
         )

@@ -241,14 +241,17 @@ REGISTRY = MappingProxyType(
         "W_CONCRETE_DENSITY_BAND": (Severity.WARNING, "concrete per built-up area outside the expected band"),
         "W_PLACEHOLDER_RATES": (Severity.WARNING, "cost uses placeholder rates"),
         "W_ECCENTRIC_COLUMN": (Severity.WARNING, "column offset from the wall centreline beyond tolerance"),
+        "W_FOOTING_OVERLAP": (Severity.WARNING, "two footings overlap in plan and share bearing soil"),
         "W_LOAD_OCCUPANCY_FALLBACK": (Severity.WARNING, "occupancy had no code live load; fallback used"),
         "W_LIVE_LOAD_OVERRIDDEN": (Severity.WARNING, "a request value replaced the code imposed load"),
         "W_ANA_COEFF_INAPPLICABLE": (Severity.WARNING, "coefficient method not applicable; alternative used"),
-        "W_EQ_TORSION_IRREGULAR": (Severity.WARNING, "torsionally irregular; amplified eccentricity applied"),
+        "W_EQ_TORSION_IRREGULAR": (Severity.WARNING, "torsionally irregular; the governing design eccentricity applied"),
         "W_EQ_DRIFT": (Severity.WARNING, "storey drift exceeds the code limit"),
+        "W_INFILL_EXCLUDED": (Severity.WARNING, "non-bearing walls not credited with lateral stiffness"),
         "W_WIND_STATIC_LIMIT": (Severity.WARNING, "static wind method at the edge of its validity"),
         "W_WIND_UPLIFT": (Severity.WARNING, "net wind uplift governs a roof or footing"),
         # notes: informational simplifications
+        "N_INFILL_STRUT": (Severity.NOTE, "infill credited as equivalent diagonal struts by option"),
         "N_LAP_50D_FLAT": (Severity.NOTE, "laps taken flat at 50d where a bar carries no ld"),
         "N_BBS_SHAPE_CODES_DEFERRED": (Severity.NOTE, "bar shape codes are not emitted in this version"),
         "N_NO_BEND_DEDUCTION": (Severity.NOTE, "bend deductions are not applied to cut lengths"),
@@ -662,6 +665,11 @@ class Footing:
     h_m: Optional[float] = None
     depth_m: Optional[float] = None
     placed_by: str = ""
+    # A boundary footing the placer flushed inside the line: the load acts
+    # `e_m` off the footing centre and the designer must be told, so the flag
+    # survives the model hand-off instead of dying inside the placement plan.
+    eccentric: bool = False
+    e_m: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -1027,6 +1035,8 @@ def _footing_to_wire(f: Footing) -> Dict[str, Any]:
         "h_ft": _ft_opt(f.h_m),
         "depth_ft": _ft_opt(f.depth_m),
         "placed_by": f.placed_by,
+        "eccentric": bool(f.eccentric),
+        "e_ft": _ft(f.e_m),
     }
 
 
@@ -1041,6 +1051,8 @@ def _footing_from_wire(d: Dict[str, Any]) -> Footing:
         h_m=_m_opt(d.get("h_ft")),
         depth_m=_m_opt(d.get("depth_ft")),
         placed_by=d.get("placed_by", ""),
+        eccentric=bool(d.get("eccentric", False)),
+        e_m=ft_to_m(d.get("e_ft", 0.0) or 0.0),
     )
 
 

@@ -5,17 +5,23 @@ metres in the model's y-down plan frame, storey 0 = ground.
 
 What it derives, in the order the spec fixes:
 
-1. storeys from `totalFloors`, floor i taken from `floors` by `floorNumber`,
+1. storeys from `totalFloors`, storey i taking `floors[i]` POSITIONALLY,
    a missing upper floor repeating the last `kind:"units"` floor
    (W_TYPICAL_REPEATED); `kind:"stilt"` becomes StoreyKind.STILT.
+   `floorNumber` is the frontend's 1-based HUMAN label (buildingSlice writes
+   `i + 1`), never the 0-based storey index: it orders the list, nothing more.
 2. the `boundary` (rect or rectilinear polygon) as an exterior wall loop.
-3. unit envelopes, merged with each other and with corridor edges at
-   max(t1,t2)/2 into single party/interior walls.
+3. unit envelopes from the DECLARED unit rect, merged with each other and with
+   corridor edges at max(t1,t2)/2 into single party/interior walls.
 4. unit interiors: a dressed `detailedPlan` when present (rooms + real doors
    and windows, provenance `dressed`), else the pinned UnitFloorplan's room
    placements with mid-wall doors assumed at 0.9 m, else one interior_unknown
-   RoomPoly per unit (W_UNIT_NO_PLAN).
-5. the normative rotation transform for 0/90/180/270.
+   RoomPoly per unit (W_UNIT_NO_PLAN). A plan whose extent disagrees with the
+   unit rect is scaled by one uniform factor and centred in that rect, the rule
+   the frontend draws it by, and the rescale is disclosed (W_STALE_GENERATED).
+5. the normative rotation transform for 0/90/180/270. No frontend view applies
+   `unit.rotation`, so a non-zero one is disclosed as well: the convention
+   across that boundary is an open product decision, not settled here.
 6. corridors as corridor-occupancy RoomPolys plus their edge walls.
 7. `fixedElements` as Cores present on every storey.
 
@@ -71,10 +77,16 @@ DEFAULT_RAILING_WALL_FT = 0.35
 # Finding 10: one door width for every adapter, 0.9 m, mid-wall.
 ASSUMED_DOOR_WIDTH_M = 0.9
 ASSUMED_WINDOW_WIDTH_M = 1.2
-# A shared run shorter than this cannot hold a door (plan_json step 5b).
+# A shared run shorter than this cannot hold a door (plan_json step 5b). It is
+# the assumed door width itself, so the floor and the width agree by
+# construction: a shorter floor admitted runs the 0.9 m leaf overhangs at both
+# ends. Runs below it fall to W_ADJACENCY_SHORTFALL, as they always have.
 MIN_DOOR_SHARE_FT = 2.8
 # openingsOnWallLoose precedent: a dressed door maps to a wall within this.
 DOOR_LINE_TOL_FT = 0.45
+# PLOT_FIT_EPS class (housing.py STALE_EPS_M): below this the declared unit
+# rect and the plan extent are the same rect and no rescale is applied.
+PLAN_FIT_EPS_FT = 0.15
 
 _ROTATIONS = (0, 90, 180, 270)
 
@@ -134,6 +146,11 @@ def _text(value: Any, default: str = "") -> str:
     if value is None:
         return default
     return str(value)
+
+
+def _dim(value: float) -> str:
+    """One dimension in a disclosure message, 2 dp, no trailing noise."""
+    return "%.2f" % round(float(value), 2)
 
 
 def _slug(text: str) -> str:
@@ -207,6 +224,24 @@ def _point_mapper(rotation: int, ox: float, oy: float, w: float, h: float) -> Ca
     return lambda p: (ox + p[1], oy + w - p[0])
 
 
+def _scaled_mapper(
+    rotation: int, ox: float, oy: float, w: float, h: float, scale: float
+) -> Callable[[XY], XY]:
+    """`_point_mapper` on a plan first scaled uniformly about its own origin.
+
+    (w, h) is the UNSCALED local plan size; the caller has already moved
+    (ox, oy) to the scaled plan's top-left corner in the floor frame.
+    """
+    inner = _point_mapper(rotation, ox, oy, w * scale, h * scale)
+    if scale == 1.0:
+        return inner
+
+    def mapped(point: XY) -> XY:
+        return inner((point[0] * scale, point[1] * scale))
+
+    return mapped
+
+
 def _flip_orientation(orientation: str, rotation: int) -> str:
     """Door/window axis under the rotation: h<->v on 90 and 270."""
     axis = "v" if str(orientation).lower().startswith("v") else "h"
@@ -268,6 +303,9 @@ class _UnitBuild:
     dressed: bool = False
     has_plan: bool = False
     footprint: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
+    # non-empty only when the adapter's geometry is not what the client draws
+    rescale_note: str = ""
+    rotation_note: str = ""
 
 
 def _rect_segments(
@@ -345,7 +383,15 @@ def _role_for(covering: Sequence[_Seg]) -> WallRole:
 
 
 def _merge_walls(segments: List[_Seg], storey: int) -> List[WallLine]:
-    """Split every cluster at its breakpoints, then re-join identical runs."""
+    """Split every cluster at its breakpoints, then re-join identical runs.
+
+    `room_lo` / `room_hi` are the rooms on the low and high side of the
+    centreline. `WallLine.room_ids` is (left, right) by the wall normal, the
+    left normal of (dx, dy) being (dy, -dx) in this y-down frame, so a
+    horizontal wall reads (above, below) = (lo, hi) while a VERTICAL wall reads
+    (right, left) = (hi, lo). Emitting (lo, hi) for both mirrored every
+    vertical wall against model.py, plan_json.py, housing.py and spec 01.
+    """
     walls = []  # type: List[WallLine]
     for orient in ("h", "v"):
         for cluster in _cluster([s for s in segments if s.orient == orient]):
@@ -377,6 +423,7 @@ def _merge_walls(segments: List[_Seg], storey: int) -> List[WallLine]:
                 attrs = run["attrs"]
                 pos, s0, s1 = attrs["pos"], run["s0"], run["s1"]
                 a, b = ((s0, pos), (s1, pos)) if orient == "h" else ((pos, s0), (pos, s1))
+                sides = (attrs["room_lo"], attrs["room_hi"])
                 walls.append(
                     WallLine(
                         id=wall_id(storey, orient, pos, s0),
@@ -387,7 +434,7 @@ def _merge_walls(segments: List[_Seg], storey: int) -> List[WallLine]:
                         role=attrs["role"],
                         material=Material.BRICK_MASONRY,
                         bearing=None,
-                        room_ids=(attrs["room_lo"], attrs["room_hi"]),
+                        room_ids=sides,
                         source=attrs["source"],
                     )
                 )
@@ -659,8 +706,8 @@ def _build_unit(
 
     build.has_plan = bool(records)
     origin_x, origin_y = _num(unit.get("x")), _num(unit.get("y"))
+    scale = 1.0
     mapper = _point_mapper(rotation, origin_x, origin_y, plan_w, plan_h)
-
     if build.has_plan:
         extent = [mapper(p) for p in _rect_polygon(0.0, 0.0, plan_w, plan_h)]
     else:
@@ -732,7 +779,8 @@ def _build_unit(
                 orient=orient,
                 line=ft_to_m(line),
                 centre=ft_to_m(centre),
-                width=ft_to_m(record["width"]),
+                # the leaf is drawn at the plan's scale, like the wall it is in
+                width=ft_to_m(record["width"] * scale),
                 kind=record["kind"],
                 provenance=Provenance.DRESSED,
                 sill=None if record["sill"] is None else ft_to_m(_num(record["sill"])),
@@ -999,17 +1047,44 @@ def _build_parking(bay: Dict[str, Any], storey: int, index: int) -> Optional[Roo
 # --------------------------------------------------------------------------
 
 
-def _pick_floors(payload: Dict[str, Any], count: int) -> List[Tuple[Optional[Dict[str, Any]], bool]]:
-    """Storey i -> (floor payload, repeated) per spec step 1."""
-    floors = [f for f in (payload.get("floors") or []) if isinstance(f, dict)]
-    by_number = {}  # type: Dict[int, Dict[str, Any]]
-    for index, floor in enumerate(floors):
-        number = floor.get("floorNumber")
+def _ordered_floors(floors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Payload order, unless every entry states a `floorNumber` to sort by.
+
+    `floorNumber` is a 1-based HUMAN label the frontend writes as `i + 1`
+    (buildingSlice `addBuilding` and `addFloor`); it is never the 0-based
+    storey index. It orders the list and nothing else. A payload that omits it
+    anywhere keeps its own order, which is the frontend's order too.
+    """
+    numbers = []  # type: List[int]
+    for floor in floors:
         try:
-            key = int(number)
+            numbers.append(int(floor.get("floorNumber")))
         except (TypeError, ValueError):
-            key = index
-        by_number.setdefault(key, floor)
+            return list(floors)
+    indexed = list(zip(numbers, range(len(floors)), floors))
+    indexed.sort(key=lambda item: (item[0], item[1]))
+    return [item[2] for item in indexed]
+
+
+def _pick_floors(payload: Dict[str, Any], count: int) -> List[Tuple[Optional[Dict[str, Any]], bool]]:
+    """Storey i -> (floor payload, repeated), POSITIONALLY per spec 6 step 1.
+
+    Storey i takes `floors[i]`. Resolving it by `floorNumber == i` read a
+    1-based label as a 0-based index: the ground floor was used for storeys 0
+    AND 1, every other floor shifted down one, the top floor was dropped
+    without a word and W_TYPICAL_REPEATED could not fire. Storeys past the end
+    of the list repeat the last `kind:"units"` floor, disclosed; a floor that a
+    lower storey already consumed is flagged repeated too, so no storey can
+    duplicate another in silence.
+    """
+    floors = [f for f in (payload.get("floors") or []) if isinstance(f, dict)]
+    by_number = {}
+    for _i, _f in enumerate(floors):
+        try:
+            _k = int(_f.get("floorNumber"))
+        except (TypeError, ValueError):
+            _k = _i
+        by_number.setdefault(_k, _f)
 
     typical = None  # type: Optional[Dict[str, Any]]
     picked = []  # type: List[Tuple[Optional[Dict[str, Any]], bool]]
@@ -1202,6 +1277,10 @@ def from_building(
     repeated = []  # type: List[str]
     no_plan = []  # type: List[str]
     outside = []  # type: List[str]
+    rescaled = []  # type: List[str]
+    rescaled_rooms = []  # type: List[str]
+    rotated = []  # type: List[str]
+    rotated_rooms = []  # type: List[str]
     unknown_names = []  # type: List[str]
     unmapped = []  # type: List[str]
     shortfalls = []  # type: List[str]
@@ -1249,6 +1328,12 @@ def from_building(
             unit_keys.append((build.key, build.dressed, build.has_plan))
             if not build.has_plan:
                 no_plan.extend(sorted(r.id for r in build.rooms))
+            if build.rescale_note:
+                rescaled.append(build.rescale_note)
+                rescaled_rooms.extend(sorted(r.id for r in build.rooms))
+            if build.rotation_note:
+                rotated.append(build.rotation_note)
+                rotated_rooms.extend(sorted(r.id for r in build.rooms))
             if not _inside_boundary(build.footprint, boundary_ft):
                 outside.extend(sorted(r.id for r in build.rooms))
 
@@ -1326,7 +1411,12 @@ def from_building(
     if repeated:
         model.add_warning(
             "W_TYPICAL_REPEATED",
-            "storeys " + ", ".join(repeated) + " repeat the last units floor; the payload carries fewer floors than totalFloors",
+            "storeys "
+            + ", ".join(repeated)
+            + " repeat the last units floor; the payload carries "
+            + str(len([f for f in (payload.get("floors") or []) if isinstance(f, dict)]))
+            + " floor(s) for totalFloors "
+            + str(count),
             (),
             stage="adapters.building",
         )
@@ -1335,6 +1425,31 @@ def from_building(
             "W_UNIT_NO_PLAN",
             str(len(no_plan)) + " unit(s) carry no interior plan; each is one interior_unknown room",
             sorted(set(no_plan)),
+            stage="adapters.building",
+        )
+    if rescaled:
+        # The registry is deliberately coarser than English and this is the
+        # code for "the placed plan is not the plan as drawn"; housing.py
+        # raises it for the same rescale-and-centre rule.
+        model.add_warning(
+            "W_STALE_GENERATED",
+            str(len(set(rescaled)))
+            + " unit plan(s) did not match the declared unit rect and were uniformly rescaled and "
+            "centred in it, the rule the frontend draws them by: "
+            + ", ".join(sorted(set(rescaled))),
+            sorted(set(rescaled_rooms)),
+            stage="adapters.building",
+        )
+    if rotated:
+        model.add_warning(
+            "W_STALE_GENERATED",
+            str(len(set(rotated)))
+            + " unit(s) carry a non-zero rotation, applied here by the spec 6.5 transform: "
+            + ", ".join(sorted(set(rotated)))
+            + ". No frontend view (2D canvas, 3D, DXF, walkthrough) applies unit rotation, so this "
+            "geometry differs from the drawn and exported plan; which side owns the rotation is an "
+            "open product decision, not settled by this adapter.",
+            sorted(set(rotated_rooms)),
             stage="adapters.building",
         )
     if outside:
@@ -1368,7 +1483,9 @@ def from_building(
     if shortfalls:
         model.add_warning(
             "W_ADJACENCY_SHORTFALL",
-            "rooms share less than " + str(MIN_DOOR_SHARE_FT) + " ft of wall with the rest of their unit; no door assumed",
+            "rooms share less than "
+            + _dim(MIN_DOOR_SHARE_FT)
+            + " ft of wall with the rest of their unit (the assumed door width); no door assumed",
             sorted(set(shortfalls)),
             stage="adapters.building",
         )

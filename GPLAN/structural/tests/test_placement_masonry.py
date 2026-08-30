@@ -798,3 +798,171 @@ def test_every_disclosure_code_is_registered():
         for entry in M.place(model).warnings:
             assert entry.code in MM.REGISTRY
             assert entry.severity == MM.REGISTRY[entry.code][0]
+
+
+# ---------------------------------------------------------------------------
+# findings C3, B5, B6: rule ordering, cover freshness, the row 6b dry run
+# ---------------------------------------------------------------------------
+
+
+def _floating_wall_model(t=0.23):
+    """The rule 7.5 fixture with the floating wall's thickness a parameter."""
+    model = _model(w=8.0, h=12.0, interiors=False)
+    model.walls.append(_wall(0, (0.0, 4.0), (8.0, 4.0)))
+    model.walls.append(_wall(0, (0.0, 8.0), (8.0, 8.0)))
+    floating = _wall(1, (4.0, 0.0), (4.0, 12.0), t=t)
+    model.walls.append(floating)
+    return model, floating
+
+
+def test_an_ungrounded_thin_wall_takes_the_beam_line_not_a_dead_promotion():
+    # finding C3: rule 7.3 used to fire before rule 7.5's stacked/grounded
+    # screen, so lifting the ungrounded 150 mm wall was a no-op that removed it
+    # from gap resolution, the gap stayed open and the system escalated to
+    # confined_masonry with E_SPAN_OVER_MAX; the very next attempt closed the
+    # same panel with the rule 7.5 beam line it refused to try under LBM
+    model, floating = _floating_wall_model(t=0.15)
+    placement = M.place(model, M.MasonryParams(system="load_bearing_masonry", zone="IV"))
+    assert placement.system.system == "load_bearing_masonry"
+    assert placement.system.refused is None
+    assert placement.cover_gaps == []
+    assert any("rule 7.5" in line and "does not stack to the ground" in line for line in placement.trace)
+    assert len(placement.hybrid_beams) == 1
+    assert placement.hybrid_beams[0].supports_wall_id == floating.id
+    assert floating.id not in placement.bearing_walls
+    assert placement.promoted == []
+    assert not any(
+        entry.code == "W_RELEASED_CAP" and "kept bearing" in entry.message for entry in placement.warnings
+    )
+
+
+def test_floating_wall_thickness_does_not_change_the_delivered_system():
+    # finding C3's monotonicity contract: only the floating wall's thickness
+    # varies, and both thicknesses take the same rule 7.5 beam line under
+    # load bearing masonry
+    thick, _ = _floating_wall_model(t=0.23)
+    thin, _ = _floating_wall_model(t=0.15)
+    at_230 = M.place(thick, M.MasonryParams(system="load_bearing_masonry", zone="IV"))
+    at_150 = M.place(thin, M.MasonryParams(system="load_bearing_masonry", zone="IV"))
+    assert at_230.system.system == at_150.system.system == "load_bearing_masonry"
+    assert len(at_230.hybrid_beams) == len(at_150.hybrid_beams) == 1
+    assert [tie.id for tie in at_230.tie_columns] == [tie.id for tie in at_150.tie_columns]
+
+
+def _stale_cover_model():
+    """Perimeter 230 and two stacked grounded 150 mm lines where ONE suffices."""
+    model = _model(storeys=1, w=7.5, h=8.0, interiors=False)
+    model.walls.append(_wall(0, (0.0, 4.0), (7.5, 4.0), t=0.15))
+    model.walls.append(_wall(0, (0.0, 5.0), (7.5, 5.0), t=0.15))
+    return model
+
+
+def test_resolve_rounds_read_a_fresh_cover_so_one_lift_suffices():
+    # finding B5: the 12 round loop used to re-run against the round-1 cover
+    # snapshot, so the y=4 lift was invisible to round 2 and the y=5 wall was
+    # lifted for a gap that was already closed; the fresh cover stops after one
+    needed = MM.wall_id(0, "h", 4.0, 0.0)
+    placement = M.place(_stale_cover_model(), M.MasonryParams(system="load_bearing_masonry", zone="III"))
+    assert placement.system.system == "load_bearing_masonry"
+    assert placement.cover_gaps == []
+    assert [request.wall_id for request in placement.promoted] == [needed]
+    assert needed in placement.bearing_walls
+    releases = [
+        entry for entry in placement.warnings if entry.code == "W_RELEASED_CAP" and "kept bearing" in entry.message
+    ]
+    assert [entry.element_ids for entry in releases] == [[needed]]
+
+
+def test_promotion_requests_never_name_a_non_bearing_wall():
+    # finding B5's report half: an un-honoured request used to survive into
+    # placement.promoted and W_RELEASED_CAP beside a NON-BEARING report row
+    for model in (_stale_cover_model(), _model(interior_t=0.15)):
+        placement = M.place(model, M.MasonryParams(system="load_bearing_masonry", zone="III"))
+        bearing = set(placement.bearing_walls)
+        rows = {row.wall_id: row for row in placement.per_wall_reports}
+        for request in placement.promoted:
+            assert request.wall_id in bearing
+            assert rows[request.wall_id].action == "PROMOTED-REQUEST"
+        for entry in placement.warnings:
+            if entry.code == "W_RELEASED_CAP" and "kept bearing" in entry.message:
+                assert set(entry.element_ids) <= bearing
+
+
+def test_finish_reconciles_an_orphan_promotion_request():
+    # finding B5, belt and braces: whatever route leaves a lift out of the
+    # final bearing set, the finish pass drops the request, its resolution row
+    # and its W_RELEASED_CAP, and traces the drop; before the fix the method
+    # did not exist and the orphan shipped
+    placer = M.MasonryPlacer(M.MasonryParams())
+    placer._trace = []
+    placer._warnings = []
+    placer._lifted = {"w-keep", "w-orphan"}
+    placer._promoted = [
+        M.GeometryChangeRequest(
+            wall_id=name, storey=0, field="thickness_mm", current_mm=150.0, requested_mm=230.0, reason="rule 7.3"
+        )
+        for name in ("w-keep", "w-orphan")
+    ]
+    placer._resolved = [
+        {"wall_id": name, "action": "PROMOTED-REQUEST", "rule": "7.3", "clause_id": "IS1905:1987 Cl 4.1"}
+        for name in ("w-keep", "w-orphan")
+    ]
+    for name in ("w-keep", "w-orphan"):
+        placer._warn(
+            "W_RELEASED_CAP",
+            "wall %s is kept bearing at 150 mm on the condition that it is built at 230 mm" % name,
+            [name],
+            clause="IS1905:1987 Cl 4.1",
+        )
+    placer._reconcile_promotions({0: ["w-keep"]})
+    assert [request.wall_id for request in placer._promoted] == ["w-keep"]
+    assert placer._lifted == {"w-keep"}
+    assert [row["wall_id"] for row in placer._resolved] == ["w-keep"]
+    named = [tuple(entry.element_ids) for entry in placer._warnings if entry.code == "W_RELEASED_CAP"]
+    assert named == [("w-keep",)]
+    assert any("w-orphan" in line and "dropped" in line for line in placer._trace)
+
+
+def _census_hole_model(storeys=2):
+    """Perimeter 230 with one 150 mm spine: a 21 percent confined share, the
+    band between census rows 5 and 6 that finding B6 pins."""
+    model = _model(storeys=storeys, w=9.0, h=8.0, interiors=False)
+    for index in range(storeys):
+        model.walls.append(_wall(index, (0.0, 4.0), (9.0, 4.0), t=0.15))
+    return model
+
+
+def test_row_6b_tries_confined_masonry_before_falling_to_rc_frame():
+    # finding B6: with the confined share at 21 percent neither census row
+    # fired and the table fell straight to rc_frame without asking whether
+    # confined masonry closes the cover; it does, so it is delivered
+    decision = M.choose_system(_census_hole_model(), M.MasonryParams())
+    assert decision.system == "confined_masonry"
+    assert decision.refused is None
+    assert any(line.startswith("row 6b:") and "closes the cover" in line for line in decision.trace)
+    placement = M.place(_census_hole_model(), M.MasonryParams())
+    assert placement.system.system == "confined_masonry"
+    assert placement.cover_gaps == []
+    assert placement.bearing_walls
+
+
+def test_row_6b_carries_the_census_storey_cap():
+    # the census rows cap confined masonry at 3 storeys, and the new row must
+    # not hand a 4 storey building what rows 5 and 6 would refuse; the refusal
+    # to try is traced, never silent
+    decision = M.choose_system(_census_hole_model(storeys=4), M.MasonryParams(zone="II"))
+    assert decision.system == "rc_frame"
+    assert any(line.startswith("row 6b:") and "past the 3 storey cap" in line for line in decision.trace)
+
+
+def test_row_6b_discloses_when_confined_does_not_close_either():
+    # a 230 mm spine keeps rows 5 and 6 quiet but leaves a 9 x 8 m panel that
+    # no wall in any class can close: the confined dry run fails too, and the
+    # trace says so before row 7 fires
+    model = _model(storeys=2, w=9.0, h=12.0, interiors=False)
+    for index in range(2):
+        model.walls.append(_wall(index, (0.0, 4.0), (9.0, 4.0)))
+    decision = M.choose_system(model, M.MasonryParams())
+    assert decision.system == "rc_frame"
+    assert any(line.startswith("row 6b:") and "does not close the cover" in line for line in decision.trace)
+    assert any(line.startswith("row 7:") for line in decision.trace)

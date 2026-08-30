@@ -281,6 +281,10 @@ def strip_geometry_from_model(footing: Any, walls: Mapping[str, Any]) -> Any:
         placed_width_m=width_m or None,
         wall_ids=tuple(str(one) for one in (getattr(footing, "supports", None) or [])),
         orient=orient,
+        # A boundary strip arrives flushed inside the line: the placer stamps
+        # the offset on the model footing and the designer must see it.
+        eccentric=bool(getattr(footing, "eccentric", False)),
+        e_m=float(getattr(footing, "e_m", 0.0) or 0.0),
     )
 
 

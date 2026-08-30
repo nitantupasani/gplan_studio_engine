@@ -60,6 +60,9 @@ CANTILEVER_REFUSAL_SPAN_MM = 2500.0
 _ASSUMED_MAIN_DIA_MM = 16.0
 #: Smallest main bar a beam is detailed with.
 _MIN_MAIN_DIA_MM = 12
+
+#: Millimetres below which two covers are the same cover.
+_COVER_TOL_MM = 1e-9
 #: Stirrup diameter the shear ladder starts from.
 _BASE_STIRRUP_DIA_MM = 8.0
 #: Bars carried through the span to hold the stirrup cage where the hogging
@@ -566,9 +569,19 @@ def _attempt(
     b_mm: float,
     depth_mm: float,
     doubly_allowed: bool,
+    seed_dia_mm: float = 0.0,
 ) -> _Attempt:
-    """Design one trial section end to end, reporting whatever it produced."""
-    cover = C.resolve_cover("beam", ctx.exposure, ctx.fire_rating_h, 0.0)
+    """Design one trial section end to end, reporting whatever it produced.
+
+    `seed_dia_mm` is the largest main bar a previous pass over this section
+    chose. IS 456 Cl 26.4.1 asks that the nominal cover be at least the bar
+    diameter, and no bar exists before the flexure is designed, so the first
+    pass resolves the cover with no diameter and the tail of this function
+    re-resolves it against the bars that were actually chosen. Only when the
+    cover moves does the section get designed again, at the larger cover; the
+    sibling column designer resolves the same way once its cage is known.
+    """
+    cover = C.resolve_cover("beam", ctx.exposure, ctx.fire_rating_h, float(seed_dia_mm))
     stirrup_dia = _BASE_STIRRUP_DIA_MM
     width_avail = C.clear_width_mm(b_mm, cover.cover_mm, stirrup_dia)
     max_clear = is456.table_15__clear_spacing(ctx.fy_mpa, ctx.redistribution_pct)
@@ -754,7 +767,30 @@ def _attempt(
         attempt.ok = False
         attempt.reason = "deflection"
         attempt.detail = "span/d " + ("%.2f" % attempt.deflection.span_over_d)
+
+    # -- Cl 26.4.1 cover against the bars actually chosen -------------------
+    # The cover above was resolved before any bar existed, so a 32 mm bar could
+    # be detailed on a 30 mm Table 16 cover. Re-resolve against the largest main
+    # bar and design the section again when the cover moved: the effective depth
+    # and the bar choice both follow the cover, so nothing short of a re-run is
+    # honest. The seed strictly increases and the diameters come from a finite
+    # catalogue, so the walk is bounded by the number of bar sizes.
+    dia = _largest_main_dia_mm(attempt)
+    if dia > seed_dia_mm + _COVER_TOL_MM:
+        recut = C.resolve_cover("beam", ctx.exposure, ctx.fire_rating_h, dia)
+        if recut.cover_mm > attempt.cover_mm + _COVER_TOL_MM:
+            return _attempt(forces, geom, ctx, b_mm, depth_mm, doubly_allowed, dia)
     return attempt
+
+
+def _largest_main_dia_mm(attempt: _Attempt) -> float:
+    """The biggest longitudinal bar this attempt chose, tension or compression."""
+    largest = 0.0
+    for station in attempt.stations:
+        largest = max(largest, float(station.layout.max_dia_mm))
+        if station.comp_layout is not None:
+            largest = max(largest, float(station.comp_layout.max_dia_mm))
+    return largest
 
 
 def _governing_station(attempt: _Attempt, cantilever: bool) -> _Station:

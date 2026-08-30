@@ -13,6 +13,25 @@ storey shear.
     column k = 12 Ec Ic / h^3                  Ec = 5000 sqrt(fck), IS 456 6.2.3.1
     pier   k = Em t / ((h/L)^3 + 3 (h/L))      Em = 550 fm, IS 1893 7.10.2
            k = Em t / (4 (h/L)^3 + 3 (h/L))    cantilever variant, ctx flag
+    strut  k = Em t w_ds cos^2(theta) / L_ds   w_ds = 0.175 alpha_h^-0.4 L_ds,
+                                               IS 1893 7.9.2, option flag only
+
+Which walls are credited, stated once: a wall enters the lateral system only
+when it is declared bearing (`wall.bearing is True`) or is RC. Everything else
+is URM infill or an undeclared partition and is EXCLUDED from the lateral
+stiffness by default, with `W_INFILL_EXCLUDED` on the ladder naming the walls.
+The reason for the default: crediting infill panels as full shear piers
+overstates the storey stiffness by an order of magnitude, which understates
+the period and the drift (so the drift check cannot fire), and it places the
+centre of rigidity by the partition layout instead of the frame, so the
+torsion verdicts come out of the wrong geometry. The bare-frame default errs
+soft instead, which is the conservative side for drift, and every credited
+element is a declared structural element. The IS 1893 Cl 7.9.2 equivalent
+diagonal strut idealization is available as
+`LateralContext(infill_stiffness="strut")` and is disclosed as
+`N_INFILL_STRUT` when used; `W_INFILL_EXCLUDED` is an engineer-review trigger
+(report.REVIEW_TRIGGER_CODES), so the excluded-infill idealization always
+reaches a human.
 
 Wave-3 boundary. This module imports nothing from `loads` or `analysis`; the
 storey shears arrive as a plain documented dict and the seismic or wind report
@@ -29,6 +48,7 @@ Units are SI: metres, kN, kN/m for stiffness, kN m for moment and for J.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -73,12 +93,24 @@ _DIRECTIONS = ("x", "y")
 # ---------------------------------------------------------------------------
 
 
+#: The two supported idealizations for walls that are not declared bearing and
+#: are not RC (URM infill and undeclared partitions). "exclude" is the default
+#: and drops them from the lateral stiffness, disclosed; "strut" credits them
+#: as IS 1893 Cl 7.9.2 equivalent diagonal struts, disclosed. There is no
+#: option to credit infill as a full shear pier: that was the defect.
+INFILL_MODES = ("exclude", "strut")
+
+
 @dataclass(frozen=True)
 class LateralContext:
     """Material and modelling flags for the distribution.
 
     `plan_dims_m` overrides the per-storey plan bbox that supplies `bi` in the
     Cl 7.8.2 design eccentricity and the 5 percent torsion gate.
+
+    `infill_stiffness` picks the idealization for non-bearing, non-RC walls:
+    "exclude" (default, see the module docstring for why) or "strut" (the
+    Cl 7.9.2 equivalent diagonal strut).
     """
 
     fck_mpa: float = 25.0
@@ -88,6 +120,16 @@ class LateralContext:
     min_wall_thickness_m: float = 0.100
     opening_knockdown: float = 0.8
     plan_dims_m: Optional[Tuple[float, float]] = None
+    infill_stiffness: str = "exclude"
+
+    def __post_init__(self) -> None:
+        if self.infill_stiffness not in INFILL_MODES:
+            raise ValueError(
+                "infill_stiffness must be one of "
+                + repr(INFILL_MODES)
+                + ", got "
+                + repr(self.infill_stiffness)
+            )
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -98,6 +140,7 @@ class LateralContext:
             "min_wall_thickness_m": float(self.min_wall_thickness_m),
             "opening_knockdown": float(self.opening_knockdown),
             "plan_dims_m": None if self.plan_dims_m is None else [float(v) for v in self.plan_dims_m],
+            "infill_stiffness": str(self.infill_stiffness),
         }
 
 
@@ -139,6 +182,65 @@ def pier_stiffness(e_mpa: float, t_m: float, h_m: float, l_m: float, cantilever:
 def masonry_modulus(fm_mpa: float) -> float:
     """Em = 550 fm in MPa (IS 1893 Cl 7.10.2)."""
     return EM_OVER_FM * float(fm_mpa)
+
+
+# IS 1893 (Part 1) : 2016 Cl 7.9.2.2: equivalent diagonal strut width,
+# w_ds = 0.175 alpha_h^-0.4 L_ds. Printed formula constants, not tabulated.
+STRUT_WIDTH_COEFF = 0.175
+STRUT_WIDTH_EXPONENT = -0.4
+
+
+def strut_stiffness(
+    em_mpa: float, t_m: float, h_m: float, l_m: float, ef_mpa: float, ic_m4: float
+) -> Dict[str, float]:
+    """The Cl 7.9.2 equivalent diagonal strut of a URM infill panel, as a record.
+
+    The panel is replaced by a pin-ended diagonal strut of width
+    w_ds = 0.175 alpha_h^-0.4 L_ds (IS 1893 Cl 7.9.2.2), where
+
+        alpha_h = h ((Em t sin 2 theta) / (4 Ef Ic h))^(1/4)
+
+    with theta the angle of the diagonal, L_ds its length, Ef and Ic the
+    modulus and sway-axis second moment of the ADJOINING columns. The lateral
+    stiffness is the horizontal component of the strut's axial stiffness:
+
+        k = (Em t w_ds / L_ds) cos^2 theta        in kN/m
+
+    Returns the full record, not just k, because the wire discloses the strut
+    geometry: {"k_kn_m", "w_ds_m", "l_ds_m", "theta_rad", "alpha_h"}.
+
+    Spot value: Em = 2750 MPa, t = 0.23 m, h = 3 m, L = 4 m, Ef = 25000 MPa,
+    Ic = 0.3^4 / 12. The 3-4-5 diagonal gives sin 2 theta = 0.96 and
+    cos^2 theta = 0.64 exactly; alpha_h = 3.9477, w_ds = 0.5053 m and
+    k = 40904 kN/m, several times softer than the same panel as a shear pier,
+    which is the point of the idealization.
+    """
+    if l_m <= 0.0:
+        raise ValueError("infill panel length must be positive, got " + repr(l_m))
+    if h_m <= 0.0:
+        raise ValueError("infill panel height must be positive, got " + repr(h_m))
+    if ic_m4 <= 0.0:
+        raise ValueError("adjoining column Ic must be positive, got " + repr(ic_m4))
+    if ef_mpa <= 0.0 or em_mpa <= 0.0:
+        raise ValueError("moduli must be positive, got Em " + repr(em_mpa) + ", Ef " + repr(ef_mpa))
+    em = float(em_mpa) * MPA_TO_KN_M2
+    ef = float(ef_mpa) * MPA_TO_KN_M2
+    height = float(h_m)
+    length = float(l_m)
+    theta = math.atan2(height, length)
+    l_ds = math.hypot(height, length)
+    alpha_h = height * (
+        (em * float(t_m) * math.sin(2.0 * theta)) / (4.0 * ef * float(ic_m4) * height)
+    ) ** 0.25
+    w_ds = STRUT_WIDTH_COEFF * alpha_h ** STRUT_WIDTH_EXPONENT * l_ds
+    k = (em * float(t_m) * w_ds / l_ds) * math.cos(theta) ** 2
+    return {
+        "k_kn_m": k,
+        "w_ds_m": w_ds,
+        "l_ds_m": l_ds,
+        "theta_rad": theta,
+        "alpha_h": alpha_h,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -529,6 +631,7 @@ def _wall_entry(
     dressed_storey: bool,
     stack_id: Optional[str],
     log: DisclosureLog,
+    frame_ic_m4: Dict[str, Optional[float]],
 ) -> Optional[Dict[str, Any]]:
     direction = _wall_direction(wall)
     if direction is None:
@@ -540,6 +643,29 @@ def _wall_entry(
         return None
     length = wall.length_m()
     if length <= MIN_PIER_LENGTH_M:
+        return None
+
+    # The infill screen (module docstring, "which walls are credited"): only a
+    # declared bearing wall or an RC wall is a shear pier. Anything else is
+    # URM infill or an undeclared partition; by default it is excluded from
+    # the lateral stiffness, disclosed, or credited as the Cl 7.9.2 strut when
+    # the option asks for that.
+    if not (wall.bearing is True or wall.material == Material.RC):
+        if ctx.infill_stiffness == "strut":
+            return _strut_entry(
+                wall, direction, length, thickness, height_m, ec_mpa, em_mpa, stack_id, log,
+                frame_ic_m4.get(direction),
+            )
+        log.add(
+            "W_INFILL_EXCLUDED",
+            "walls not declared bearing and not rc are not credited with lateral "
+            "stiffness; the storey shear goes to the declared bearing walls and "
+            "columns (URM infill idealization; crediting infill as shear piers "
+            "would overstate the stiffness and misplace the centre of rigidity)",
+            element_ids=[wall.id],
+            clause=EQ_CODE + " 7.9",
+            stage=STAGE,
+        )
         return None
 
     e_mpa = ec_mpa if wall.material == Material.RC else em_mpa
@@ -606,6 +732,74 @@ def _wall_entry(
         "ky": total_k if direction == "y" else 0.0,
         "source": modulus_note + source,
         "piers": piers,
+    }
+
+
+def _strut_entry(
+    wall: Any,
+    direction: str,
+    length: float,
+    thickness: float,
+    height_m: float,
+    ec_mpa: float,
+    em_mpa: float,
+    stack_id: Optional[str],
+    log: DisclosureLog,
+    ic_m4: Optional[float],
+) -> Optional[Dict[str, Any]]:
+    """One infill panel as the Cl 7.9.2 diagonal strut, or None with a reason.
+
+    The strut needs an adjoining frame: `ic_m4` is the mean sway-axis Ic of
+    the storey's columns for this direction. Without columns there is no
+    frame to strut against, so the panel is excluded and the ladder says why.
+    Openings are not reduced for in v1; the disclosure states that.
+    """
+    if ic_m4 is None:
+        log.add(
+            "W_INFILL_EXCLUDED",
+            "the Cl 7.9.2 strut idealization needs adjoining columns and the "
+            "storey has none, so non-bearing walls are excluded from the "
+            "lateral stiffness",
+            element_ids=[wall.id],
+            clause=EQ_CODE + " 7.9.2",
+            stage=STAGE,
+        )
+        return None
+    record = strut_stiffness(em_mpa, thickness, height_m, length, ec_mpa, ic_m4)
+    log.add(
+        "N_INFILL_STRUT",
+        "non-bearing masonry walls are credited as equivalent diagonal struts, "
+        "w_ds = 0.175 alpha_h^-0.4 L_ds, with the mean sway-axis Ic of the "
+        "storey columns as the adjoining-column Ic; opening reductions are not "
+        "modelled",
+        element_ids=[wall.id],
+        clause=EQ_CODE + " 7.9.2",
+        stage=STAGE,
+    )
+    centre = _wall_centre(wall)
+    k = record["k_kn_m"]
+    return {
+        "id": wall.id,
+        "type": "wall",
+        "x_m": centre[0],
+        "y_m": centre[1],
+        "length_m": length,
+        "stack_id": stack_id,
+        "kx": k if direction == "x" else 0.0,
+        "ky": k if direction == "y" else 0.0,
+        "source": "urm infill as an equivalent diagonal strut, w_ds = 0.175 alpha_h^-0.4 L_ds ("
+        + EQ_CODE
+        + " 7.9.2), mean storey column Ic",
+        "piers": [
+            {
+                "kind": "strut",
+                "w_ds_m": record["w_ds_m"],
+                "l_ds_m": record["l_ds_m"],
+                "theta_rad": record["theta_rad"],
+                "alpha_h": record["alpha_h"],
+                "k_kn_m": k,
+            }
+        ],
     }
 
 
@@ -757,12 +951,23 @@ def _storey_entries(
 ) -> List[Dict[str, Any]]:
     """Every participating vertical element on the storey, sorted by id."""
     entries = []  # type: List[Dict[str, Any]]
+    sway_ic = {"x": [], "y": []}  # type: Dict[str, List[float]]
     for column in sorted(model.columns_on(storey), key=lambda c: c.id):
         entries.append(_column_entry(column, height_m, ec_mpa, ctx))
+        bx, by = _column_plan_dims(column)
+        sway_ic["x"].append(by * bx ** 3 / 12.0)
+        sway_ic["y"].append(bx * by ** 3 / 12.0)
+    # Mean sway-axis Ic per direction: the adjoining-column Ic the Cl 7.9.2
+    # strut option needs. None when the storey has no columns.
+    frame_ic_m4 = {
+        direction: (sum(values) / len(values) if values else None)
+        for direction, values in sway_ic.items()
+    }  # type: Dict[str, Optional[float]]
     dressed = model.doors_known(storey)
     for wall in sorted(model.walls_on(storey), key=lambda w: w.id):
         entry = _wall_entry(
-            wall, height_m, ec_mpa, em_mpa, ctx, dressed, stack_of.get(wall.id), log
+            wall, height_m, ec_mpa, em_mpa, ctx, dressed, stack_of.get(wall.id), log,
+            frame_ic_m4,
         )
         if entry is not None:
             entries.append(entry)
@@ -820,12 +1025,14 @@ def _distribute(
         esi = cm[0] - cr[0]
         bi = plan[0]
 
-    eccentricity = is1893.design_eccentricity(esi, bi)
-    ed_governing = (
-        eccentricity.amplified
-        if abs(eccentricity.amplified) >= abs(eccentricity.reduced)
-        else eccentricity.reduced
-    )
+    # Cl 7.8.2 defines esi as the DISTANCE between the mass and rigidity
+    # centres, so the magnitude goes in; the signed value stays on the wire as
+    # `esi_m` for the mirror disclosure. With the distance in, the amplified
+    # branch always governs by magnitude (1.5 |esi| + 0.05 bi covers both
+    # accidental directions); the pick below stays for reporting.
+    eccentricity = is1893.design_eccentricity(abs(esi), bi)
+    amplified_governs = abs(eccentricity.amplified) >= abs(eccentricity.reduced)
+    ed_governing = eccentricity.amplified if amplified_governs else eccentricity.reduced
     torque = shear_kn * abs(ed_governing)
 
     shares = []  # type: List[ElementShare]
@@ -900,7 +1107,11 @@ def _distribute(
             + repr(TORSION_GATE_FRACTION)
             + " of the "
             + repr(bi)
-            + " m plan dimension; torsionally irregular, an FE phase is recommended",
+            + " m plan dimension; the governing Cl 7.8.2 design eccentricity is the "
+            + ("amplified" if amplified_governs else "reduced")
+            + " branch, "
+            + repr(ed_governing)
+            + " m; torsionally irregular, an FE phase is recommended",
             clause=EQ_CODE + " 7.8.2",
             stage=STAGE,
         )
@@ -984,9 +1195,24 @@ def _base_forces(blocks: Sequence[StoreyLateral], base_storey: int) -> Dict[str,
 
 
 def _assumptions(ctx: LateralContext, cm_fallback: bool) -> List[str]:
+    if ctx.infill_stiffness == "strut":
+        infill_line = (
+            "only declared bearing walls and rc walls are credited as shear piers; "
+            "non-bearing masonry infill is credited as IS 1893 Cl 7.9.2 equivalent "
+            "diagonal struts (w_ds = 0.175 alpha_h^-0.4 L_ds, mean storey column Ic, "
+            "opening reductions not modelled)"
+        )
+    else:
+        infill_line = (
+            "only declared bearing walls and rc walls are credited with lateral "
+            "stiffness; non-bearing masonry infill is excluded, because crediting "
+            "infill as shear piers overstates the stiffness, understates the period "
+            "and the drift, and misplaces the centre of rigidity"
+        )
     lines = [
         "rigid diaphragm per floor; no in-plane flexibility is modelled",
         "fixed-fixed shear elements between floors; column inflection at mid height",
+        infill_line,
         "only elements parallel to the direction shaken participate",
         "torsional share is additive only, so no element is relieved on the flexible side "
         "and the element shears sum to more than the storey shear",

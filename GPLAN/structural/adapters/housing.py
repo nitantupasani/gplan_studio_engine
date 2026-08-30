@@ -16,9 +16,18 @@ Regions are DERIVED, never stored: the payload keys `regionContent` by an opaque
       `detectFloorRegions` produced), and content rides along with each region;
   (b) fallback: this module planarizes the wall arrangement (plot boundary +
       segments + shape edges) with `shapely.ops.polygonize` and matches each
-      content key, where the key parses as "x,y;x,y;...", by containment of the
-      face's interior point. Unmatched content is dropped with
-      W_REGION_CONTENT_UNMATCHED naming the count, never guessed.
+      content key, where the key parses as "x,y;x,y;...", by loop EQUALITY, and
+      only where the arrangement has partitioned the key and nothing equals it,
+      by containment of a single face's interior point. Unmatched content is
+      dropped with W_REGION_CONTENT_UNMATCHED naming it, never guessed.
+
+Content reaches this adapter through FOUR carriers, not one: `regionContent`,
+the plot boundary (`boundaryContent`), an additional plot (`plot.content`) and a
+drawn shape (`shape.content`). All four hold the same `HousingContent`, all four
+become rooms here, and the boundary is the only slot the client can store a plan
+dropped on the whole plot in, because its own face tracer drops the boundary
+cycle. A region key is the more specific address and is matched first; a carrier
+then takes the face that IS its polygon.
 
 Walls come only from drawn geometry: the plot boundary (exterior, 0.75 ft),
 `segments` and shape edges (interior, `wallDisplay.interiorWallFt`), plus the
@@ -686,14 +695,17 @@ def _resolved_for_floor(resolved_regions, record, order_index):
 
 
 def _derive_faces(record):
-    # type: (Dict[str, Any]) -> List[List[Tuple[float, float]]]
-    """Planarize the drawn arrangement and return each face's exterior loop.
+    # type: (Dict[str, Any]) -> List[Tuple[List[Tuple[float, float]], float]]
+    """Planarize the drawn arrangement; return each face as (exterior loop, area).
 
     The line set is the plot boundary, the open `segments` and every shape edge;
     `unary_union` nodes them (a crossing pair is split at the crossing), then
     `polygonize` builds the faces. A face nested inside another (a core island)
-    comes back as its own face and as a hole in its host, which is exactly the
-    accounting this module wants.
+    comes back as its own face and as a HOLE in its host, which is exactly the
+    accounting this module wants, so the host's `polygon.area` is already net of
+    it. The loop is the hole-free exterior, so that net area travels WITH the
+    loop; re-shoelacing the loop downstream would count every nested face twice,
+    once as itself and once inside its host.
     """
     lines = []  # type: List[LineString]
     loop = record["boundary"]
@@ -726,24 +738,24 @@ def _derive_faces(record):
         if _contains(record["boundary"], rep):
             kept.append((loop_m, area))
     kept.sort(key=lambda item: (_bbox(item[0])[0], _bbox(item[0])[1]))
-    return [loop_m for loop_m, _area in kept]
+    return kept
 
 
-def _face_areas(record, loops):
-    # type: (Dict[str, Any], List[List[Tuple[float, float]]]) -> List[float]
-    """Net area of each face: the shoelace of its loop less any nested core."""
-    areas = []
-    for loop in loops:
-        area = _shoelace_area(loop)
-        for shape in record["shapes"]:
-            if shape["core"] is None:
-                continue
-            if _same_rect(_bbox(shape["points"]), _bbox(loop)):
-                continue
-            if _contains(loop, _interior_point(shape["points"])):
-                area -= _shoelace_area(shape["points"])
-        areas.append(max(area, 0.0))
-    return areas
+def _same_loop(a, b, tol=JOIN_TOL_M):
+    # type: (Sequence[Sequence[float]], Sequence[Sequence[float]], float) -> bool
+    """True when two NORMALIZED loops are the same polygon.
+
+    `_normalize_loop` drops duplicate and collinear vertices, fixes the winding
+    and rotates the lexicographically smallest vertex to the front, so one
+    polygon has exactly one form and a vertex-by-vertex compare is exact up to
+    the payload's own round-2-in-feet quantization.
+    """
+    if len(a) != len(b) or not a:
+        return False
+    for index in range(len(a)):
+        if abs(a[index][0] - b[index][0]) > tol or abs(a[index][1] - b[index][1]) > tol:
+            return False
+    return True
 
 
 def _same_rect(a, b, tol=JOIN_TOL_M):
@@ -763,13 +775,28 @@ def _core_of_face(loop, record):
     return None
 
 
+def _eligible(face):
+    # type: (Dict[str, Any]) -> bool
+    """A face that can still take content: it has none, and it is not a core."""
+    return face["content"] is None and face["core"] is None
+
+
 def _match_region_content(faces, region_content):
     # type: (List[Dict[str, Any]], Dict[str, Dict[str, Any]]) -> List[str]
-    """Attach payload content to faces by interior-point containment.
+    """Attach payload content to faces: loop EQUALITY first, containment second.
 
-    Only keys that parse as "x,y;x,y;..." can be matched; the rest, and any key
-    no face contains, come back as the unmatched list for disclosure. A core face
-    never takes content: the frontend locks a core's label.
+    Only keys that parse as "x,y;x,y;..." can be matched. A key that IS a face
+    takes that face, so a face nested inside the key can never steal its host's
+    content: this module planarizes shape edges that the frontend's own
+    `detectRegions` does not trace, and a nested island at the host's bbox origin
+    is otherwise the first face the host's key contains.
+
+    Containment is the fallback for the partitioning case, where the arrangement
+    split the key and no face equals it. It fires only when exactly ONE eligible
+    face lies inside, because two candidates is derivation drift and the spec
+    says drift is disclosed, never guessed. Everything unattached comes back for
+    disclosure. A core face never takes content: the frontend locks a core's
+    label.
     """
     unmatched = []
     for key in sorted(region_content):
@@ -778,13 +805,13 @@ def _match_region_content(faces, region_content):
         if parsed is None:
             unmatched.append(key)
             continue
-        hit = None
-        for face in faces:
-            if face["content"] is not None or face["core"] is not None:
-                continue
-            if _contains(parsed, face["interior"]):
-                hit = face
-                break
+        loop = _normalize_loop(parsed)
+        exact = [face for face in faces if _same_loop(face["loop"], loop)]
+        if exact:
+            hit = exact[0] if len(exact) == 1 and _eligible(exact[0]) else None
+        else:
+            inside = [face for face in faces if _eligible(face) and _contains(loop, face["interior"])]
+            hit = inside[0] if len(inside) == 1 else None
         if hit is None:
             unmatched.append(key)
             continue
@@ -792,12 +819,87 @@ def _match_region_content(faces, region_content):
     return unmatched
 
 
+def _carriers(record):
+    # type: (Dict[str, Any]) -> List[Tuple[str, List[Tuple[float, float]], Dict[str, Any]]]
+    """The content slots that are NOT keyed by region: (label, loop, content).
+
+    The frontend hangs a space label or a generated unit plan on FOUR targets and
+    `regionContent` is only one of them: the plot boundary (`boundaryContent`),
+    an additional plot (`plot.content`) and a drawn shape (`shape.content`) carry
+    the same `HousingContent`. A plan dropped on the whole plot can only be
+    stored on the first of those, because the frontend's face tracer drops the
+    boundary cycle and a segment-free floor has no region key at all, so reading
+    `regionContent` alone loses the default single-house flow entirely.
+
+    A circulation core is skipped: its content is the locked core label, which
+    `_core_room` already reads, and the frontend never lets a plan land on one.
+    """
+    out = []  # type: List[Tuple[str, List[Tuple[float, float]], Dict[str, Any]]]
+    content = record["content"]
+    if _space_kind(content) is not None or _generated_of(content) is not None:
+        out.append(("boundary", _normalize_loop(record["boundary"]), content))
+    for shape in record["shapes"]:
+        if shape["core"] is not None:
+            continue
+        content = shape["content"]
+        if _space_kind(content) is None and _generated_of(content) is None:
+            continue
+        out.append(("shape:%s" % shape["id"], _normalize_loop(shape["points"]), content))
+    return out
+
+
+def _match_carrier_content(faces, carriers):
+    # type: (List[Dict[str, Any]], List[Tuple[str, List[Tuple[float, float]], Dict[str, Any]]]) -> List[str]
+    """Attach boundary, plot and shape content to the face that IS that polygon.
+
+    Equality only: a carrier names its own polygon, so containment would be a
+    guess, and a carrier the arrangement has since partitioned comes back for
+    disclosure instead. Region content is matched FIRST, so a key addressing one
+    of these faces still wins the face it names.
+    """
+    unmatched = []
+    for label, loop, content in carriers:
+        hits = [face for face in faces if _same_loop(face["loop"], loop)]
+        if len(hits) != 1 or not _eligible(hits[0]):
+            unmatched.append(label)
+            continue
+        hits[0]["content"] = content
+    return unmatched
+
+
+def _really_dropped(keys, region_content, carried):
+    # type: (List[str], Dict[str, Dict[str, Any]], List[Any]) -> List[str]
+    """Of `keys`, the ones whose content no region already carries.
+
+    On the caller-supplied region path the regions arrive WITH their content and
+    the payload still carries the same `regionContent`, so every key reads as
+    unmatched although every one of them was already applied. Nothing was
+    dropped there and saying so would be false. One region excuses one key, so a
+    genuine drop standing beside an identical twin still discloses.
+    """
+    pool = [_blob(content) for content in carried]
+    out = []
+    for key in keys:
+        blob = _blob(region_content.get(key))
+        if blob in pool:
+            pool.remove(blob)
+            continue
+        out.append(key)
+    return out
+
+
 def _floor_regions(record, resolved):
     # type: (Dict[str, Any], Optional[List[Dict[str, Any]]]) -> Tuple[List[Dict[str, Any]], List[str], bool]
-    """(regions, unmatched content keys, derived_here) for one floor.
+    """(regions, unmatched content labels, derived_here) for one floor.
 
     A region is `{"id", "loop", "area_m2", "interior", "content"}` with `id`
     `region-<i>` by sorted origin, the spec's stable rule.
+
+    Content reaches a region from `regionContent` first (the most specific
+    address), then from the boundary, plot and shape carriers. What no face
+    accepts is reported for disclosure, minus anything a region already carries:
+    on the caller-supplied path the same content arrives twice and nothing is
+    dropped.
     """
     derived_here = resolved is None
     if resolved is not None:
@@ -812,10 +914,8 @@ def _floor_regions(record, resolved):
             candidates.append((loop, _shoelace_area(loop), region["content"], interior))
         candidates.sort(key=lambda item: (_bbox(item[0])[0], _bbox(item[0])[1]))
     else:
-        loops = _derive_faces(record)
-        areas = _face_areas(record, loops)
         candidates = [
-            (loop, areas[i], None, _interior_point(loop)) for i, loop in enumerate(loops)
+            (loop, area, None, _interior_point(loop)) for loop, area in _derive_faces(record)
         ]
 
     regions = []
@@ -830,7 +930,11 @@ def _floor_regions(record, resolved):
                 "core": _core_of_face(loop, record),
             }
         )
-    unmatched = _match_region_content(regions, record["region_content"])
+    carried = [region["content"] for region in regions if region["content"] is not None]
+    unmatched = _really_dropped(
+        _match_region_content(regions, record["region_content"]), record["region_content"], carried
+    )
+    unmatched += _match_carrier_content(regions, _carriers(record))
     unmatched += list(record["orphan_content"])
     return (regions, sorted(unmatched), derived_here)
 
@@ -1078,11 +1182,19 @@ def _place_generated(region, generated, storey, interior_t):
     # type: (Dict[str, Any], Dict[str, Any], int, float) -> Dict[str, Any]
     """Translate a selected UnitFloorplan into floor coordinates.
 
-    The plan is authored in its own genW x genH frame (feet, y-down, undressed).
-    It is translated by the region's bbox origin; when the region has drifted
-    past 0.15 ft from (genW, genH) the plan is stale, so it is rescaled by a
-    single UNIFORM factor `min(bw/genW, bh/genH)` (never anisotropic, the
-    standing client rule) and the residual is centred.
+    The plan is authored in its OWN `floorWidth` x `floorHeight` frame (feet,
+    y-down, undressed), which the client's `housingUnitForApi` FLOORS from the
+    polygon it was asked for, so that frame is not (genW, genH) whenever the
+    region is fractional. The frame is what the plan's placements are measured
+    in, so it is the frame this scales and centres against, exactly as both
+    client renderers do; `genW`/`genH` are the size the plan was ASKED for and
+    serve only the staleness verdict.
+
+    A single UNIFORM factor `min(bw/plan_w, bh/plan_h)` (never anisotropic, the
+    standing client rule) fits the frame to the region and the residual is
+    centred. Drift past 0.15 ft from (genW, genH) additionally means the region
+    itself moved under a plan generated for another size: that is disclosed as
+    stale.
     """
     plan = _select_plan(generated)
     out = {"rooms": [], "candidates": [], "doors": [], "stale": False, "plan_id": None, "unknown_names": []}
@@ -1092,14 +1204,18 @@ def _place_generated(region, generated, storey, interior_t):
 
     gen_w = _m(generated.get("genW") if generated.get("genW") is not None else plan.get("floorWidth"))
     gen_h = _m(generated.get("genH") if generated.get("genH") is not None else plan.get("floorHeight"))
+    plan_w = _m(plan.get("floorWidth") if plan.get("floorWidth") is not None else generated.get("genW"))
+    plan_h = _m(plan.get("floorHeight") if plan.get("floorHeight") is not None else generated.get("genH"))
     bx, by, bw, bh = _bbox(region["loop"])
-    if gen_w <= 0.0 or gen_h <= 0.0:
+    if plan_w <= 0.0 or plan_h <= 0.0:
         return out
 
-    stale = abs(bw - gen_w) > STALE_EPS_M or abs(bh - gen_h) > STALE_EPS_M
-    scale = min(bw / gen_w, bh / gen_h) if stale else 1.0
-    off_x = bx + 0.5 * (bw - gen_w * scale)
-    off_y = by + 0.5 * (bh - gen_h * scale)
+    stale = gen_w > 0.0 and gen_h > 0.0 and (
+        abs(bw - gen_w) > STALE_EPS_M or abs(bh - gen_h) > STALE_EPS_M
+    )
+    scale = min(bw / plan_w, bh / plan_h)
+    off_x = bx + 0.5 * (bw - plan_w * scale)
+    off_y = by + 0.5 * (bh - plan_h * scale)
     out["stale"] = stale
 
     rects = []  # type: List[Tuple[str, float, float, float, float]]
@@ -1420,15 +1536,33 @@ def _entry_spec(walls, point, width_m):
 
 def _storey_kind(record, regions):
     # type: (Dict[str, Any], List[Dict[str, Any]]) -> StoreyKind
-    """`stilt` is the soft-storey hook: open ground under a built stack."""
-    if record["segments"] or record["shapes"]:
+    """`stilt` is the soft-storey hook: open ground under a built stack.
+
+    A drawn segment or a drawn non-core shape is built area, so the storey is
+    units. A CIRCULATION CORE is not: the frontend auto-places a mandatory stair
+    core on every floor the moment a second floor exists, so short-circuiting on
+    any shape put stilt out of reach of every multi-storey house there is.
+
+    What remains must be labeled and every label must be parking or green. The
+    label can sit on a region or, for a segment-free floor, on the boundary or
+    plot carrier, which is the only slot the frontend can store it in.
+    """
+    if record["segments"]:
         return StoreyKind.UNITS
-    if not regions:
-        return StoreyKind.UNITS
-    for region in regions:
-        if _space_kind(region["content"]) not in UNBUILT_SPACE_KINDS:
+    for shape in record["shapes"]:
+        if shape["core"] is None:
             return StoreyKind.UNITS
-    return StoreyKind.STILT
+    labeled = False
+    for content in [record["content"]] + [region["content"] for region in regions]:
+        if _generated_of(content) is not None:
+            return StoreyKind.UNITS
+        kind = _space_kind(content)
+        if kind is None:
+            continue
+        if kind not in UNBUILT_SPACE_KINDS:
+            return StoreyKind.UNITS
+        labeled = True
+    return StoreyKind.STILT if labeled else StoreyKind.UNITS
 
 
 def _canonical(value):
@@ -1445,24 +1579,38 @@ def _canonical(value):
     return str(value)
 
 
+def _blob(value):
+    # type: (Any) -> str
+    """One canonical string per value, for hashing and for equality of content."""
+    return json.dumps(_canonical(value), sort_keys=True, separators=(",", ":"))
+
+
 def _fingerprint(design, stack, options, resolved_regions):
     # type: (Dict[str, Any], Dict[str, Any], Dict[str, Any], Any) -> str
     """sha256 of this stack's canonical input; a Redis dedup key that is stable.
 
     Everything that can change the model is in: the stack's own geometry, the
-    adapter options and the caller's regions. The `plot_id` REQUEST FILTER is
-    deliberately out, so asking for one stack and asking for all of them hand
-    back the same fingerprint for the same structure.
+    design fields that reach the model beside it (`name`, `roof` and `entry`
+    each move meta, and `entry` moves a placed lintel), the adapter options and
+    the caller's regions. The `plot_id` REQUEST FILTER is deliberately out, so
+    asking for one stack and asking for all of them hand back the same
+    fingerprint for the same structure; `meta.stacks` is built from the
+    unfiltered split for the same reason, and `meta.options` records the request
+    as sent.
     """
     payload = {
         "design_id": str(design.get("id") or ""),
+        "design_name": str(design.get("name") or ""),
+        "roof": design.get("roof"),
+        # the design entry point is read for the primary boundary only; an
+        # additional plot falls back to its own southernmost run either way.
+        "entry": design.get("entry") if stack["plot_id"] == PRIMARY_STACK else None,
         "plot_id": stack["plot_id"],
         "options": dict((k, v) for k, v in options.items() if k != "plot_id"),
         "floors": stack["floors"],
         "resolved_regions": resolved_regions,
     }
-    blob = json.dumps(_canonical(payload), sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+    return hashlib.sha256(_blob(payload).encode("utf-8")).hexdigest()
 
 
 # --------------------------------------------------------------------------
@@ -1489,7 +1637,8 @@ def from_housing(
     faces here; see the module docstring for both paths. Refusals are raised as
     `AdapterError`; everything softer lands on each model's ladder.
     """
-    stacks = split_plot_stacks(design)
+    all_stacks = split_plot_stacks(design)
+    stacks = list(all_stacks)
     known = [stack["plot_id"] for stack in stacks]
     if plot_id is not None:
         if plot_id not in known:
@@ -1536,7 +1685,10 @@ def from_housing(
 
     models = []
     for stack in built:
-        models.append(_build_stack_model(design, stack, options, resolved_regions, stacks))
+        # `all_stacks`, never the filtered list: `meta.stacks` describes the
+        # design, so a one-plot request must not shrink it away from what the
+        # same stack reports unfiltered (its fingerprint does not move either).
+        models.append(_build_stack_model(design, stack, options, resolved_regions, all_stacks))
     return models
 
 
@@ -1602,6 +1754,7 @@ def _build_stack_model(design, stack, options, resolved_regions, all_stacks):
     unmatched = []  # type: List[str]
     unknown_rooms = []  # type: List[str]
     unknown_regions = []  # type: List[str]
+    core_overlaps = []  # type: List[str]
     assumed_doors = 0
     dropped_doors = 0
     assumed_windows = 0
@@ -1664,6 +1817,7 @@ def _build_stack_model(design, stack, options, resolved_regions, all_stacks):
                 pending += placed["doors"]
                 assumed_doors += len(placed["doors"])
                 unknown_rooms += placed["unknown_names"]
+                core_overlaps += _core_overlaps(region, regions, placed["rooms"])
                 if placed["stale"]:
                     stale.append("%s/%s" % (region["id"], placed["plan_id"] or "plan"))
                 continue
@@ -1716,12 +1870,43 @@ def _build_stack_model(design, stack, options, resolved_regions, all_stacks):
         unknown_rooms=unknown_rooms,
         unknown_regions=unknown_regions,
         unknown_cores=unknown_cores,
+        core_overlaps=core_overlaps,
         assumed_doors=assumed_doors,
         dropped_doors=dropped_doors,
         assumed_windows=assumed_windows,
         assume_windows=options["assume_windows"],
     )
     return model
+
+
+def _core_overlaps(region, regions, rooms):
+    # type: (Dict[str, Any], List[Dict[str, Any]], List[RoomPoly]) -> List[str]
+    """Ids of placed unit rooms lying across a core nested in their own region.
+
+    A unit plan tiles its region entire, and a circulation core drawn inside that
+    region is a face of its own carrying its own room, so the two describe the
+    same floor area twice. The plan ships as generated (clipping a placement
+    would invent a room shape the generator never produced) and the double count
+    is disclosed rather than hidden.
+    """
+    boxes = []
+    for other in regions:
+        if other is region or other["core"] is None:
+            continue
+        if _contains(region["loop"], other["interior"]):
+            boxes.append(_bbox(other["loop"]))
+    if not boxes:
+        return []
+    hits = []
+    for room in rooms:
+        rx, ry, rw, rh = _bbox(room.polygon)
+        for bx, by, bw, bh in boxes:
+            wide = min(rx + rw, bx + bw) - max(rx, bx)
+            tall = min(ry + rh, by + bh) - max(ry, by)
+            if wide > JOIN_TOL_M and tall > JOIN_TOL_M:
+                hits.append(room.id)
+                break
+    return hits
 
 
 #: A core's own footprint reads as this occupancy (its live load is not a bedroom's).
@@ -1797,8 +1982,8 @@ def _region_room(region, storey):
 
 
 def _disclose(model, stale, unmatched, unknown_rooms, unknown_regions, unknown_cores,
-              assumed_doors, dropped_doors, assumed_windows, assume_windows):
-    # type: (StructuralModel, List[str], List[str], List[str], List[str], List[str], int, int, int, bool) -> None
+              core_overlaps, assumed_doors, dropped_doors, assumed_windows, assume_windows):
+    # type: (StructuralModel, List[str], List[str], List[str], List[str], List[str], List[str], int, int, int, bool) -> None
     """Every fallback this adapter took, on the ladder, in a fixed order."""
     stage = "adapters.housing"
     if stale:
@@ -1812,9 +1997,18 @@ def _disclose(model, stale, unmatched, unknown_rooms, unknown_regions, unknown_c
     if unmatched:
         model.add_warning(
             "W_REGION_CONTENT_UNMATCHED",
-            "%d region content entr(ies) could not be matched to a derived face and "
-            "were dropped: %s" % (len(unmatched), ", ".join(sorted(unmatched))),
+            "%d content entr(ies) could not be matched to a derived face and were "
+            "dropped: %s" % (len(unmatched), ", ".join(sorted(unmatched))),
             (),
+            stage=stage,
+        )
+    if core_overlaps:
+        model.add_warning(
+            "W_CORE_UNIT_OVERLAP",
+            "%d placed unit room(s) lie across a circulation core drawn inside their "
+            "region; the floor area is described twice and placement decides whether "
+            "to carve" % len(core_overlaps),
+            sorted(set(core_overlaps)),
             stage=stage,
         )
     if assumed_doors:

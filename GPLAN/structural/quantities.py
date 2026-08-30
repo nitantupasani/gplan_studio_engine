@@ -302,6 +302,12 @@ _FORMWORK_RATE_ALIAS = {
 }
 
 _GEOM_TOL_M = 1e-9
+
+#: How close a beam end has to be to a column for the two to be the same joint.
+#: One tolerance, used from both sides: the column deducted from the beam's
+#: clear span, and the beam deducted from the column's clear height.
+_SUPPORT_TOL_M = 0.05
+
 _STAGE = "quantities"
 
 
@@ -1130,6 +1136,8 @@ class _Ctx:
     acc: _Acc = field(default_factory=_Acc)
     slab_t_m: Dict[int, float] = field(default_factory=dict)
     beam_d_m: Dict[int, float] = field(default_factory=dict)
+    beam_head_m: Dict[Tuple[int, float, float], Tuple[float, bool]] = field(default_factory=dict)
+    wall_head_m: Dict[str, Tuple[float, bool]] = field(default_factory=dict)
 
     def design(self, element_id: str) -> Optional["_Design"]:
         return self.designs.get(str(element_id))
@@ -1174,8 +1182,22 @@ def _slab_thickness_m(ctx: _Ctx, storey: int) -> float:
     return best
 
 
+def _beam_designed_depth_m(ctx: _Ctx, beam: Any) -> Optional[float]:
+    """One beam's depth in metres: the designed section first, the placed one second."""
+    design = ctx.design(beam.id)
+    depth = None if design is None else design.m("D_mm")
+    if depth is None:
+        depth = None if beam.depth_m is None else float(beam.depth_m)
+    return None if depth is None else float(depth)
+
+
 def _beam_depth_m(ctx: _Ctx, storey: int) -> float:
-    """The deepest beam at the head of this storey, which the column stops under."""
+    """The deepest beam anywhere on this storey. The fallback, not the rule.
+
+    A column stops under the beam that frames into ITS head (`_head_beam_depth_m`);
+    this storey-wide maximum is what a column no beam reaches is measured
+    against, and that column's `basis` says so.
+    """
     key = int(storey)
     if key in ctx.beam_d_m:
         return ctx.beam_d_m[key]
@@ -1183,14 +1205,48 @@ def _beam_depth_m(ctx: _Ctx, storey: int) -> float:
     for beam in sorted(ctx.model.beams_on(key), key=lambda b: b.id):
         if _word(beam.kind) == BeamKind.PLINTH.value:
             continue
-        design = ctx.design(beam.id)
-        depth = None if design is None else design.m("D_mm")
-        if depth is None:
-            depth = None if beam.depth_m is None else float(beam.depth_m)
+        depth = _beam_designed_depth_m(ctx, beam)
         if depth is not None:
-            best = max(best, float(depth))
+            best = max(best, depth)
     ctx.beam_d_m[key] = best
     return best
+
+
+def _head_beam_depth_m(ctx: _Ctx, storey: int, point: Sequence[float]) -> Tuple[float, bool]:
+    """(deepest beam framing into the head at `point`, whether any beam does).
+
+    Finding B29: the column's clear height deducts the beam ON that column, not
+    the deepest beam anywhere on the storey, which is what the printed basis, the
+    raised NOTE and the published registry meaning have always said it was. A
+    beam end counts as framing into the head when it lands on the column within
+    `_SUPPORT_TOL_M`, the same match `_support_deduction_m` makes from the other
+    side. Memoised per point, because a stack of storeys asks the same question
+    once per storey.
+    """
+    key = (int(storey), round(float(point[0]), 3), round(float(point[1]), 3))
+    cached = ctx.beam_head_m.get(key)
+    if cached is not None:
+        return cached
+    px, py = float(point[0]), float(point[1])
+    best = 0.0
+    found = False
+    for beam in sorted(ctx.model.beams_on(int(storey)), key=lambda b: b.id):
+        if _word(beam.kind) == BeamKind.PLINTH.value:
+            continue
+        at_head = False
+        for end in (beam.a, beam.b):
+            if abs(float(end[0]) - px) <= _SUPPORT_TOL_M and abs(float(end[1]) - py) <= _SUPPORT_TOL_M:
+                at_head = True
+                break
+        if not at_head:
+            continue
+        depth = _beam_designed_depth_m(ctx, beam)
+        if depth is not None:
+            found = True
+            best = max(best, depth)
+    out = (best, found)
+    ctx.beam_head_m[key] = out
+    return out
 
 
 def _column_plan_mm(column: Any, design: Optional["_Design"]) -> Tuple[float, float]:
@@ -1211,7 +1267,7 @@ def _support_deduction_m(ctx: _Ctx, storey: int, point: Sequence[float], along_x
     best = 0.0
     px, py = float(point[0]), float(point[1])
     for column in sorted(ctx.model.columns_on(int(storey)), key=lambda c: c.id):
-        if abs(float(column.x_m) - px) > 0.05 or abs(float(column.y_m) - py) > 0.05:
+        if abs(float(column.x_m) - px) > _SUPPORT_TOL_M or abs(float(column.y_m) - py) > _SUPPORT_TOL_M:
             continue
         size_x, size_y = _column_plan_mm(column, ctx.design(column.id))
         best = max(best, 0.5 * (size_x if along_x else size_y))
@@ -1233,7 +1289,9 @@ def _measure_columns(ctx: _Ctx) -> None:
     ctx.note(
         "N_COLUMN_HEIGHT_CONVENTION",
         "column concrete and shuttering are measured over the clear height, the storey height less the "
-        "deepest beam framing into the column head; the slab thickness is not deducted a second time",
+        "deepest beam framing into THAT column's head; the slab thickness is not deducted a second time, "
+        "and a column no beam reaches is measured against the deepest beam on its storey instead, which "
+        "that column's basis says",
         clause="IS 1200 Part 2 Cl 4.5",
     )
     for column in columns:
@@ -1246,8 +1304,16 @@ def _measure_columns(ctx: _Ctx) -> None:
         height = _storey_height_m(ctx.model, column.storey)
         if height <= 0.0 and design is not None:
             height = design.m("length_mm") or 0.0
-        clear = max(0.0, height - _beam_depth_m(ctx, column.storey))
+        head_m, at_head = _head_beam_depth_m(ctx, column.storey, (column.x_m, column.y_m))
         basis = CONCRETE_BASIS["column"]
+        if not at_head:
+            head_m = _beam_depth_m(ctx, column.storey)
+            basis += (
+                "; no beam frames into this column's head, so the deepest beam on the storey, "
+                + _mm_text(head_m * 1000.0)
+                + ", was deducted instead"
+            )
+        clear = max(0.0, height - head_m)
         if assumed:
             basis += "; concrete grade assumed " + grade
         if clear <= 0.0:
@@ -1537,6 +1603,23 @@ def _lintel_schedule(ctx: _Ctx) -> Dict[str, Dict[str, Any]]:
     return out
 
 
+def _lintel_depth_mm(ctx: _Ctx, lintel: Any, schedule: Mapping[str, Mapping[str, Any]]) -> Tuple[float, str]:
+    """(depth in mm, where it came from) for one lintel: designed, placed, default.
+
+    One resolver, two callers: the lintel's own concrete row and the masonry row
+    that has to give that concrete back (finding N36). If the two ever disagreed,
+    a slice of RC would be billed twice or not at all.
+    """
+    design = ctx.design(lintel.id)
+    row = schedule.get(lintel.id, {})
+    depth_mm = None if design is None else design.mm("D_mm", "depth_mm")
+    if depth_mm is None and row.get("depth_mm") is not None:
+        depth_mm = _num(row["depth_mm"])
+    if depth_mm is None:
+        return (float(ctx.options.lintel_depth_mm), "default depth, no lintel schedule was supplied")
+    return (float(depth_mm), "as placed")
+
+
 def _measure_lintels(ctx: _Ctx) -> None:
     """Discrete lintels: the bearing length is already in `Lintel.span_m`."""
     schedule = _lintel_schedule(ctx)
@@ -1549,14 +1632,7 @@ def _measure_lintels(ctx: _Ctx) -> None:
         if ctx.blocked(lintel.id):
             ctx.acc.volume(lintel.id, "lintel", grade, storey, 0.0, _BLOCKED_BASIS)
             continue
-        row = schedule.get(lintel.id, {})
-        depth_mm = None if design is None else design.mm("D_mm", "depth_mm")
-        if depth_mm is None and row.get("depth_mm") is not None:
-            depth_mm = _num(row["depth_mm"])
-        source = "as placed"
-        if depth_mm is None:
-            depth_mm = float(ctx.options.lintel_depth_mm)
-            source = "default depth, no lintel schedule was supplied"
+        depth_mm, source = _lintel_depth_mm(ctx, lintel, schedule)
         depth = float(depth_mm) / 1000.0
         thickness = 0.0 if wall is None else float(wall.thickness_m)
         length = float(lintel.span_m)
@@ -1633,6 +1709,82 @@ def _opening_height_m(ctx: _Ctx, opening: Any) -> Tuple[float, bool]:
     return (float(ctx.options.default_opening_head_m), False)
 
 
+def _overlap_along_m(
+    a1: Sequence[float], b1: Sequence[float], a2: Sequence[float], b2: Sequence[float], tol: float
+) -> float:
+    """How much of segment 2 lies ON segment 1, metres; 0 if they are not collinear.
+
+    Both are plan lines, so this answers "is there a beam over this wall, and for
+    how far". A segment offset from the line by more than `tol` scores zero,
+    which is what keeps a beam on the NEXT grid line out of the answer.
+    """
+    ax, ay = float(a1[0]), float(a1[1])
+    dx, dy = float(b1[0]) - ax, float(b1[1]) - ay
+    length = math.hypot(dx, dy)
+    if length <= tol:
+        return 0.0
+    ux, uy = dx / length, dy / length
+    along = []  # type: List[float]
+    for point in (a2, b2):
+        px, py = float(point[0]) - ax, float(point[1]) - ay
+        if abs(px * uy - py * ux) > tol:
+            return 0.0
+        along.append(px * ux + py * uy)
+    low = max(0.0, min(along))
+    high = min(length, max(along))
+    return max(0.0, high - low)
+
+
+def _head_beam_depth_on_wall(ctx: _Ctx, wall: Any) -> Tuple[float, bool]:
+    """(deepest beam spanning over this wall, whether one does at all).
+
+    Finding N36: a wall under a beam stops at the BEAM's soffit, not the slab's.
+    Measuring every wall to the slab bills the beam's own concrete a second time
+    as brickwork. A wall with no beam over it -- the load-bearing masonry case --
+    returns (0, False) and the caller keeps the slab, unchanged.
+
+    The deepest beam on the line is applied to the whole wall rather than station
+    by station, which slightly under-measures walling where depths vary along one
+    line. The masonry basis says so.
+    """
+    key = str(wall.id)
+    cached = ctx.wall_head_m.get(key)
+    if cached is not None:
+        return cached
+    best = 0.0
+    found = False
+    for beam in sorted(ctx.model.beams_on(int(wall.storey)), key=lambda b: b.id):
+        if _word(beam.kind) == BeamKind.PLINTH.value:
+            continue
+        if _overlap_along_m(wall.a, wall.b, beam.a, beam.b, _SUPPORT_TOL_M) <= _GEOM_TOL_M:
+            continue
+        depth = _beam_designed_depth_m(ctx, beam)
+        if depth is not None:
+            found = True
+            best = max(best, depth)
+    out = (best, found)
+    ctx.wall_head_m[key] = out
+    return out
+
+
+def _lintel_volume_on_wall(ctx: _Ctx, wall: Any, schedule: Mapping[str, Mapping[str, Any]]) -> float:
+    """RC lintel volume sitting inside one wall panel, m3 (finding N36).
+
+    The opening deduction runs head to sill, so the lintel over that opening is
+    still inside the panel and would be billed once as concrete and once as
+    walling. A BLOCKED lintel is skipped: it took no concrete either, so giving
+    it back here would make it disappear from both bills.
+    """
+    total = 0.0
+    thickness = float(wall.thickness_m)
+    for lintel in sorted(ctx.model.lintels, key=lambda item: item.id):
+        if str(lintel.wall_id) != str(wall.id) or ctx.blocked(lintel.id):
+            continue
+        depth_mm, _source = _lintel_depth_mm(ctx, lintel, schedule)
+        total += float(lintel.span_m) * thickness * float(depth_mm) / 1000.0
+    return total
+
+
 def _band_depth_on_wall(ctx: _Ctx, wall_id: str, storey: int, depths: Mapping[str, float]) -> float:
     """Total band depth crossing one wall, metres: the wall stops under a band."""
     total = 0.0
@@ -1646,8 +1798,9 @@ def _band_depth_on_wall(ctx: _Ctx, wall_id: str, storey: int, depths: Mapping[st
 
 
 def _measure_masonry(ctx: _Ctx) -> List[MasonryQuantity]:
-    """Walling by thickness class, bearing split out, openings deducted."""
+    """Walling by thickness class, bearing split out, openings and RC deducted."""
     depths = _band_depths(ctx)
+    lintels = _lintel_schedule(ctx)
     rows = {}  # type: Dict[Tuple[int, bool], MasonryQuantity]
     assumed_ids = []  # type: List[str]
     partition_ids = []  # type: List[str]
@@ -1665,9 +1818,16 @@ def _measure_masonry(ctx: _Ctx) -> List[MasonryQuantity]:
         thickness_mm = int(round(thickness * 1000.0))
         bearing = bool(wall.bearing)
         storey_h = _storey_height_m(ctx.model, wall.storey)
+        # The wall stops under whatever spans over it: the beam where there is
+        # one, the slab where there is not (finding N36). Never less than the
+        # slab, because the plate is there either way.
+        head_m, over_wall = _head_beam_depth_on_wall(ctx, wall)
+        soffit_m = _slab_thickness_m(ctx, wall.storey)
+        if over_wall:
+            soffit_m = max(soffit_m, head_m)
         clear = max(
             0.0,
-            storey_h - _slab_thickness_m(ctx, wall.storey) - _band_depth_on_wall(ctx, wall.id, wall.storey, depths),
+            storey_h - soffit_m - _band_depth_on_wall(ctx, wall.id, wall.storey, depths),
         )
         gross = length * thickness * clear
         deduction = 0.0
@@ -1682,6 +1842,9 @@ def _measure_masonry(ctx: _Ctx) -> List[MasonryQuantity]:
                 assumed_ids.append(str(opening.id))
             if not stated:
                 assumed_ids.append(str(opening.id))
+        # The opening deduction runs head to sill, so the lintel over it is
+        # still inside the panel: give that RC back, it is billed as concrete.
+        deduction += _lintel_volume_on_wall(ctx, wall, lintels)
         key = (thickness_mm, bearing)
         row = rows.get(key)
         if row is None:
@@ -1691,10 +1854,14 @@ def _measure_masonry(ctx: _Ctx) -> List[MasonryQuantity]:
                 volume_m3=0.0,
                 deductions_m3=0.0,
                 basis=(
-                    "wall centreline length x thickness x clear height (storey height less the slab and any "
-                    "band crossing the wall); an opening is deducted only where its own area exceeds "
+                    "wall centreline length x thickness x clear height (storey height less the beam that "
+                    "spans over the wall, the slab where no beam does, and any band crossing it); an "
+                    "opening is deducted only where its own area exceeds "
                     + _m2_text(ctx.options.opening_deduction_min_m2)
-                    + " (IS 1200 Part 3 Cl 4.6)"
+                    + " (IS 1200 Part 3 Cl 4.6), and a lintel inside the panel is deducted in full, so no "
+                    "RC is billed twice; two simplifications stay and are stated rather than hidden: the "
+                    "deepest beam over a wall is applied to the whole of that wall, and the centreline is "
+                    "not broken at the columns it crosses, so column concrete is still inside this figure"
                 ),
             )
             rows[key] = row
@@ -1986,6 +2153,47 @@ STIRRUP_HOOK_DIA = float(BEND_ALLOWANCES.get("stirrup_two_hook_dia", 20.0))
 #: Extension beyond one 90 degree bend, in bar diameters: what an "L" bar adds.
 BEND_90_DIA = float(BEND_ALLOWANCES.get("hook_90_deg_dia", 8.0))
 
+#: How many development lengths a bar takes PAST its own `zone_mm`, by class
+#: (finding B28). Spec 1.3 names two classes and only two: a column longitudinal
+#: bar laps once per storey, a beam bar anchors into the support at each end.
+#: A slab bar keeps the beam rule, because its zone is the span and the
+#: anchorage into the support genuinely lies outside it. A footing mesh bar
+#: takes NONE: its zone is already the pad cover to cover, and the footing
+#: designer resolved that anchorage inside the pad with a 90 degree bend, so
+#: adding one here scheduled bars longer than the pad they lie in. A bar whose
+#: own class rule does not fit says so itself, in `anchorage_ends`.
+ANCHORAGE_ENDS = MappingProxyType(
+    {
+        "column": 1,
+        "footing": 0,
+    }
+)
+
+#: The rule for every other class: anchored into its support at both ends.
+ANCHORAGE_ENDS_DEFAULT = 2
+
+#: What a row says when its class takes no development length past its zone.
+_NO_ANCHORAGE_NOTE = (
+    "no development length added here: the bar's zone already runs the member cover to cover and "
+    "its anchorage was resolved by the element's own designer"
+)
+
+
+def _anchorage_ends(element_class: str, entry: Mapping[str, Any]) -> Tuple[int, bool]:
+    """(development lengths past the zone, whether the designer stated it).
+
+    The designer's own `anchorage_ends` wins wherever a bar carries one, the
+    same way its own `ld_mm` wins over the flat multiple: a class table cannot
+    know that one bar in a class was detailed differently, and guessing at it
+    here is what finding B28 was.
+    """
+    stated = entry.get("anchorage_ends")
+    if stated is not None:
+        value = int(round(_num(stated, -1.0)))
+        if value >= 0:
+            return (value, True)
+    return (int(ANCHORAGE_ENDS.get(element_class, ANCHORAGE_ENDS_DEFAULT)), False)
+
 
 def _unit_mass_kg_m(dia_mm: float) -> Tuple[float, str]:
     """(kg/m, source) for one diameter: the trade table, then the catalogue."""
@@ -2054,20 +2262,32 @@ class BarBendingSchedule:
         can only do row by row -- asks for `DETAIL_FULL` explicitly and elides
         afterwards. Nothing else may: eliding before that subtraction would move
         `total_kg`, and a level is not allowed to move a number.
+
+        So `DETAIL_FULL` asked for BY NAME lifts the row cap: that argument is
+        only ever passed by a consumer doing the subtraction, and handing it
+        `bbs_max_items` rows silently left every blocked element past the cap
+        carrying its full reinforcement. The level the options carry does not
+        lift it, so a plain `to_dict()` still elides at `bbs_max_items` and the
+        wire payload of a normal run does not move.
         """
         dp = self.options.mass_dp
-        compact = (
-            self.options.compact
-            if detail is None
-            else str(detail).strip().lower() == DETAIL_COMPACT
-        )
-        cap = 0 if compact else max(0, int(self.options.bbs_max_items))
-        shown = self.items[:cap] if (self.items_elided or compact) else self.items
+        level = None if detail is None else str(detail).strip().lower()
+        compact = self.options.compact if level is None else level == DETAIL_COMPACT
+        if compact:
+            cap = 0
+        elif level == DETAIL_FULL:
+            cap = len(self.items)
+        else:
+            cap = max(0, int(self.options.bbs_max_items))
+        shown = self.items[:cap]
         out = {
             "shape_codes_deferred": bool(self.shape_codes_deferred),
             "shape_codes": list(SHAPE_CODES),
             "items": [item.to_dict(dp) for item in shown],
-            "items_elided": bool(self.items_elided or (compact and self.items_total)),
+            # What THIS payload dropped, not what the default level would drop:
+            # saying "elided" over a complete list is the same lie as saying
+            # "complete" over a truncated one.
+            "items_elided": bool(len(shown) < len(self.items) or (compact and self.items_total)),
             "items_total": int(self.items_total),
             "mass_by_dia": {str(dia): _r(self.mass_by_dia[dia], dp) for dia in sorted(self.mass_by_dia)},
             "mass_by_class": {name: _r(self.mass_by_class[name], dp) for name in sorted(self.mass_by_class)},
@@ -2155,6 +2375,14 @@ def build_bbs(design_results: Any = None, options: Any = None) -> BarBendingSche
     shape codes are STR / L / STP only (`N_BBS_SHAPE_CODES_DEFERRED`), and the
     wastage percentage is disclosed whatever it is set to (`N_WASTAGE_3PCT`).
 
+    How MANY of those lengths a bar takes is `ANCHORAGE_ENDS`, per class and
+    never "column or not" (finding B28): one lap for a column, an anchorage at
+    each end for a beam or a slab bar, whose zone is the span and whose support
+    anchorage therefore lies outside it, and none for a footing mesh bar, whose
+    zone is already the pad cover to cover. A bar carrying its own
+    `anchorage_ends` overrides the class, and every row says on its face which
+    rule it took.
+
     Cover comes from `DesignResult.section` and from nowhere else (finding 25):
     a section that states none cannot have its links measured, and the item
     ships at zero mass saying exactly that rather than inventing a cover.
@@ -2194,12 +2422,17 @@ def build_bbs(design_results: Any = None, options: Any = None) -> BarBendingSche
             lap, flat = _lap_m(entry, dia, settings)
             if flat:
                 flat_lap_ids.append(design.element_id)
-            ends = 1 if element_class == "column" else 2
-            note = (
-                "one lap per storey"
-                if ends == 1
-                else "anchored " + _m_text(lap) + " at each end"
-            )
+            ends, ends_stated = _anchorage_ends(element_class, entry)
+            if ends <= 0:
+                note = _NO_ANCHORAGE_NOTE
+            elif ends == 1:
+                note = "one lap per storey"
+            elif ends == 2:
+                note = "anchored " + _m_text(lap) + " at each end"
+            else:
+                note = "anchored " + _m_text(lap) + " at " + str(ends) + " ends"
+            if ends_stated:
+                note += "; " + str(ends) + " anchorage end(s) stated by the design"
             base = length + ends * lap
             extra = _stock_laps(base, settings)
             cut = base + extra * lap

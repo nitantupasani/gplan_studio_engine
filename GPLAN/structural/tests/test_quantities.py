@@ -113,21 +113,24 @@ ld_mm, so nothing here takes the flat 50d fallback.
         cut 8.000 + 0.800                                    = 8.800 m
         each 25 x 8.800 x 0.395                              = 86.90 kg
         total 2 x 86.90                                      = 173.80 kg
-    footing mesh 10 no 12 at 150 each way, ld 600, zone 0..1500. A footing bar
-    is shape L, so one 90 degree bend adds 8d = 96 mm.
-        cut 1.500 + 1.200 + 0.096                            = 2.796 m
-        each way 10 x 2.796 x 0.888                          = 24.82848 kg
-        total 12 x 24.82848                                  = 297.94176 kg
+    footing mesh 10 no 12 at 150 each way, ld 600, zone 0..1500. The zone is
+    already the pad cover to cover and the footing designer resolved that
+    anchorage inside the pad, so NO development length is added at either end
+    (finding B28: the old two-ended rule cut a 2.796 m bar for a 1.500 m pad).
+    A footing bar is shape L, so one 90 degree bend adds 8d = 96 mm.
+        cut 1.500 + 0.096                                    = 1.596 m
+        each way 10 x 1.596 x 0.888                          = 14.17248 kg
+        total 12 x 14.17248                                  = 170.06976 kg
 
     columns 287.8272 + 103.5216                              = 391.3488 kg
     beams   212.0832 + 187.4664 + 112.6224 + 106.3656        = 618.5376 kg
     slabs   296.16 + 173.80                                  = 469.96 kg
-    footings                                                 = 297.94176 kg
-    schedule total                                           = 1777.78816 kg
-    with 3 percent wastage                                   = 1831.1218048 kg
+    footings                                                 = 170.06976 kg
+    schedule total                                           = 1649.91616 kg
+    with 3 percent wastage                                   = 1699.4136448 kg
 
 Built-up area is the gross plate, 2 x 40.000 = 80.000 m2, so the two density
-metrics are 1831.1218048 / 80 = 22.889 kg/m2 and 23.1703 / 80 = 0.28963 m3/m2.
+metrics are 1699.4136448 / 80 = 21.243 kg/m2 and 23.1703 / 80 = 0.28963 m3/m2.
 Both are outside the spec's calibration bands (2.5 to 7 kg/m2 and 0.10 to
 0.20 m3/m2), which is itself pinned below: the bands are a heuristic stated per
 square metre of built-up area, and a two-storey building on an 80 m2 plate
@@ -353,6 +356,56 @@ def test_golden_frame_column_is_measured_over_the_clear_height():
     for row in rows:
         assert row.volume_m3 == pytest.approx(0.2295)
     assert "N_COLUMN_HEIGHT_CONVENTION" in _codes(takeoff.disclosures)
+
+
+def _mixed_depth_line():
+    """One storey, three columns in a line under a 600 beam and a 300 beam.
+
+    Finding B29: the clear height belongs to the column, so the column under the
+    300 deep beam is 2.700 m, not the 2.400 m a storey-wide maximum gives it.
+    The fourth column stands off the line with no beam over it at all.
+    """
+    model = StructuralModel(id="mixed-depth")
+    model.storeys.append(Storey(index=0, name="G", bottom_z_m=0.0, height_m=3.0))
+    for name, x, y in (("deep", 0.0, 0.0), ("both", 4.0, 0.0), ("shallow", 8.0, 0.0), ("lonely", 0.0, 5.0)):
+        model.columns.append(
+            Column(id="col-" + name, stack_id="stk-" + name, storey=0, x_m=x, y_m=y, width_m=0.30, depth_m=0.30)
+        )
+    model.beams.append(
+        Beam(id="beam-deep", storey=0, a=(0.0, 0.0), b=(4.0, 0.0), width_m=0.23, depth_m=0.60)
+    )
+    model.beams.append(
+        Beam(id="beam-shallow", storey=0, a=(4.0, 0.0), b=(8.0, 0.0), width_m=0.23, depth_m=0.30)
+    )
+    return model
+
+
+def test_a_column_stops_under_the_beam_that_reaches_it_not_the_storeys_deepest():
+    """The head beam is this column's own: 3.000 - 0.300 for the shallow end."""
+    takeoff = Q.take_off(_mixed_depth_line(), [])
+    rows = {row.element_id: row for row in takeoff.concrete_by_element if row.element_class == "column"}
+    assert rows["col-deep"].volume_m3 == pytest.approx(0.09 * (3.0 - 0.60))
+    assert rows["col-both"].volume_m3 == pytest.approx(0.09 * (3.0 - 0.60))
+    # 0.09 x 2.700 = 0.243; the storey-wide maximum measured this column at 0.216
+    assert rows["col-shallow"].volume_m3 == pytest.approx(0.09 * (3.0 - 0.30))
+    assert _volume(takeoff, "column") == pytest.approx(0.09 * (2.40 + 2.40 + 2.70 + 2.40))
+    assert _formwork(takeoff, "column") == pytest.approx(1.2 * (2.40 + 2.40 + 2.70 + 2.40))
+    for name in ("col-deep", "col-both", "col-shallow"):
+        assert "no beam frames into this column" not in rows[name].basis
+
+
+def test_a_column_no_beam_reaches_falls_back_to_the_storey_and_says_so():
+    """The fallback is allowed, silence about it is not."""
+    takeoff = Q.take_off(_mixed_depth_line(), [])
+    rows = {row.element_id: row for row in takeoff.concrete_by_element if row.element_class == "column"}
+    lonely = rows["col-lonely"]
+    assert lonely.volume_m3 == pytest.approx(0.09 * (3.0 - 0.60))
+    assert "no beam frames into this column's head" in lonely.basis
+    assert "deepest beam on the storey, 600 mm, was deducted instead" in lonely.basis
+    message = [
+        row for row in takeoff.disclosures.entries if row.code == "N_COLUMN_HEIGHT_CONVENTION"
+    ][0].message
+    assert "THAT column's head" in message
 
 
 def test_golden_frame_beam_clear_span_deducts_the_columns_at_both_ends():
@@ -637,15 +690,16 @@ def test_masonry_opening_of_exactly_a_tenth_of_a_square_metre_is_not_deducted():
     """The 0.25 x 0.40 vent is exactly 0.1 m2 and stays; the 0.9 x 2.1 door goes.
 
     Bearing wall: 6.000 long, 0.230 thick, clear height 3.000 - 0.120 slab
-    - 0.075 band = 2.805, so gross 6 x 0.23 x 2.805 = 3.8709 m3 and the
-    deduction is 0.9 x 2.1 x 0.23 = 0.4347 m3, leaving 3.4362 m3.
+    - 0.075 band = 2.805, so gross 6 x 0.23 x 2.805 = 3.8709 m3. The door
+    deducts 0.9 x 2.1 x 0.23 = 0.4347 m3 and the lintel over it deducts its own
+    1.2 x 0.23 x 0.15 = 0.0414 m3 (finding N36), so 0.4761 off, 3.3948 left.
     """
     takeoff = Q.take_off(_masonry_model(), [])
     bearing = [row for row in takeoff.masonry if row.bearing][0]
     assert bearing.thickness_mm == 230
     assert bearing.gross_m3 == pytest.approx(3.8709)
-    assert bearing.deductions_m3 == pytest.approx(0.4347)
-    assert bearing.volume_m3 == pytest.approx(3.4362)
+    assert bearing.deductions_m3 == pytest.approx(0.4347 + 0.0414)
+    assert bearing.volume_m3 == pytest.approx(3.3948)
 
 
 def test_a_band_crossing_a_wall_shortens_the_wall_and_carries_its_own_volume():
@@ -678,6 +732,77 @@ def test_a_lintel_is_measured_over_its_bearings():
     takeoff = Q.take_off(_masonry_model(), [])
     assert _volume(takeoff, "lintel") == pytest.approx(1.2 * 0.23 * 0.15)
     assert _formwork(takeoff, "lintel") == pytest.approx((2 * 0.15 + 0.23) * 1.2)
+
+
+def test_a_lintel_inside_the_panel_is_given_back_to_the_walling():
+    """Finding N36: the opening deduction is head to sill, so the lintel is inside it.
+
+    Before this, the same 0.0414 m3 was billed once as lintel concrete and once
+    as brickwork. The two rows now agree to the cubic millimetre.
+    """
+    model = _masonry_model()
+    takeoff = Q.take_off(model, [])
+    lintel_m3 = _volume(takeoff, "lintel")
+    bearing = [row for row in takeoff.masonry if row.bearing][0]
+
+    model.lintels = []
+    model.meta["masonry_placement"] = {"lintel_schedule": []}
+    without = [row for row in Q.take_off(model, []).masonry if row.bearing][0]
+
+    assert lintel_m3 == pytest.approx(1.2 * 0.23 * 0.15)
+    assert without.volume_m3 - bearing.volume_m3 == pytest.approx(lintel_m3)
+    assert "a lintel inside the panel is deducted in full" in bearing.basis
+
+
+def _masonry_model_under_a_beam(depth_m=0.45):
+    """The same house with an RC beam spanning over the 6 m bearing wall."""
+    model = _masonry_model()
+    model.beams.append(
+        Beam(
+            id="beam-over-a",
+            storey=0,
+            a=(0.0, 0.0),
+            b=(6.0, 0.0),
+            width_m=0.23,
+            depth_m=depth_m,
+            kind=BeamKind.PRIMARY,
+        )
+    )
+    return model
+
+
+def test_a_wall_stops_under_the_beam_over_it_not_under_the_slab():
+    """Finding N36: 3.000 - 0.450 beam - 0.075 band, not 3.000 - 0.120 slab.
+
+    The 0.330 m of wall the old rule measured through the beam is beam concrete
+    that the concrete row already carries.
+    """
+    takeoff = Q.take_off(_masonry_model_under_a_beam(), [])
+    bearing = [row for row in takeoff.masonry if row.bearing][0]
+    assert bearing.gross_m3 == pytest.approx(6.0 * 0.23 * (3.0 - 0.45 - 0.075))
+    assert "the beam that spans over the wall" in bearing.basis
+
+    # wall-b runs at y = 2.0 and no beam is over it, so it keeps the slab rule
+    partition = [row for row in takeoff.masonry if not row.bearing][0]
+    assert partition.volume_m3 == pytest.approx(3.0 * 0.115 * (3.0 - 0.12))
+
+
+def test_a_beam_shallower_than_the_slab_never_lengthens_the_wall():
+    """The plate is over the wall either way, so the deduction never goes down."""
+    takeoff = Q.take_off(_masonry_model_under_a_beam(0.10), [])
+    bearing = [row for row in takeoff.masonry if row.bearing][0]
+    assert bearing.gross_m3 == pytest.approx(6.0 * 0.23 * (3.0 - 0.12 - 0.075))
+
+
+def test_a_beam_on_another_line_is_not_a_beam_over_this_wall():
+    """The collinearity test is what keeps the next grid line out of the answer."""
+    model = _masonry_model()
+    model.beams.append(
+        Beam(id="beam-elsewhere", storey=0, a=(0.0, 4.0), b=(6.0, 4.0), width_m=0.23, depth_m=0.6)
+    )
+    takeoff = Q.take_off(model, [])
+    bearing = [row for row in takeoff.masonry if row.bearing][0]
+    assert bearing.gross_m3 == pytest.approx(6.0 * 0.23 * (3.0 - 0.12 - 0.075))
 
 
 # ---------------------------------------------------------------------------
@@ -764,15 +889,15 @@ def test_the_bar_catalogue_is_read_not_duplicated():
 
 
 def test_golden_frame_bar_masses_are_the_hand_computed_ones():
-    """391.3488 columns, 618.5376 beams, 469.96 slabs, 297.94176 footings."""
+    """391.3488 columns, 618.5376 beams, 469.96 slabs, 170.06976 footings."""
     model, designs = golden_frame()
     bbs = Q.build_bbs(designs)
 
     assert bbs.mass_by_class["column"] == pytest.approx(391.3488)
     assert bbs.mass_by_class["beam"] == pytest.approx(618.5376)
     assert bbs.mass_by_class["slab"] == pytest.approx(469.96)
-    assert bbs.mass_by_class["footing"] == pytest.approx(297.94176)
-    assert bbs.total_kg == pytest.approx(1777.78816)
+    assert bbs.mass_by_class["footing"] == pytest.approx(170.06976)
+    assert bbs.total_kg == pytest.approx(1649.91616)
     assert sum(bbs.mass_by_dia.values()) == pytest.approx(bbs.total_kg)
 
 
@@ -853,6 +978,51 @@ def test_a_footing_bar_is_an_l_and_a_beam_top_bar_is_an_l():
     assert bbs.to_dict()["shape_codes"] == list(Q.SHAPE_CODES)
 
 
+def test_a_footing_mesh_bar_takes_no_development_length_past_the_pad():
+    """Finding B28: a pad bar's zone IS the pad, so nothing is added at its ends.
+
+    The golden pad is 1.500 x 1.500 and its mesh bar's zone is 0..1500 with
+    ld 600. The old rule added that ld at BOTH ends and cut 2.796 m of straight
+    bar for a 1.500 m pad, 83 percent more steel than the pad can hold.
+    """
+    bbs = Q.build_bbs([_footing_design("ftg-0-0")])
+    bars = [item for item in bbs.items if item.shape_code == Q.SHAPE_L]
+    assert len(bars) == 2, "one mesh set each way"
+    for bar in bars:
+        assert bar.cut_length_m == pytest.approx(1.500 + Q.BEND_90_DIA * 12.0 / 1000.0)
+        assert bar.cut_length_m <= 1.500 + Q.BEND_90_DIA * 12.0 / 1000.0 + 1e-9, (
+            "a scheduled bar may not be longer than the pad it lies in"
+        )
+        assert bar.total_mass_kg == pytest.approx(10 * 1.596 * 0.888)
+        assert "no development length added here" in bar.notes[0]
+        assert not any("at each end" in note for note in bar.notes)
+
+
+def test_a_slab_bar_still_anchors_into_its_support_at_each_end():
+    """B28 is a per-class rule, not "footing and slab": a slab is NOT a pad.
+
+    A slab bar's zone is the span, so the anchorage into the support at each end
+    genuinely lies outside it and is measured, exactly as before.
+    """
+    bbs = Q.build_bbs([_slab_design("slab-s0")])
+    by_mark = {item.bar_mark: item for item in bbs.items}
+    assert by_mark["S1-M1"].cut_length_m == pytest.approx(5.000 + 2 * 0.500)
+    assert by_mark["S1-M2"].cut_length_m == pytest.approx(8.000 + 2 * 0.400)
+    assert "anchored 0.5 m at each end" in by_mark["S1-M1"].notes[0]
+
+
+def test_a_bar_that_states_its_own_anchorage_ends_overrides_its_class():
+    """Where a class rule does not fit, the DESIGNER says so, not this module."""
+    result = DesignResult(element_id="beam-detailed", element_type="beam")
+    result.section = {"b_mm": 230.0, "D_mm": 450.0, "cover_mm": 25.0}
+    result.add_bar("bottom_mid", 2, 16.0, 800.0, [0.0, 4000.0])
+    result.bars[0]["anchorage_ends"] = 1
+    item = Q.build_bbs([result]).items[0]
+    assert item.cut_length_m == pytest.approx(4.000 + 0.800)
+    assert "one lap per storey" in item.notes[0]
+    assert "1 anchorage end(s) stated by the design" in item.notes[0]
+
+
 def test_a_link_on_a_section_with_no_cover_ships_at_zero_and_says_why():
     """Finding 25 forbids a bar-schedule cover default; the gap is disclosed."""
     result = DesignResult(element_id="beam-no-cover", element_type="beam")
@@ -870,12 +1040,12 @@ def test_wastage_is_added_disclosed_and_overridable():
     model, designs = golden_frame()
     default = Q.build_bbs(designs)
     assert default.wastage_pct == pytest.approx(3.0)
-    assert default.total_with_wastage_kg == pytest.approx(1777.78816 * 1.03)
+    assert default.total_with_wastage_kg == pytest.approx(1649.91616 * 1.03)
     assert "N_WASTAGE_3PCT" in _codes(default.disclosures)
 
     richer = Q.build_bbs(designs, {"wastage_pct": 5.0})
     assert richer.total_kg == pytest.approx(default.total_kg)
-    assert richer.total_with_wastage_kg == pytest.approx(1777.78816 * 1.05)
+    assert richer.total_with_wastage_kg == pytest.approx(1649.91616 * 1.05)
     message = [row for row in richer.disclosures.entries if row.code == "N_WASTAGE_3PCT"][0].message
     assert "5.0 percent" in message
 
@@ -883,8 +1053,8 @@ def test_wastage_is_added_disclosed_and_overridable():
 def test_masses_round_to_the_stated_precision_on_the_wire():
     model, designs = golden_frame()
     wire = Q.build_bbs(designs).to_dict()
-    assert wire["total_kg"] == pytest.approx(1777.788)
-    assert wire["total_with_wastage_kg"] == pytest.approx(1831.122)
+    assert wire["total_kg"] == pytest.approx(1649.916)
+    assert wire["total_with_wastage_kg"] == pytest.approx(1699.414)
     assert wire["mass_by_dia"]["16"] == pytest.approx(687.377, abs=1e-3)
 
 
@@ -905,10 +1075,40 @@ def test_items_elide_past_the_cap_but_the_aggregates_do_not():
     bbs = Q.build_bbs(designs, {"bbs_max_items": 3})
     assert bbs.items_elided is True
     assert bbs.items_total == len(bbs.items)
-    assert bbs.total_kg == pytest.approx(1777.78816)
+    assert bbs.total_kg == pytest.approx(1649.91616)
     wire = bbs.to_dict()
     assert len(wire["items"]) == 3
     assert wire["items_total"] == len(bbs.items)
+
+
+def test_detail_full_asked_for_by_name_hands_over_every_row():
+    """Finding B30: the consumer that must do arithmetic row by row gets them all.
+
+    `report._zero_blocked_bbs` subtracts a blocked element's mass out of the
+    aggregates and can only do it from the rows, which is why `api.py` asks for
+    `DETAIL_FULL` by name. It used to be handed `bbs_max_items` rows anyway, so
+    every blocked element sorting past the cap kept its full reinforcement.
+    """
+    model, designs = golden_frame()
+    bbs = Q.build_bbs(designs, {"bbs_max_items": 3})
+
+    full = bbs.to_dict(Q.DETAIL_FULL)
+    assert len(full["items"]) == len(bbs.items)
+    assert full["items_total"] == len(bbs.items)
+    assert full["items_elided"] is False, "nothing was dropped, so nothing is declared dropped"
+
+    # The level the options carry does NOT lift the cap: a normal run's wire
+    # payload is unchanged, which is the whole reason the uncap is keyed on the
+    # explicit argument.
+    default = bbs.to_dict()
+    assert len(default["items"]) == 3
+    assert default["items_elided"] is True
+    assert default["items_total"] == len(bbs.items)
+
+    compact = bbs.to_dict(Q.DETAIL_COMPACT)
+    assert compact["items"] == []
+    assert compact["items_elided"] is True
+    assert compact["total_kg"] == full["total_kg"] == default["total_kg"]
 
 
 def test_a_serialized_design_result_takes_off_to_the_same_numbers():
@@ -1013,7 +1213,7 @@ def test_reinforcement_is_priced_off_the_schedule_including_wastage():
     boq = Q.price(takeoff)
     steel = [line for line in boq.items if line.item == "Reinforcement"][0]
     assert steel.unit == "kg"
-    assert steel.qty == pytest.approx(round(1777.78816 * 1.03, 3))
+    assert steel.qty == pytest.approx(round(1649.91616 * 1.03, 3))
     assert steel.amount == pytest.approx(round(steel.qty * 78.0, 2))
     assert "3.0 percent wastage" in steel.spec
 
@@ -1106,7 +1306,7 @@ def test_the_density_metrics_are_per_square_metre_of_builtup_area():
     takeoff = Q.take_off(model, designs)
     boq = Q.price(takeoff)
     assert takeoff.builtup_area_m2 == pytest.approx(80.0)
-    assert boq.steel_kg_per_m2 == pytest.approx(1777.78816 * 1.03 / 80.0)
+    assert boq.steel_kg_per_m2 == pytest.approx(1649.91616 * 1.03 / 80.0)
     assert boq.concrete_m3_per_m2 == pytest.approx(23.1703 / 80.0)
     assert boq.cost_per_m2 == pytest.approx(boq.total / 80.0)
 

@@ -244,6 +244,15 @@ def vertical_distribution(pairs: Sequence[Tuple[float, float]], base_shear_kN: f
 def design_eccentricity(esi: float, bi: float) -> DesignEccentricity:
     """Both Cl 7.8.2 branches: 1.5 esi + 0.05 bi and esi - 0.05 bi.
 
+    Cl 7.8.2 defines `esi` as the DISTANCE between the centre of mass and the
+    centre of rigidity, so a signed offset is folded to its magnitude here.
+    Fed the signed value, the accidental 0.05 bi term would act in only one of
+    its two accidental directions and the governing design eccentricity would
+    come out up to 28.6 percent low on the mirrored half of all plans (the
+    torque uses the magnitude, so only magnitudes matter downstream). With the
+    distance in, the amplified branch always governs by magnitude and the
+    envelope is 1.5 |esi| + 0.05 bi.
+
     `bi` is the plan dimension perpendicular to the direction shaken. The more
     severe effect on the element governs; the diaphragm module chooses, and
     takes no torsional relief on the flexible side (spec section 13).
@@ -251,9 +260,10 @@ def design_eccentricity(esi: float, bi: float) -> DesignEccentricity:
     block = _table()["eccentricity"]
     amplification = float(block["amplification"])
     accidental = float(block["accidental"])
+    distance = abs(float(esi))
     return DesignEccentricity(
-        amplified=amplification * float(esi) + accidental * float(bi),
-        reduced=float(esi) - accidental * float(bi),
+        amplified=amplification * distance + accidental * float(bi),
+        reduced=distance - accidental * float(bi),
     )
 
 

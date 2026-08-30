@@ -375,6 +375,31 @@ def test_slender_column_takes_the_additional_moment_and_more_steel():
     assert "39.7.1" not in set(entry.ref for entry in short.trace)
 
 
+def test_the_slender_boundary_is_the_one_cl_25_1_2_draws():
+    """B14: le/dim of exactly 12 is slender, so Cl 39.7.1 applies at it.
+
+    `is456.cl_25_1_2__slenderness` calls a column short only when BOTH ratios
+    are strictly below 12, and `m_to_mm` lands on exactly 12.0 for every round
+    metric pair (3.6 m over 300 mm here, and 2.4/200, 3.0/250, 4.5/375 with it).
+    The additional moment used to be skipped at exactly 12, so the boundary
+    column was delivered a lighter cage than one a tenth of a millimetre longer
+    while the note in the same result called it slender.
+    """
+    assert is456.cl_25_1_2__slenderness(3600.0, 3600.0, 300.0, 300.0).short is False
+    ma_at, _k_at = CO._additional_moment(1100e3, 300.0, 3600.0, 3000e3, 800e3)
+    ma_past, _k_past = CO._additional_moment(1100e3, 300.0, 3600.4, 3000e3, 800e3)
+    assert ma_at > 0.0
+    assert ma_at == pytest.approx(ma_past, rel=1e-3)
+    assert CO._additional_moment(1100e3, 300.0, 3599.0, 3000e3, 800e3) == (0.0, 1.0)
+
+    at_twelve = CO.design_column(forces(1100.0, height_m=3.6), geom(height_mm=3600.0), PLAIN)
+    past_twelve = CO.design_column(forces(1100.0, height_m=3.6004), geom(height_mm=3600.4), PLAIN)
+    assert steel_ratio(at_twelve) == pytest.approx(steel_ratio(past_twelve))
+    text = " ".join(at_twelve.notes)
+    assert "additional moments Max" in text
+    assert "reaches 12" in text
+
+
 def test_the_k_factor_is_recomputed_against_puz_and_the_balanced_point():
     result = CO.design_column(forces(900.0, height_m=5.0), geom(height_mm=5000.0), PLAIN)
     note = [text for text in result.notes if "additional moments Max" in text][0]
@@ -423,13 +448,45 @@ def test_ties_follow_cl_26_5_3_2():
 
 
 def test_bars_carry_their_own_development_length_and_zone():
+    # Finding N22: this 300 x 300 column is NOT the Cl 39.3 axially loaded case
+    # (its Cl 25.4 minimum eccentricity of 20 mm is beyond 0.05 x 300), so the
+    # value written on the bar is the Cl 26.2.1.1 TENSION bond one. The pin used
+    # to read `True` for compression whatever the column was carrying.
     result = CO.design_column(forces(900.0), geom(), PLAIN)
     bar = bar_entry(result)
-    expected = is456.cl_26_2_1__ld(bar["dia_mm"], 500.0, 25.0, True, True)
+    expected = is456.cl_26_2_1__ld(bar["dia_mm"], 500.0, 25.0, True, False)
     assert bar["ld_mm"] == pytest.approx(expected)
     assert bar["role"] == "long"
     assert bar["zone_mm"] == [0.0, 3000.0]
     assert bar["count"] == bar["bars_per_b_face"] * 2 + bar["bars_per_d_face"] * 2 - 4
+
+
+def test_the_bond_stress_follows_whether_the_section_is_wholly_in_compression():
+    """N22: the compression bond value only where Cl 39.3 has been proved.
+
+    Cl 26.2.1.1 raises the design bond stress 25 percent for a bar in
+    compression, so a compression Ld is a fifth shorter than the tension one.
+    It used to be written on every column bar unconditionally, which leaves a
+    column carrying moment with an Ld, and a lap read straight off it, 20
+    percent short. Per-bar resolution of the design strain plane is not made in
+    this version and the note says so.
+    """
+    with_moment = CO.design_column(forces(900.0, 60.0, 20.0), geom(), PLAIN)
+    bar = bar_entry(with_moment)
+    assert check_named(with_moment, "pure_axial") is None
+    assert bar["ld_mm"] == pytest.approx(is456.cl_26_2_1__ld(bar["dia_mm"], 500.0, 25.0, True, False))
+    text = " ".join(with_moment.notes)
+    assert "TENSION bond stress" in text
+    assert "tension lap" in text
+
+    axial = CO.design_column(forces(1500.0), geom(450.0, 450.0), PLAIN)
+    axial_bar = bar_entry(axial)
+    assert check_named(axial, "pure_axial") is not None
+    assert axial_bar["ld_mm"] == pytest.approx(
+        is456.cl_26_2_1__ld(axial_bar["dia_mm"], 500.0, 25.0, True, True)
+    )
+    assert "COMPRESSION bond stress" in " ".join(axial.notes)
+    assert axial_bar["ld_mm"] < is456.cl_26_2_1__ld(axial_bar["dia_mm"], 500.0, 25.0, True, False)
 
 
 def test_arrangement_refuses_a_cage_that_breaks_the_periphery_rule():
@@ -442,6 +499,51 @@ def test_arrangement_refuses_a_cage_that_breaks_the_periphery_rule():
 def test_arrangement_refuses_a_cage_that_breaks_the_bar_gap_rule():
     assert CO.arrange_bars(20, 25, 230.0, 230.0, 40.0, 20.0) is None
     assert CO.arrange_bars(4, 16, 230.0, 230.0, 30.0, 20.0) is not None
+
+
+def test_a_two_bar_face_is_held_to_the_same_cl_26_3_2_gap():
+    """N21: the one gap between two corner bars is a Cl 26.3.2 gap too.
+
+    230 x t is what `api` hands the designer for an IS 4326 confining column,
+    and t goes down to 150 mm. 4-25 in a 230 x 150 leaves 24.0 mm clear across
+    the 150 mm face where Cl 26.3.2 asks for 25.0, and the gap rule used to be
+    applied only to faces carrying MORE than two bars, so that cage was on the
+    ladder and shipped with every check row green.
+    """
+    assert C.min_bar_gap_mm(25, 20.0) == 25.0
+    assert CO.arrange_bars(4, 25, 230.0, 150.0, 30.0, 20.0) is None
+    legal = CO.arrange_bars(4, 20, 230.0, 150.0, 30.0, 20.0)
+    assert legal is not None
+    assert legal.spacing_d_mm - legal.dia_mm >= C.min_bar_gap_mm(20, 20.0)
+
+    rungs, _note = CO._ladder_for(230.0, 150.0, "moderate", 0.0, 20.0)
+    assert rungs
+    for rung in rungs:
+        gap = C.min_bar_gap_mm(rung.dia_mm, 20.0)
+        assert rung.spacing_b_mm - rung.dia_mm >= gap - 1e-9
+        assert rung.spacing_d_mm - rung.dia_mm >= gap - 1e-9
+
+
+def test_a_section_too_thin_for_the_gap_is_grown_not_dropped():
+    """N21: the tightened gap must refer the section on, never deliver nothing.
+
+    A 230 x 115 holds no legal cage at all once the two-bar face obeys the
+    clause, so the empty ladder has to reach the resize walk and come back as a
+    designed, larger section with the step disclosed.
+    """
+    thin, note = CO._ladder_for(230.0, 115.0, "moderate", 0.0, 20.0)
+    assert thin == ()
+    assert note
+    result = CO.design_column(
+        forces(250.0, 2.0, 2.0),
+        {"b_mm": 230.0, "D_mm": 115.0, "height_mm": 3000.0, "element_id": "tie-1", "role": "tie"},
+        PLAIN,
+    )
+    assert result.status in (C.STATUS_PASS, C.STATUS_RESIZED)
+    assert result.resize_history
+    assert result.resize_history[0]["from"] == {"b_mm": 230.0, "D_mm": 115.0}
+    assert result.section["D_mm"] > 115.0
+    assert bar_entry(result)["count"] >= 4
 
 
 def test_arrangement_is_symmetric_about_both_axes():
@@ -459,6 +561,48 @@ def test_a_big_section_gets_intermediate_bars_from_the_ladder():
     assert bar["count"] >= 8
     assert max(bar["spacing_b_mm"], bar["spacing_d_mm"]) <= CO.PERIPHERY_SPACING_MM
     assert check_named(result, "bar_periphery_spacing").status == C.CHECK_PASS
+
+
+def test_the_ladder_starts_at_the_cheapest_cage_the_section_can_hold():
+    """N23: the first rung is the Cl 26.5.3.1 floor, not what the picker reached.
+
+    `pick_bars` scores area excess against a target and `_arrange_up` then adds
+    pairs of bars for the 300 mm periphery rule, so on 600 x 600 the lowest rung
+    the search reached was 18-16 at 1.005 percent while 10-20 (0.873 percent)
+    and 16-16 (0.894) both arrange legally and clear the floor.
+    """
+    cover = C.resolve_cover("column", "moderate", 0.0, 0.0).cover_mm
+    rungs, note = CO._ladder_for(600.0, 600.0, "moderate", 0.0, 20.0)
+    limits = is456.cl_26_5_3_1__long_steel_limits(600.0 * 600.0)
+    assert rungs
+    first = rungs[0]
+    assert first.asc_mm2 >= limits.asc_min_mm2
+
+    # the exhaustive answer the ladder now has to match
+    cheapest = None
+    for dia in CO.COLUMN_DIAS_MM:
+        for count in range(4, CO.MAX_LONG_BARS + 1, 2):
+            asc = count * C.bar_area_mm2(dia)
+            if asc < limits.asc_min_mm2 or asc > limits.asc_max_mm2:
+                continue
+            if CO.arrange_bars(count, dia, 600.0, 600.0, cover, 20.0) is None:
+                continue
+            if cheapest is None or asc < cheapest:
+                cheapest = asc
+    assert cheapest is not None
+    assert first.asc_mm2 == pytest.approx(cheapest)
+    assert (first.count, first.dia_mm) == (10, 20)
+    assert "0.87 percent" in note
+    assert [rung.asc_mm2 for rung in rungs] == sorted(rung.asc_mm2 for rung in rungs)
+
+
+def test_a_lightly_loaded_big_column_takes_the_cheapest_legal_cage():
+    """N23 end to end: 600 x 600 at a trivial load is 10-20, not 18-16."""
+    result = CO.design_column(forces(200.0), geom(600.0, 600.0), PLAIN)
+    assert result.status == C.STATUS_PASS
+    bar = bar_entry(result)
+    assert (bar["count"], bar["dia_mm"]) == (10, 20.0)
+    assert steel_ratio(result) < 0.009
 
 
 def test_tie_legs_count_the_cross_ties_a_wide_face_needs():

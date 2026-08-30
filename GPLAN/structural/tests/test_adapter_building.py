@@ -238,11 +238,19 @@ def test_wall_roles_and_thicknesses(model):
     assert all("room-s1-cor-1" in w.room_ids for w in corridor_walls)
 
 
-def test_room_sides_follow_the_low_high_convention(model):
+def test_room_sides_follow_the_wall_normal(model):
+    """(left, right) by the wall normal: (above, below) on h, (right, left) on v.
+
+    The left normal of (dx, dy) is (dy, -dx) in this y-down frame and walls run
+    a -> b in increasing coordinate, so a vertical wall names the room at the
+    HIGHER x first. plan_json.py, housing.py, model.py:539 and spec 01 all fix
+    this; building.py used to emit (low, high) for both orientations, which
+    mirrored every vertical wall it produced.
+    """
     west = next(w for w in model.walls_on(1) if _axis_ft(w) == ("v", 2.0, 2.0, 42.0))
-    assert west.room_ids == (None, "room-s1-u-a")
+    assert west.room_ids == ("room-s1-u-a", None)
     east = next(w for w in model.walls_on(1) if _axis_ft(w) == ("v", 32.0, 2.0, 42.0))
-    assert east.room_ids == ("room-s1-u-a", None)
+    assert east.room_ids == (None, "room-s1-u-a")
     north = next(w for w in model.walls_on(1) if _axis_ft(w) == ("h", 2.0, 2.0, 32.0))
     assert north.room_ids == (None, "room-s1-u-a")
 
@@ -340,8 +348,15 @@ def _dressed_plan(doors=(), windows=()):
 
 
 def _dressed_model(doors=(), windows=(), rotation=90):
+    """The 20 x 12 dressed plan in the unit rect it is drawn at 1:1 in.
+
+    The unit rect is the plan's own mapped extent, so no rescale applies: the
+    caller swaps width and height for a quarter turn, which is the frontend's
+    own convention (`applyFloorLayout` swaps the rect and leaves rotation 0).
+    """
     plan = _dressed_plan(doors, windows)
-    unit = _unit("u1", 10, 4, 12, 20, rotation, detailedPlan=plan)
+    rect = (20.0, 12.0) if rotation in (0, 180) else (12.0, 20.0)
+    unit = _unit("u1", 10, 4, rect[0], rect[1], rotation, detailedPlan=plan)
     return from_building(_building([_floor("f0", 0, units=[unit])]))
 
 
@@ -546,7 +561,8 @@ def test_abutting_units_merge_into_one_party_wall():
     party = [w for w in model.walls if w.role == M.WallRole.PARTY]
     assert len(party) == 1
     assert _axis_ft(party[0]) == ("v", 20.0, 0.0, 20.0)
-    assert party[0].room_ids == ("room-s0-u1", "room-s0-u2")
+    # vertical wall: (right, left), so u2 at x 20..40 is named first
+    assert party[0].room_ids == ("room-s0-u2", "room-s0-u1")
     assert _ft(party[0].thickness_m) == 0.75  # max(t1, t2)
 
     # a unit edge meeting the corridor is interior, not party and not exterior
@@ -682,3 +698,166 @@ def test_options_travel_into_the_geometry():
     assert model.system == M.System.LOAD_BEARING_MASONRY
     assert {_ft(w.thickness_m) for w in model.walls} == {1.0}
     assert model.meta["options"]["system_hint"] == "load_bearing_masonry"
+
+
+# --------------------------------------------------------------------------
+# storey resolution: `floorNumber` is a 1-based label, not a storey index
+# --------------------------------------------------------------------------
+
+
+def _numbered_building(total=3):
+    """Three DISTINCT floors numbered the way the frontend numbers them, 1..N.
+
+    `buildingSlice.addBuilding` writes `floorNumber: i + 1` and `addFloor`
+    writes `b.floors.length + 1`; every runtime creation path goes through one
+    of those, so this, not the 0-based fixture, is the shape the product posts.
+    """
+    return _building(
+        [
+            _floor("fl-1", 1, units=[_unit("g", 0, 0, 20, 20)]),
+            _floor("fl-2", 2, units=[_unit("m", 0, 0, 20, 20)]),
+            _floor("fl-3", 3, units=[_unit("t", 0, 0, 20, 20)]),
+        ],
+        total=total,
+    )
+
+
+def test_one_based_floor_numbers_land_one_storey_each():
+    """Reading the label as the index duplicated fl-1 and dropped fl-3 entirely."""
+    model = from_building(_numbered_building())
+    assert [s.source_id for s in model.storeys] == ["fl-1", "fl-2", "fl-3"]
+    assert sorted((r.storey, r.source) for r in model.rooms) == [(0, "g"), (1, "m"), (2, "t")]
+    assert "W_TYPICAL_REPEATED" not in _codes(model)
+    assert model.validate() == []
+
+
+def test_floor_numbers_order_the_list_they_do_not_index_it():
+    shuffled = _building(
+        [
+            _floor("fl-3", 3, units=[_unit("t", 0, 0, 20, 20)]),
+            _floor("fl-1", 1, units=[_unit("g", 0, 0, 20, 20)]),
+            _floor("fl-2", 2, units=[_unit("m", 0, 0, 20, 20)]),
+        ],
+        total=3,
+    )
+    model = from_building(shuffled)
+    assert [s.source_id for s in model.storeys] == ["fl-1", "fl-2", "fl-3"]
+
+
+def test_a_taller_one_based_payload_repeats_the_top_floor_and_says_so():
+    model = from_building(_numbered_building(total=5))
+    assert [s.source_id for s in model.storeys] == ["fl-1", "fl-2", "fl-3", "fl-3", "fl-3"]
+    entry = next(w for w in model.warnings if w.code == "W_TYPICAL_REPEATED")
+    assert "storeys 3, 4" in entry.message
+    assert "3 floor(s) for totalFloors 5" in entry.message
+
+
+def test_a_floor_reused_by_two_storeys_is_never_silent():
+    """The same floor object listed twice is a repeat, and repeats are disclosed."""
+    floor = _floor("fl-1", 1, units=[_unit("g", 0, 0, 20, 20)])
+    model = from_building(_building([floor, floor], total=2))
+    assert [s.source_id for s in model.storeys] == ["fl-1", "fl-1"]
+    assert "W_TYPICAL_REPEATED" in _codes(model)
+
+
+# --------------------------------------------------------------------------
+# the plan is drawn INSIDE the declared unit rect: uniform scale, centred
+# --------------------------------------------------------------------------
+
+
+def test_a_plan_smaller_than_its_unit_is_scaled_and_centred():
+    """20 x 12 plan in a 30 x 18 unit: the frontend draws it at 1.5, centred.
+
+    `UnitShape.tsx` and `InlinePlanEditor.tsx` both compute
+    planScale = min(w / plan.width, h / plan.height) with a centring offset, so
+    Living reads 18 x 18 on screen and in the DXF. Anchoring the raw plan
+    extent at the unit origin instead emitted Living at 12 x 12, a third of the
+    area the user is looking at.
+    """
+    unit = _unit("u1", 10, 10, 30, 18, floorplans=[ROT_PLAN])
+    model = from_building(_building([_floor("f0", 0, units=[unit])]))
+
+    assert _rect_ft(_by_name(model, "Living")) == (10.0, 10.0, 18.0, 18.0)
+    assert _rect_ft(_by_name(model, "Kitchen")) == (28.0, 10.0, 12.0, 18.0)
+    # the envelope is the unit rect (10..40), never the raw plan extent (10..30)
+    verticals = sorted({_axis_ft(w)[1] for w in model.walls if _axis_ft(w)[0] == "v"})
+    assert verticals == [0.0, 10.0, 28.0, 40.0, 60.0]
+
+    entry = next(w for w in model.warnings if w.code == "W_STALE_GENERATED")
+    assert entry.severity == M.Severity.WARNING
+    assert "20.00 x 12.00 ft" in entry.message
+    assert "30.00 x 18.00 ft unit rect" in entry.message
+    assert "scale 1.500" in entry.message
+    assert entry.element_ids == sorted(r.id for r in model.rooms)
+    assert model.validate() == []
+
+
+def test_a_plan_that_matches_its_unit_is_left_alone():
+    unit = _unit("u1", 10, 10, 20, 12, floorplans=[ROT_PLAN])
+    model = from_building(_building([_floor("f0", 0, units=[unit])]))
+    assert _rect_ft(_by_name(model, "Living")) == (10.0, 10.0, 12.0, 12.0)
+    assert "W_STALE_GENERATED" not in _codes(model)
+
+
+def test_an_oversized_plan_no_longer_eats_the_party_wall():
+    """Two abutting units, the left one carrying a plan narrower than its rect.
+
+    Taking the envelope from the plan extent left a dead gap between the two
+    units, so the shared load path spec 6.3 calls for never formed.
+    """
+    plan = _floorplan(
+        pid="p-left",
+        width=16.0,
+        height=20.0,
+        placements=(_place("Living Room", 0, 0, 8, 20), _place("Bedroom 1", 8, 0, 8, 20)),
+    )
+    floor = _floor(
+        "f0",
+        0,
+        units=[_unit("u1", 0, 0, 20, 20, floorplans=[plan]), _unit("u2", 20, 0, 20, 20)],
+    )
+    model = from_building(_building([floor], boundary={"kind": "rect", "width": 40, "height": 20}))
+
+    party = [w for w in model.walls if w.role == M.WallRole.PARTY]
+    assert len(party) == 1
+    assert _axis_ft(party[0]) == ("v", 20.0, 0.0, 20.0)
+    # scale stays 1.0 here (the height already fits); only the centring moves
+    assert _rect_ft(_by_name(model, "Living Room")) == (2.0, 0.0, 8.0, 20.0)
+    assert "W_STALE_GENERATED" in _codes(model)
+    assert model.validate() == []
+
+
+def test_a_dressed_door_travels_with_the_scale_it_is_drawn_at():
+    """A leaf drawn at 3 ft inside a plan shown at 0.6 is 1.8 ft of wall."""
+    plan = _dressed_plan(doors=[{"id": "d1", "orientation": "v", "x": 12, "y": 6, "width": 3}])
+    unit = _unit("u1", 0, 0, 12.0, 7.2, 0, detailedPlan=plan)
+    model = from_building(_building([_floor("f0", 0, units=[unit])]))
+    wall = _walls_with_openings(model)[0]
+    assert _axis_ft(wall) == ("v", 7.2, 0.0, 7.2)
+    assert _ft(wall.openings[0].width_m) == pytest.approx(1.8)
+    assert wall.openings[0].width_m <= wall.length_m()
+
+
+# --------------------------------------------------------------------------
+# rotation: applied, and disclosed because no frontend view applies it
+# --------------------------------------------------------------------------
+
+
+def test_a_rotated_unit_is_disclosed_because_no_view_applies_it():
+    """The transform stays; who owns rotation is a product decision, not ours."""
+    unit = _unit("u1", 5, 3, 12, 20, 90, floorplans=[ROT_PLAN])
+    model = from_building(_building([_floor("f0", 0, units=[unit])]))
+
+    entry = next(w for w in model.warnings if w.code == "W_STALE_GENERATED")
+    assert entry.severity == M.Severity.WARNING
+    assert "U1 rotated 90 deg" in entry.message
+    assert "No frontend view" in entry.message
+    assert entry.element_ids == sorted(r.id for r in model.rooms)
+    # untouched: the spec 6.5 table still governs the geometry
+    assert _rect_ft(_by_name(model, "Kitchen")) == (5.0, 15.0, 12.0, 8.0)
+
+
+def test_an_unrotated_unit_earns_no_rotation_disclosure():
+    unit = _unit("u1", 5, 3, 20, 12, 0, floorplans=[ROT_PLAN])
+    model = from_building(_building([_floor("f0", 0, units=[unit])]))
+    assert "W_STALE_GENERATED" not in _codes(model)

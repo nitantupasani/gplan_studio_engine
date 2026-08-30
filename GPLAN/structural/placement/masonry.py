@@ -1615,6 +1615,45 @@ def choose_system(model: StructuralModel, params: Optional[MasonryParams] = None
         )
         return SystemDecision(system=System.RC_FRAME.value, requested=requested, category=category, trace=trace)
 
+    # row 6b: the census rows leave a hole (a confined-class share in the
+    # 0 to 50 percent band fires neither row 5 nor row 6), so before falling to
+    # rc_frame the same cover dry run is asked under confined masonry. The
+    # census caps travel with the answer: row 5 admits confined up to 3
+    # storeys, so this row admits no more.
+    if count <= 3:
+        confined_ok = True
+        confined_reasons = []  # type: List[str]
+        for storey in storeys:
+            grid = grids[storey]
+            if not grid.has_cells():
+                continue
+            on_storey = [w for w in walls if w.storey == storey]
+            result = _cover_storey(grid, on_storey, elig, System.CONFINED_MASONRY.value, params)
+            if result.gaps:
+                confined_ok = False
+                confined_reasons.append(result.gaps[0].message)
+                break
+            ok, why = _both_directions(on_storey, result.bearing, storey)
+            if not ok:
+                confined_ok = False
+                confined_reasons.append(why)
+                break
+        if confined_ok:
+            share = 100.0 * census["confined"] / total if total > _ETA else 0.0
+            trace.append(
+                "row 6b: %.0f%% of the ground storey wall length is in the 150 to 189 mm class and the "
+                "confined-masonry set closes the cover in both directions; confined_masonry" % share
+            )
+            return SystemDecision(
+                system=System.CONFINED_MASONRY.value, requested=requested, category=category, trace=trace
+            )
+        trace.append("row 6b: confined masonry does not close the cover either: " + "; ".join(confined_reasons))
+    else:
+        trace.append(
+            "row 6b: %d storey(s) is past the 3 storey cap the census rows put on confined masonry, "
+            "so the confined dry run is not attempted" % count
+        )
+
     trace.append("row 7: no masonry row fits; rc_frame")
     return SystemDecision(system=System.RC_FRAME.value, requested=requested, category=category, trace=trace)
 
@@ -1998,6 +2037,13 @@ class MasonryPlacer:
                 progress = progress or step
                 if not step:
                     break
+                # a lift lives in placer state, not in the cover snapshot, so
+                # the next round must read a FRESH cover: against the stale one
+                # a round-1 lift is invisible and the resolver keeps spending
+                # fixes on a gap it has already closed
+                covers[storey] = self._cover_all(system)[storey]
+                if not covers[storey].gaps:
+                    break
         return progress
 
     def _resolve_one_gap(self, system: str, cover: _CoverResult) -> bool:
@@ -2009,8 +2055,20 @@ class MasonryPlacer:
         wall, record = candidate
         t_mm = record.t_mm
 
-        # rule 7.3: a 150 to 189 mm wall the cover needs, under load bearing masonry
-        if record.thickness_ok and record.confined_only and system == System.LOAD_BEARING_MASONRY.value:
+        # rule 7.3: a 150 to 189 mm wall the cover needs, under load bearing
+        # masonry. Rule 7.5's stacked/grounded screen (and the slenderness
+        # screen) applies FIRST: a lifted wall still has to satisfy those to be
+        # usable, so lifting one that does not would be a no-op that removes it
+        # from gap resolution for good. Such a wall falls through to the beam
+        # line rules below, which is spec 7's ordering.
+        if (
+            record.thickness_ok
+            and record.confined_only
+            and record.stacked
+            and record.grounded
+            and record.sr_ok
+            and system == System.LOAD_BEARING_MASONRY.value
+        ):
             if self._params.allow_promote:
                 self._lifted.add(wall.id)
                 self._promoted.append(
@@ -2932,6 +2990,48 @@ class MasonryPlacer:
             )
         return rows
 
+    def _reconcile_promotions(self, bearing_by_storey: Dict[int, List[str]]) -> None:
+        """Drop every thickness promotion the final bearing set did not use.
+
+        A `GeometryChangeRequest` is only honest while the cover needs the wall
+        (spec 3, the promotion contract): a request whose wall the report rows
+        call NON-BEARING would ask the user to thicken a wall that does nothing.
+        The drop is traced per wall, never silent, and the matching
+        `W_RELEASED_CAP` ladder entry goes with it.
+        """
+        bearing = {}  # type: Dict[int, set]
+        for storey, ids in bearing_by_storey.items():
+            bearing[int(storey)] = set(ids)
+        orphans = sorted(
+            request.wall_id
+            for request in self._promoted
+            if request.wall_id not in bearing.get(int(request.storey), set())
+        )
+        if not orphans:
+            return
+        dropped = set(orphans)
+        self._promoted = [request for request in self._promoted if request.wall_id not in dropped]
+        self._lifted -= dropped
+        self._resolved = [
+            row
+            for row in self._resolved
+            if not (str(row.get("action")) == "PROMOTED-REQUEST" and str(row.get("wall_id")) in dropped)
+        ]
+        self._warnings = [
+            entry
+            for entry in self._warnings
+            if not (
+                entry.code == "W_RELEASED_CAP"
+                and "kept bearing" in entry.message
+                and set(entry.element_ids) <= dropped
+            )
+        ]
+        for wall_id in orphans:
+            self._trace.append(
+                "promotion request on %s dropped: the final cover does not need the wall to bear, "
+                "so its report row stays NON-BEARING and no thickness change is asked for" % wall_id
+            )
+
     def _finish_masonry(self, system: str, covers: Dict[int, _CoverResult]) -> MasonryPlacement:
         bearing_by_storey = {storey: list(covers[storey].bearing) for storey in self._storeys}
         self._close_cross_wall_gaps(system, bearing_by_storey)
@@ -2944,6 +3044,7 @@ class MasonryPlacer:
         late = self._table4_violations(late_covers)
         if late:
             self._resolve_table4(system, late_covers, late, late=True)
+        self._reconcile_promotions(bearing_by_storey)
         self._confine(system, bearing_by_storey)
         bands, band_rows = self._bands(system, bearing_by_storey)
         band_level = {}  # type: Dict[int, float]

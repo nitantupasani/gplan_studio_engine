@@ -38,6 +38,24 @@ TABLE_NAME = "is1905_tables"
 
 MORTAR_GRADES = ("H1", "H2", "M1", "M2", "M3", "L1", "L2")
 
+#: The leanest mortar the printed permissible-shear clause covers. The print
+#: reads "in case of walls built in mortar not leaner than Grade M1 ... the
+#: permissible shear stress ... shall not exceed fs = 0.1 + fd/6"; a grade
+#: leaner than this floor gets no shear value from the clause at all. The
+#: sibling tension clause carries the same restriction as `permitted_mortars`
+#: in the YAML block.
+SHEAR_MORTAR_FLOOR = "M1"
+
+
+def shear_mortar_permitted(mortar_grade: str) -> bool:
+    """True where the printed shear clause covers this mortar grade.
+
+    `MORTAR_GRADES` is ordered strongest first, so "leaner than the floor"
+    is a larger index than the floor's.
+    """
+    grade = _normalize_grade(mortar_grade)
+    return MORTAR_GRADES.index(grade) <= MORTAR_GRADES.index(SHEAR_MORTAR_FLOOR)
+
 RESTRAINTS = ("full", "lateral", "free")
 
 END_CONDITIONS = ("continuous", "cross_wall", "free")
@@ -624,16 +642,25 @@ def permissible_compressive_stress(fb_mpa: float, ks: float, ka: float, kp: floa
     units="MPa",
     latex=r"f_s = \min\left(0.1 + \frac{f_d}{6},\ 0.5\right)",
 )
-def permissible_shear(fd_mpa: float) -> float:
-    """fs = 0.1 + fd/6 MPa, capped at 0.5 MPa.
+def permissible_shear(fd_mpa: float, mortar_grade: str) -> float:
+    """fs = 0.1 + fd/6 MPa, capped at 0.5 MPa, for mortar not leaner than M1.
 
     fd is the compressive stress from DEAD load only at the level considered, so
     the caller must not hand it a combined dead plus live stress.
+
+    The printed clause restricts the formula to "walls built in mortar not
+    leaner than Grade M1", the same restriction the sibling tension clause
+    carries in `permitted_mortars`, so a grade leaner than
+    `SHEAR_MORTAR_FLOOR` returns 0.0: the clause offers such a wall no
+    permissible shear, and the design layer discloses that rather than
+    letting the formula pass it.
     """
     table = _table("cl_5_4_2_shear")
     fd = float(fd_mpa)
     if fd < 0.0:
         raise CodeInputError("fd must not be negative, got " + repr(fd_mpa))
+    if not shear_mortar_permitted(mortar_grade):
+        return 0.0
     return min(float(table["intercept_mpa"]) + fd / float(table["fd_divisor"]), float(table["cap_mpa"]))
 
 

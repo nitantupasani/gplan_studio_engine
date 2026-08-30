@@ -90,7 +90,20 @@ def _column(model, storey, x, y, width=0.3, depth=0.3):
     return column
 
 
-def _wall(model, storey, a, b, thickness=0.23, openings=(), role=WallRole.INTERIOR):
+def _wall(
+    model,
+    storey,
+    a,
+    b,
+    thickness=0.23,
+    openings=(),
+    role=WallRole.INTERIOR,
+    bearing=None,
+    material=Material.BRICK_MASONRY,
+):
+    # `bearing` defaults to None exactly as WallLine does: the B11 screen
+    # credits only walls declared bearing (or RC), so a test whose wall is
+    # meant to be part of the lateral system says bearing=True explicitly.
     orient = "h" if abs(a[1] - b[1]) < 1e-9 else "v"
     pos = a[1] if orient == "h" else a[0]
     start = min(a[0], b[0]) if orient == "h" else min(a[1], b[1])
@@ -101,7 +114,8 @@ def _wall(model, storey, a, b, thickness=0.23, openings=(), role=WallRole.INTERI
         b=b,
         thickness_m=thickness,
         role=role,
-        material=Material.BRICK_MASONRY,
+        material=material,
+        bearing=bearing,
         openings=list(openings),
     )
     model.walls.append(line)
@@ -492,7 +506,7 @@ def test_the_torsional_share_is_additive_only_and_never_relieves_an_element():
     # centre; every element still gains shear, none is relieved.
     model = _model(1)
     _four_columns(model, 0)
-    _wall(model, 0, (0.0, 0.0), (6.0, 0.0), thickness=0.23)
+    _wall(model, 0, (0.0, 0.0), (6.0, 0.0), thickness=0.23, bearing=True)
     result = diaphragm.run(model, {"x": {0: 100.0}}, centres_of_mass={0: (3.0, 2.0)})
     block = result.storey(0, "x")
 
@@ -513,7 +527,7 @@ def test_an_eccentric_wall_layout_trips_the_five_percent_torsion_gate():
     log = DisclosureLog()
     model = _model(1)
     _four_columns(model, 0)
-    _wall(model, 0, (0.0, 0.0), (6.0, 0.0), thickness=0.23)
+    _wall(model, 0, (0.0, 0.0), (6.0, 0.0), thickness=0.23, bearing=True)
     result = diaphragm.run(
         model, {"x": {0: 100.0}}, centres_of_mass={0: (3.0, 2.0)}, log=log
     )
@@ -575,7 +589,7 @@ def test_a_wall_with_no_known_openings_takes_the_disclosed_gross_knockdown():
     log = DisclosureLog()
     model = _model(1)
     _four_columns(model, 0)
-    wall = _wall(model, 0, (0.0, 0.0), (6.0, 0.0), thickness=0.23)
+    wall = _wall(model, 0, (0.0, 0.0), (6.0, 0.0), thickness=0.23, bearing=True)
     result = diaphragm.run(model, {"x": {0: 100.0}}, centres_of_mass={0: (3.0, 2.0)}, log=log)
     share = result.element(0, "x", wall.id)
 
@@ -596,7 +610,7 @@ def test_dressed_openings_split_the_wall_into_piers():
         width_m=1.0,
         provenance=Provenance.DRESSED,
     )
-    wall = _wall(model, 0, (0.0, 0.0), (6.0, 0.0), thickness=0.23, openings=[door])
+    wall = _wall(model, 0, (0.0, 0.0), (6.0, 0.0), thickness=0.23, openings=[door], bearing=True)
     result = diaphragm.run(model, {"x": {0: 100.0}}, centres_of_mass={0: (3.0, 2.0)}, log=log)
     share = result.element(0, "x", wall.id)
 
@@ -630,7 +644,7 @@ def test_two_dressed_openings_give_three_piers_at_their_own_heights():
         head_m=2.1,
         provenance=Provenance.DRESSED,
     )
-    wall = _wall(model, 0, (0.0, 0.0), (6.0, 0.0), thickness=0.23, openings=[door, window])
+    wall = _wall(model, 0, (0.0, 0.0), (6.0, 0.0), thickness=0.23, openings=[door, window], bearing=True)
     result = diaphragm.run(model, {"x": {0: 100.0}}, centres_of_mass={0: (3.0, 2.0)})
     share = result.element(0, "x", wall.id)
 
@@ -652,7 +666,7 @@ def test_wall_shear_per_metre_and_the_cantilever_moment_accumulate_down():
     model = _model(2)
     for storey in range(2):
         _four_columns(model, storey)
-        _wall(model, storey, (0.0, 0.0), (6.0, 0.0), thickness=0.23)
+        _wall(model, storey, (0.0, 0.0), (6.0, 0.0), thickness=0.23, bearing=True)
     result = diaphragm.run(
         model,
         {"x": {0: 150.0, 1: 90.0}},
@@ -671,8 +685,8 @@ def test_wall_shear_per_metre_and_the_cantilever_moment_accumulate_down():
 
 def test_only_walls_parallel_to_the_shaking_participate():
     model = _model(1)
-    along_x = _wall(model, 0, (0.0, 0.0), (6.0, 0.0))
-    along_y = _wall(model, 0, (0.0, 0.0), (0.0, 4.0))
+    along_x = _wall(model, 0, (0.0, 0.0), (6.0, 0.0), bearing=True)
+    along_y = _wall(model, 0, (0.0, 0.0), (0.0, 4.0), bearing=True)
     result = diaphragm.run(model, {"x": {0: 60.0}, "y": {0: 60.0}}, centres_of_mass={0: (3.0, 2.0)})
 
     x_ids = [share.element_id for share in result.storey(0, "x").elements]
@@ -696,7 +710,7 @@ def test_parapets_railings_and_hairline_walls_are_not_lateral_elements():
 def test_a_direction_with_nothing_resisting_it_is_an_error_on_the_ladder():
     log = DisclosureLog()
     model = _model(1)
-    _wall(model, 0, (0.0, 0.0), (6.0, 0.0))
+    _wall(model, 0, (0.0, 0.0), (6.0, 0.0), bearing=True)
     result = diaphragm.run(model, {"y": {0: 40.0}}, centres_of_mass={0: (3.0, 2.0)}, log=log)
     assert result.storey(0, "y") is None
     assert "E_NO_BEARING_DIRECTION" in log.codes()
@@ -772,7 +786,7 @@ def test_the_lateral_result_serializes_and_is_deterministic():
     model = _model(2)
     for storey in range(2):
         _four_columns(model, storey)
-        _wall(model, storey, (0.0, 0.0), (6.0, 0.0))
+        _wall(model, storey, (0.0, 0.0), (6.0, 0.0), bearing=True)
     shears = {"x": {0: 150.0, 1: 90.0}, "y": {0: 150.0, 1: 90.0}}
     first = diaphragm.run(model, shears, centres_of_mass={0: (3.0, 2.0), 1: (3.0, 2.0)})
     second = diaphragm.run(model, shears, centres_of_mass={0: (3.0, 2.0), 1: (3.0, 2.0)})
@@ -791,7 +805,7 @@ def test_every_disclosure_code_this_module_raises_is_in_the_registry():
     log = DisclosureLog()
     masonry = _model(1)
     _four_columns(masonry, 0, width=0.2, depth=0.2)
-    _wall(masonry, 0, (0.0, 0.0), (6.0, 0.0))
+    _wall(masonry, 0, (0.0, 0.0), (6.0, 0.0), bearing=True)
     diaphragm.run(masonry, {"x": {0: 400.0}, "y": {0: 400.0}}, log=log)
 
     flexible = _model(1)
@@ -799,13 +813,23 @@ def test_every_disclosure_code_this_module_raises_is_in_the_registry():
     diaphragm.run(flexible, {"x": {0: 400.0}}, log=log)
 
     one_way = _model(1)
-    _wall(one_way, 0, (0.0, 0.0), (6.0, 0.0))
+    _wall(one_way, 0, (0.0, 0.0), (6.0, 0.0), bearing=True)
     diaphragm.run(one_way, {"y": {0: 400.0}}, log=log)
+
+    infill = _model(1)
+    _four_columns(infill, 0)
+    _wall(infill, 0, (0.0, 0.0), (6.0, 0.0), bearing=False)
+    diaphragm.run(infill, {"x": {0: 100.0}}, log=log)
+    diaphragm.run(
+        infill, {"x": {0: 100.0}}, LateralContext(infill_stiffness="strut"), log=log
+    )
 
     assert set(log.codes()) >= {
         "E_NO_BEARING_DIRECTION",
+        "N_INFILL_STRUT",
         "W_ASSUMED_OPENINGS",
         "W_EQ_DRIFT",
         "W_EQ_TORSION_IRREGULAR",
+        "W_INFILL_EXCLUDED",
         "W_TORSION",
     }

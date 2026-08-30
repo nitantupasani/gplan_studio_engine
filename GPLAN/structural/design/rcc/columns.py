@@ -153,7 +153,9 @@ LADDER_STEP_FRACTION = 0.001
 #: once; the cache is bounded rather than grown.
 _LADDER_CACHE_SIZE = 128
 
-#: Slenderness above which Cl 39.7 additional moments apply (Cl 25.1.2).
+#: Slenderness at or above which Cl 39.7 additional moments apply. Cl 25.1.2
+#: calls a column short when both ratios are LESS than 12, so 12.0 itself is
+#: slender and `_additional_moment` compares against this strictly.
 SLENDER_LIMIT = 12.0
 
 #: Eccentricity below which Cl 39.3 lets a column be designed as axially
@@ -451,6 +453,11 @@ def arrange_bars(
     None means the cage does not fit: a face gap below IS 456 Cl 26.3.2, or a
     periphery spacing above the Cl 26.5.3.1 limit of 300 mm that another bar
     would have to fix. The caller walks on to the next rung of the ladder.
+
+    The Cl 26.3.2 gap is applied to every face that carries two bars or more.
+    Two corner bars on a 150 mm face still have one clear gap between them, so
+    a face is never exempt for being narrow: `design_column` grows the section
+    instead, and says so in `resize_history`.
     """
     total = int(count)
     if total < 4 or total % 2 or int(dia_mm) <= 0:
@@ -470,9 +477,14 @@ def arrange_bars(
     spacing_b = span_b / (bars_b - 1) if bars_b > 1 else span_b
     spacing_d = span_d / (bars_d - 1) if bars_d > 1 else span_d
     gap = min_bar_gap_mm(dia, agg_mm)
-    if bars_b > 2 and spacing_b - dia < gap - _TOL:
+    # Cl 26.3.2 governs every clear gap on the face, the single gap between two
+    # corner bars included: a face carrying exactly two bars has one real gap,
+    # and on a thin section that gap is the one that closes first. The ladder
+    # loses a rung rather than shipping a cage that cannot be poured, and
+    # `design_column` walks its resize ladder when the section runs out of rungs.
+    if bars_b >= 2 and spacing_b - dia < gap - _TOL:
         return None
-    if bars_d > 2 and spacing_d - dia < gap - _TOL:
+    if bars_d >= 2 and spacing_d - dia < gap - _TOL:
         return None
     if spacing_b > PERIPHERY_SPACING_MM + _TOL or spacing_d > PERIPHERY_SPACING_MM + _TOL:
         return None
@@ -643,6 +655,14 @@ def _ladder_for(
     back is kept only if it actually arranges on the four faces. The note says
     where the ladder really stopped, which for a small section is the packing,
     not the 6 percent.
+
+    The picker scores area excess and `_arrange_up` then adds pairs of bars for
+    the Cl 26.5.3.1 periphery rule, so on a large section the cheapest rung it
+    reaches can sit well above the floor: on 600 x 600 it starts at 1.005
+    percent while 10-20 (0.873) and 16-16 (0.894) both arrange legally. So
+    `_floor_rungs` scans the catalogue directly for the legal cages below that
+    and the ladder really does start at the floor, not at whatever the picker
+    happened to reach.
     """
     ag = float(b_mm) * float(depth_mm)
     limits = is456.cl_26_5_3_1__long_steel_limits(ag)
@@ -677,6 +697,7 @@ def _ladder_for(
         if arrangement.asc_mm2 < limits.asc_min_mm2 - _AREA_TOL_MM2:
             continue
         out.append(arrangement)
+    out.extend(_floor_rungs(b_mm, depth_mm, base_cover, aggregate_mm, limits, out, seen))
     out.sort(key=lambda item: (item.asc_mm2, item.count, item.dia_mm))
     if not out:
         return (), "no symmetric cage between 0.8 and 6 percent fits this section"
@@ -693,6 +714,53 @@ def _ladder_for(
     if top.asc_mm2 < limits.asc_max_mm2 - _AREA_TOL_MM2:
         note += "; the 6 percent ceiling of Cl 26.5.3.1 is not reachable in this section, the cage stops fitting first"
     return tuple(out), note
+
+
+def _floor_rungs(
+    b_mm: float,
+    depth_mm: float,
+    cover_mm: float,
+    agg_mm: float,
+    limits: Any,
+    reached: Sequence[BarArrangement],
+    seen: set,
+) -> List[BarArrangement]:
+    """Legal cages cheaper than the cheapest rung the picker reached.
+
+    `pick_bars` optimises area excess against a target and `_arrange_up` then
+    inflates the count for the Cl 26.5.3.1 periphery rule, so the lowest rung
+    the search reaches is not necessarily the cheapest cage the section can
+    legally hold. This is the direct answer: every catalogue diameter against
+    every even count up to `MAX_LONG_BARS`, kept when the area is inside the
+    Cl 26.5.3.1 band, the cage arranges on the four faces, and it is cheaper
+    than anything already on the ladder. Bounded by 5 diameters x 9 counts, and
+    the caller caches the whole ladder, so it costs one pass per section.
+
+    Nothing is added when the picker found no rung at all: an empty ladder means
+    the section cannot hold a cage and `design_column` grows it.
+    """
+    if not reached:
+        return []
+    cheapest = min(item.asc_mm2 for item in reached)
+    found = []  # type: List[BarArrangement]
+    for dia in COLUMN_DIAS_MM:
+        area = bar_area_mm2(dia)
+        for count in range(4, MAX_LONG_BARS + 1, 2):
+            asc = count * area
+            if asc < limits.asc_min_mm2 - _AREA_TOL_MM2:
+                continue
+            if asc >= cheapest - _AREA_TOL_MM2:
+                break
+            if asc > limits.asc_max_mm2 + _AREA_TOL_MM2:
+                break
+            if (count, int(dia)) in seen:
+                continue
+            arrangement = arrange_bars(count, dia, b_mm, depth_mm, cover_mm, agg_mm)
+            if arrangement is None:
+                continue
+            seen.add((count, int(dia)))
+            found.append(arrangement)
+    return found
 
 
 def _arrange_up(
@@ -867,11 +935,17 @@ def _additional_moment(
 ) -> Tuple[float, float]:
     """(Ma, k) for one plane: zero when the plane is not slender, Cl 39.7.1.
 
+    The boundary is the one `is456.cl_25_1_2__slenderness` draws: Cl 25.1.2 lets
+    a column be treated as short when the ratio is LESS than 12, so a plane at
+    exactly 12 is slender and carries the Cl 39.7.1 additional moment. The
+    comparison is strict for that reason, and le/dim lands on 12.0 exactly for
+    every round metric pair (2.4/200, 3.0/250, 3.6/300 and so on).
+
     k is the Cl 39.7.1.1 reduction, which needs Puz and the balanced load of
     THIS cage. Where the balanced load is not below Puz the clause has no valid
     k and the full additional moment is kept, which is the conservative side.
     """
-    if dim_mm <= 0.0 or le_mm / dim_mm <= SLENDER_LIMIT:
+    if dim_mm <= 0.0 or le_mm / dim_mm < SLENDER_LIMIT:
         return 0.0, 1.0
     ma = is456.cl_39_7_1__additional_moment(abs(pu_n), dim_mm, le_mm)
     if puz_n > pb_n + _TOL:
@@ -1067,7 +1141,7 @@ def _emit(
         + (
             "; short column, Cl 39.7 additional moments do not apply"
             if slenderness.short
-            else "; slender, Cl 39.7.1 additional moments applied where the ratio exceeds 12"
+            else "; slender, Cl 39.7.1 additional moments applied where the ratio reaches 12"
         )
     )
 
@@ -1095,16 +1169,50 @@ def _emit(
     cover = resolve_cover("column", context.exposure, context.fire_rating_h, float(arrangement.dia_mm))
     limits = is456.cl_26_5_3_1__long_steel_limits(trial.b_mm * trial.depth_mm)
     ties = is456.cl_26_5_3_2__ties(float(arrangement.dia_mm), min(trial.b_mm, trial.depth_mm))
-    ld = is456.cl_26_2_1__ld(float(arrangement.dia_mm), context.fy_mpa, context.fck_mpa, True, True)
 
     # The one traced evaluation. It repeats exactly what the search already did
     # for this cage, so the numbers are the search's numbers and the trace holds
     # the winning layout alone, not the rungs the ladder rejected.
     evaluated = _evaluate(trial, arrangement, demand)
+
+    # Cl 26.2.1.1 raises the bond stress by 25 percent for a bar in COMPRESSION,
+    # so a compression Ld is a fifth shorter than the tension one and a bar that
+    # is in tension at the design strain plane would be under-developed by it.
+    # The schedule reads this ld_mm straight into its laps, so the value is
+    # taken as compression bond only where the module has proved the whole
+    # section is in compression, which is the Cl 39.3 axially loaded case
+    # `_evaluate` already reports; wherever a design moment acts it is the
+    # tension value, and the note says which was used.
+    compression_bond = bool(evaluated.axial_only)
+    ld = is456.cl_26_2_1__ld(
+        float(arrangement.dia_mm), context.fy_mpa, context.fck_mpa, True, compression_bond
+    )
     d_mm = 0.5 * trial.depth_mm + max(y for _x, y in arrangement.positions_mm)
     result.section["cover_mm"] = cover.cover_mm
     result.section["d_mm"] = d_mm
     result.add_note(cover.note)
+    diameters = ld / float(arrangement.dia_mm) if arrangement.dia_mm else 0.0
+    if compression_bond:
+        result.add_note(
+            "development length "
+            + _num(ld, 0)
+            + " mm ("
+            + _num(diameters, 1)
+            + " diameters) on the Cl 26.2.1.1 COMPRESSION bond stress: the Cl 39.3 axially loaded case "
+            + "applies to this column, so no bar is in tension at the design strain plane"
+        )
+    else:
+        result.add_note(
+            "development length "
+            + _num(ld, 0)
+            + " mm ("
+            + _num(diameters, 1)
+            + " diameters) on the Cl 26.2.1.1 TENSION bond stress: the Cl 39.3 axially loaded case does "
+            + "not apply here, either because a design moment acts or because the Cl 25.4 minimum "
+            + "eccentricity is beyond 0.05 of the section, so bars on one face can be in tension at ULS; "
+            + "which bar that is at the design strain plane is not resolved in this version, so the longer "
+            + "value is written on every bar and any lap read from it is a tension lap"
+        )
 
     result.add_check("axial_capacity", _IS456 + " 39.6 Puz", demand.pu_n, evaluated.puz_n, units="N")
     if evaluated.axial_only:
