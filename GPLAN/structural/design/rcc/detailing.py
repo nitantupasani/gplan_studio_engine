@@ -811,6 +811,7 @@ def _apply_13920_beam(result: "C.DesignResult", ctx: DesignContext, st: Mapping[
     capacity = {
         "top_left": _num(st, "mu_cap_hog_a_nmm"),
         "top_right": _num(st, "mu_cap_hog_b_nmm"),
+        "top_through": _num(st, "mu_cap_top_through_nmm"),
         "bottom_mid": _num(st, "mu_cap_sag_nmm"),
     }
     provided = {}  # type: Dict[str, float]
@@ -840,6 +841,11 @@ def _apply_13920_beam(result: "C.DesignResult", ctx: DesignContext, st: Mapping[
                     area = new_area
                 if role in capacity:
                     capacity[role] = max(capacity[role], float(updated.get("mu_cap_nmm", capacity[role])))
+                if role == "top_through" and "mu_cap_sag_nmm" in updated:
+                    capacity["bottom_mid"] = max(
+                        capacity["bottom_mid"],
+                        float(updated.get("mu_cap_sag_nmm", capacity["bottom_mid"])),
+                    )
         provided[role] = area
         result.add_check(
             "ductile_rho_min_" + role,
@@ -867,48 +873,50 @@ def _apply_13920_beam(result: "C.DesignResult", ctx: DesignContext, st: Mapping[
     )
 
     # -- Cl 6.2.3 sagging capacity at the joint faces ----------------------
-    mu_hog_a = capacity["top_left"]
-    mu_hog_b = capacity["top_right"]
+    through = capacity["top_through"]
+    # A nominal envelope end still has the full-length top group physically at
+    # the joint face.  Its post-rho_min capacity is the hogging capacity built
+    # there for Cl 6.2 and both Cl 6.3.3 sway directions (B15/N24).
+    mu_hog_a = capacity["top_left"] if capacity["top_left"] > 0.0 else through
+    mu_hog_b = capacity["top_right"] if capacity["top_right"] > 0.0 else through
     mu_sag = capacity["bottom_mid"]
     hog_face = max(mu_hog_a, mu_hog_b)
-    if hog_face > 0.0:
-        required_sag = is13920.cl_6_2_3__joint_sagging(hog_face)
-        if mu_sag + 1e-6 < required_sag and callable(setter) and mu_sag > 0.0:
-            ast_bot = provided.get("bottom_mid", _num(st, "ast_bot_mm2"))
-            target = ast_bot * required_sag / mu_sag if mu_sag > 0.0 else ast_bot
-            updated = setter("bottom_mid", target)
-            if updated:
-                new_sag = float(updated.get("mu_cap_nmm", mu_sag))
-                if new_sag > mu_sag:
-                    result.add_note(
-                        "IS 13920 Cl 6.2.3 raised the bottom steel to "
-                        + _mm2_text(float(updated.get("ast_prov_mm2", ast_bot)))
-                        + " ("
-                        + str(updated.get("label", ""))
-                        + ") so the sagging capacity at the joint face reaches half the hogging capacity"
-                    )
-                    mu_sag = new_sag
-                    provided["bottom_mid"] = float(updated.get("ast_prov_mm2", ast_bot))
-        result.add_check(
-            "ductile_joint_sagging",
-            clause_of(is13920.cl_6_2_3__joint_sagging),
-            demand=required_sag,
-            capacity=mu_sag,
-            units="N.mm",
-        )
-        # Cl 6.2.4 binds the WEAKER of the two capacities available at midspan:
-        # the full length bottom bars in sagging and whatever top steel runs
-        # through in hogging. A caller that reports no through capacity is
-        # measured on its sagging capacity alone rather than against a zero.
-        through = _num(st, "mu_cap_top_through_nmm")
-        along_span = min(mu_sag, through) if through > 0.0 else mu_sag
-        result.add_check(
-            "ductile_span_capacity_floor",
-            clause_of(is13920.cl_6_2_4__span_capacity_floor),
-            demand=is13920.cl_6_2_4__span_capacity_floor(hog_face),
-            capacity=along_span,
-            units="N.mm",
-        )
+    required_sag = is13920.cl_6_2_3__joint_sagging(hog_face)
+    if mu_sag + 1e-6 < required_sag and callable(setter) and mu_sag > 0.0:
+        ast_bot = provided.get("bottom_mid", _num(st, "ast_bot_mm2"))
+        target = ast_bot * required_sag / mu_sag if mu_sag > 0.0 else ast_bot
+        updated = setter("bottom_mid", target)
+        if updated:
+            new_sag = float(updated.get("mu_cap_nmm", mu_sag))
+            if new_sag > mu_sag:
+                result.add_note(
+                    "IS 13920 Cl 6.2.3 raised the bottom steel to "
+                    + _mm2_text(float(updated.get("ast_prov_mm2", ast_bot)))
+                    + " ("
+                    + str(updated.get("label", ""))
+                    + ") so the sagging capacity at the joint face reaches half the hogging capacity"
+                )
+                mu_sag = new_sag
+                capacity["bottom_mid"] = new_sag
+                provided["bottom_mid"] = float(updated.get("ast_prov_mm2", ast_bot))
+    result.add_check(
+        "ductile_joint_sagging",
+        clause_of(is13920.cl_6_2_3__joint_sagging),
+        demand=required_sag,
+        capacity=mu_sag,
+        units="N.mm",
+    )
+    # Cl 6.2.4 binds the weaker capacity retained through midspan.  The values
+    # here are the capacities after every rho_min setter update above, not the
+    # stale pre-overlay state.
+    along_span = min(mu_sag, through) if through > 0.0 else mu_sag
+    result.add_check(
+        "ductile_span_capacity_floor",
+        clause_of(is13920.cl_6_2_4__span_capacity_floor),
+        demand=is13920.cl_6_2_4__span_capacity_floor(hog_face),
+        capacity=along_span,
+        units="N.mm",
+    )
 
     # -- Cl 6.3.3 capacity design shear ------------------------------------
     tau_c_max = is456.table_20__tau_c_max(fck)
@@ -934,6 +942,7 @@ def _apply_13920_beam(result: "C.DesignResult", ctx: DesignContext, st: Mapping[
         sway_a = is13920.cl_6_3_3__capacity_shear(v_gravity, mu_hog_a, mu_sag, clear_span)
         sway_b = is13920.cl_6_3_3__capacity_shear(v_gravity, mu_hog_b, mu_sag, clear_span)
         v_design = max(sway_a.v_design_n, sway_b.v_design_n)
+        selected_sway = sway_a if sway_a.v_design_n >= sway_b.v_design_n else sway_b
         if v_design > v_gravity + 1e-6:
             governed = True
         tau_v = is456.cl_40_1__tau_v(v_design, b, d)
@@ -993,8 +1002,8 @@ def _apply_13920_beam(result: "C.DesignResult", ctx: DesignContext, st: Mapping[
         result.extras.setdefault("ductile", {})["shear_" + name] = {
             "v_gravity_n": v_gravity,
             "v_design_n": v_design,
-            "sway_term_n": sway_a.sway_term_n,
-            "governs": sway_a.governs if sway_a.v_design_n >= sway_b.v_design_n else sway_b.governs,
+            "sway_term_n": selected_sway.sway_term_n,
+            "governs": selected_sway.governs,
             "tau_v_mpa": tau_v,
             "tau_c_mpa": tau_c,
             "spacing_mm": choice.spacing_mm,
@@ -1002,14 +1011,26 @@ def _apply_13920_beam(result: "C.DesignResult", ctx: DesignContext, st: Mapping[
             "dia_mm": choice.dia_mm,
         }
 
-    # Middle of the span: the Cl 6.3.5 d/2 pitch over the Cl 26.5.1.6 minimum.
+    # Middle of the span: retain the B17 shear demand and apply the tighter
+    # Cl 6.3.5 d/2 pitch over it, rather than replacing it with minimum steel.
     asv_min = is456.cl_26_5_1_6__min_stirrups(b, fy_stirrup)
+    asv_middle_req = max(asv_min, _num(st, "asv_middle_req"))
     middle = choose_stirrups(
-        asv_min,
+        asv_middle_req,
         is456.cl_26_5_1_5__max_stirrup_spacing(d),
         min_dia_mm=hoops.min_dia_mm,
         spacing_cap_mm=hoops.spacing_mid_mm,
     )
+    drop_checks(result, ("stirrups_middle",))
+    result.add_check(
+        "stirrups_middle",
+        clause_of(is456.cl_40_4__vertical_stirrups),
+        demand=asv_middle_req,
+        capacity=middle.asv_per_mm_prov,
+        units="mm2/mm",
+    )
+    if not middle.ok:
+        result.add_warning("IS 13920 middle-zone hoops: " + middle.note)
     zones.append(
         StirrupZone(
             from_mm=0.0,
@@ -1034,10 +1055,7 @@ def _apply_13920_beam(result: "C.DesignResult", ctx: DesignContext, st: Mapping[
         + " (d/2) outside it"
     )
     if governed:
-        result.add_note(
-            "IS 13920 Cl 6.3.3: the design shear is the plastic hinge capacity shear from the PROVIDED steel, "
-            "which governs over the analysis shear at one or both ends"
-        )
+        result.add_note("IS 13920 Cl 6.3.3: provided-steel capacity shear governs")
     result.add_note(
         "IS 13920 Cl 6.3.3 gravity term: the factored envelope shear is used as Vg, "
         "which is at or above the 1.2(DL+LL) gravity shear the clause names"

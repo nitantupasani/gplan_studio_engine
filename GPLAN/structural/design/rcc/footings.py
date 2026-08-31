@@ -1,4 +1,4 @@
-"""Footing design: isolated pads, the wall strip, the two-column combined
+"""Footing design: isolated pads, the wall strip, N-support combined
 rectangle, and the strap case that v1 refers out rather than pretends to design.
 
 What this module is handed and what it refuses to invent
@@ -72,11 +72,13 @@ is designed as one, per metre run of wall.
    into a masonry wall.
 
 Combined footings take the same pressure and depth machinery over a rectangle
-sized so its centroid sits under the load resultant (so the pressure really is
-uniform), plus a longitudinal beam-on-line analysis: the shear and moment
-diagram gives top steel between the columns and bottom steel under them,
-punching is checked per column on a perimeter clipped to the footing, and the
-transverse band under each column is designed as a cantilever strip.
+carrying every support placement emitted.  The rectangle is centred on the
+factored resultant, its service eccentricity is checked against the biaxial
+kern, and the longitudinal beam-on-line diagram takes all N point loads.  That
+diagram gives top steel between the outside columns and bottom steel under
+them; punching is checked per column on a perimeter clipped to the footing,
+each column gets a clipped transverse cantilever band, and a full-length
+transverse minimum mat covers the regions between those bands.
 
 One piece of code arithmetic lives here rather than in `codes/is456.py`: the
 Cl 34.1.3 plain concrete load spread. That module ships no callable for the
@@ -98,6 +100,7 @@ from __future__ import annotations
 import math
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Dict, Iterator, List, Mapping, NamedTuple, Optional, Sequence, Tuple
 
 from ...codes import is456, is6403
@@ -624,7 +627,7 @@ class PadGeometry:
 
 @dataclass(frozen=True)
 class CombinedGeometry:
-    """The two-column combined rectangle, exactly two columns in v1.
+    """One combined rectangle carrying two or more columns.
 
     Column positions are plan metres in the model's own frame; the designer
     works along the axis that separates them and calls it longitudinal.
@@ -752,6 +755,8 @@ class PlanSize(NamedTuple):
     driver: str
     iterations: int
     notes: Tuple[str, ...]
+    contact_ratio: float = 1.0
+    elastic_q_min_kpa: float = 0.0
 
     @property
     def area_mm2(self) -> float:
@@ -799,6 +804,210 @@ def _pressure_gradient(p_n: float, dim_mm: float, e_mm: float) -> float:
     if dim_mm <= 0.0:
         return 0.0
     return 12.0 * float(e_mm) / (float(dim_mm) * float(dim_mm))
+
+
+class _ContactPressure(NamedTuple):
+    """A no-tension linear soil-pressure plane over one rectangle.
+
+    The plane is expressed on normalized coordinates X and Y in [-1, 1]:
+    `q = max(0, a + bx X + by Y)`.  `elastic_q_min_mpa` is the unclipped
+    corner pressure, which is the biaxial kern test.  The other pressure values
+    describe the physical compression-only contact patch.
+    """
+
+    a_mpa: float
+    bx_mpa: float
+    by_mpa: float
+    q_max_mpa: float
+    q_min_mpa: float
+    elastic_q_min_mpa: float
+    contact_ratio: float
+
+
+def _clip_pressure_polygon(
+    polygon: Sequence[Tuple[float, float]], a_mpa: float, bx_mpa: float, by_mpa: float
+) -> List[Tuple[float, float]]:
+    """Clip a convex polygon to the compression side of one pressure plane."""
+    out = list(polygon)
+    if not out:
+        return []
+    clipped = []  # type: List[Tuple[float, float]]
+    previous = out[-1]
+    q_previous = a_mpa + bx_mpa * previous[0] + by_mpa * previous[1]
+    for current in out:
+        q_current = a_mpa + bx_mpa * current[0] + by_mpa * current[1]
+        previous_in = q_previous >= -_EPS
+        current_in = q_current >= -_EPS
+        if previous_in != current_in:
+            denominator = q_previous - q_current
+            fraction = q_previous / denominator if abs(denominator) > _EPS else 0.0
+            clipped.append(
+                (
+                    previous[0] + fraction * (current[0] - previous[0]),
+                    previous[1] + fraction * (current[1] - previous[1]),
+                )
+            )
+        if current_in:
+            clipped.append(current)
+        previous = current
+        q_previous = q_current
+    return clipped
+
+
+def _polygon_moments(polygon: Sequence[Tuple[float, float]]) -> Tuple[float, float, float, float, float, float]:
+    """Area and first/second monomial integrals of a counter-clockwise polygon."""
+    if len(polygon) < 3:
+        return (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    area2 = sx6 = sy6 = sxx12 = syy12 = sxy24 = 0.0
+    previous = polygon[-1]
+    for current in polygon:
+        x0, y0 = previous
+        x1, y1 = current
+        cross = x0 * y1 - x1 * y0
+        area2 += cross
+        sx6 += (x0 + x1) * cross
+        sy6 += (y0 + y1) * cross
+        sxx12 += (x0 * x0 + x0 * x1 + x1 * x1) * cross
+        syy12 += (y0 * y0 + y0 * y1 + y1 * y1) * cross
+        sxy24 += (2.0 * x0 * y0 + x0 * y1 + x1 * y0 + 2.0 * x1 * y1) * cross
+        previous = current
+    sign = 1.0 if area2 >= 0.0 else -1.0
+    return (
+        sign * area2 / 2.0,
+        sign * sx6 / 6.0,
+        sign * sy6 / 6.0,
+        sign * sxx12 / 12.0,
+        sign * sxy24 / 24.0,
+        sign * syy12 / 12.0,
+    )
+
+
+def _solve_three(matrix: Sequence[Sequence[float]], vector: Sequence[float]) -> Tuple[float, float, float]:
+    """A pivoted 3 by 3 solve, kept local so the designer needs no numeric stack."""
+    rows = [list(matrix[index]) + [float(vector[index])] for index in range(3)]
+    for column in range(3):
+        pivot = max(range(column, 3), key=lambda index: abs(rows[index][column]))
+        if abs(rows[pivot][column]) <= 1e-14:
+            raise ValueError("partial-contact pressure solve has a singular contact patch")
+        rows[column], rows[pivot] = rows[pivot], rows[column]
+        scale = rows[column][column]
+        rows[column] = [value / scale for value in rows[column]]
+        for index in range(3):
+            if index == column:
+                continue
+            factor = rows[index][column]
+            rows[index] = [
+                rows[index][slot] - factor * rows[column][slot]
+                for slot in range(4)
+            ]
+    return (rows[0][3], rows[1][3], rows[2][3])
+
+
+@lru_cache(maxsize=512)
+def _contact_pressure(
+    bx_mm: float, ly_mm: float, p_n: float, ex_mm: float, ey_mm: float
+) -> _ContactPressure:
+    """Compression-only pressure matching P, P ex and P ey on a rectangle.
+
+    IS 456 Cl 34.1 requires the footing to sustain the applied moments and the
+    induced reaction without exceeding the soil capacity.  Soil is not credited
+    in tension.  Inside the biaxial kern the ordinary elastic plane is exact;
+    outside it, Newton equilibrium is solved over the clipped contact polygon.
+    """
+    bx = float(bx_mm)
+    ly = float(ly_mm)
+    load = max(float(p_n), 0.0)
+    if bx <= 0.0 or ly <= 0.0 or load <= 0.0:
+        return _ContactPressure(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+
+    q0 = load / (bx * ly)
+    bx_plane = q0 * 6.0 * float(ex_mm) / bx
+    by_plane = q0 * 6.0 * float(ey_mm) / ly
+    elastic_min = q0 - abs(bx_plane) - abs(by_plane)
+    elastic_max = q0 + abs(bx_plane) + abs(by_plane)
+    if elastic_min >= -_EPS:
+        return _ContactPressure(
+            q0,
+            bx_plane,
+            by_plane,
+            elastic_max,
+            max(elastic_min, 0.0),
+            elastic_min,
+            1.0,
+        )
+
+    target_force = load / (0.25 * bx * ly)
+    target_x = target_force * 2.0 * float(ex_mm) / bx
+    target_y = target_force * 2.0 * float(ey_mm) / ly
+    a_mpa = q0
+    square = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+    for _iteration in range(30):
+        contact = _clip_pressure_polygon(square, a_mpa, bx_plane, by_plane)
+        area, sx, sy, sxx, sxy, syy = _polygon_moments(contact)
+        force = a_mpa * area + bx_plane * sx + by_plane * sy
+        moment_x = a_mpa * sx + bx_plane * sxx + by_plane * sxy
+        moment_y = a_mpa * sy + bx_plane * sxy + by_plane * syy
+        residual = (
+            target_force - force,
+            target_x - moment_x,
+            target_y - moment_y,
+        )
+        if max(abs(value) for value in residual) <= 1e-11 * max(abs(target_force), 1.0):
+            break
+        da, dbx, dby = _solve_three(
+            ((area, sx, sy), (sx, sxx, sxy), (sy, sxy, syy)),
+            residual,
+        )
+        a_mpa += da
+        bx_plane += dbx
+        by_plane += dby
+    else:
+        raise ValueError("partial-contact pressure solve did not converge")
+
+    contact = _clip_pressure_polygon(square, a_mpa, bx_plane, by_plane)
+    area = _polygon_moments(contact)[0]
+    corners = [a_mpa + bx_plane * x + by_plane * y for x, y in square]
+    return _ContactPressure(
+        a_mpa,
+        bx_plane,
+        by_plane,
+        max(max(corners), 0.0),
+        0.0,
+        elastic_min,
+        min(max(area / 4.0, 0.0), 1.0),
+    )
+
+
+def _pressure_integrals(
+    pressure: _ContactPressure,
+    bx_mm: float,
+    ly_mm: float,
+    x_lo_mm: float,
+    x_hi_mm: float,
+    y_lo_mm: float,
+    y_hi_mm: float,
+) -> Tuple[float, float, float]:
+    """(force, moment about plan x=0, moment about plan y=0) on a rectangle."""
+    bx = float(bx_mm)
+    ly = float(ly_mm)
+    if bx <= 0.0 or ly <= 0.0 or x_hi_mm <= x_lo_mm or y_hi_mm <= y_lo_mm:
+        return (0.0, 0.0, 0.0)
+    x_lo = max(-1.0, min(1.0, 2.0 * float(x_lo_mm) / bx))
+    x_hi = max(-1.0, min(1.0, 2.0 * float(x_hi_mm) / bx))
+    y_lo = max(-1.0, min(1.0, 2.0 * float(y_lo_mm) / ly))
+    y_hi = max(-1.0, min(1.0, 2.0 * float(y_hi_mm) / ly))
+    polygon = [(x_lo, y_lo), (x_hi, y_lo), (x_hi, y_hi), (x_lo, y_hi)]
+    contact = _clip_pressure_polygon(polygon, pressure.a_mpa, pressure.bx_mpa, pressure.by_mpa)
+    area, sx, sy, sxx, sxy, syy = _polygon_moments(contact)
+    force_norm = pressure.a_mpa * area + pressure.bx_mpa * sx + pressure.by_mpa * sy
+    moment_x_norm = pressure.a_mpa * sx + pressure.bx_mpa * sxx + pressure.by_mpa * sxy
+    moment_y_norm = pressure.a_mpa * sy + pressure.bx_mpa * sxy + pressure.by_mpa * syy
+    scale = 0.25 * bx * ly
+    return (
+        scale * force_norm,
+        scale * 0.5 * bx * moment_x_norm,
+        scale * 0.5 * ly * moment_y_norm,
+    )
 
 
 def _strip_resultant(
@@ -946,10 +1155,12 @@ def _bisect_min_d(residual: Any, lo_mm: float = _D_SEARCH_MIN_MM, hi_mm: float =
 class _Field:
     """The factored soil pressure under one footing and the column that made it.
 
-    Coordinates are millimetres from the plan centre, so the pressure is
-    q(x, y) = q0 (1 + cx x + cy y) and the plan edges sit at +- dim / 2. The
-    column may stand off centre (a strap pad); the pressure gradient may be
-    non-zero (an eccentric pad); the two are independent.
+    Coordinates are millimetres from the plan centre and the plan edges sit at
+    +- dim / 2.  Inside the biaxial kern the pressure is the ordinary linear
+    plane.  Outside it, soil tension is discarded and the compression plane is
+    solved back to the same P, P ex and P ey resultants.  The column may stand
+    off centre (a strap pad); that offset and the pressure eccentricity are
+    independent.
     """
 
     bx_mm: float
@@ -970,6 +1181,10 @@ class _Field:
     def q0_mpa(self) -> float:
         area = self.area_mm2
         return float(self.pu_n) / area if area > 0.0 else 0.0
+
+    @property
+    def pressure(self) -> _ContactPressure:
+        return _contact_pressure(self.bx_mm, self.ly_mm, self.pu_n, self.ex_mm, self.ey_mm)
 
     @property
     def grad_x(self) -> float:
@@ -1003,20 +1218,48 @@ class _Field:
         the one-way shear section (Cl 34.2.4.1). The moment is taken about that
         same section.
         """
-        _dim, other, _col, _off, grad = self.axis(axis)
+        dim, other, _col, _off, _grad = self.axis(axis)
         arm = self.arm_mm(axis, side)
         start = self.face_mm(axis, side) + side * float(back_off_mm)
-        return _strip_resultant(self.q0_mpa, grad, other, start, arm - float(back_off_mm), side)
+        edge = side * 0.5 * dim
+        if side > 0.0:
+            lo, hi = start, edge
+        else:
+            lo, hi = edge, start
+        if axis == "x":
+            force, moment_axis, _other_moment = _pressure_integrals(
+                self.pressure,
+                self.bx_mm,
+                self.ly_mm,
+                lo,
+                hi,
+                -0.5 * other,
+                0.5 * other,
+            )
+        else:
+            force, _other_moment, moment_axis = _pressure_integrals(
+                self.pressure,
+                self.bx_mm,
+                self.ly_mm,
+                -0.5 * other,
+                0.5 * other,
+                lo,
+                hi,
+            )
+        moment = float(side) * (moment_axis - start * force)
+        return (max(force, 0.0), max(moment, 0.0))
 
     def load_in(self, x_lo: float, x_hi: float, y_lo: float, y_hi: float) -> float:
         """Exact resultant of the pressure field over a plan rectangle, N."""
-        dx = max(float(x_hi) - float(x_lo), 0.0)
-        dy = max(float(y_hi) - float(y_lo), 0.0)
-        if dx <= 0.0 or dy <= 0.0:
-            return 0.0
-        mean_x = 0.5 * (float(x_hi) + float(x_lo))
-        mean_y = 0.5 * (float(y_hi) + float(y_lo))
-        return self.q0_mpa * dx * dy * (1.0 + self.grad_x * mean_x + self.grad_y * mean_y)
+        return _pressure_integrals(
+            self.pressure,
+            self.bx_mm,
+            self.ly_mm,
+            float(x_lo),
+            float(x_hi),
+            float(y_lo),
+            float(y_hi),
+        )[0]
 
     def critical(self, d_mm: float) -> Critical:
         return punching_critical(
@@ -1046,10 +1289,10 @@ def size_plan(
     The area is P (1 + allowance) / q_allow, split to the column's own aspect
     ratio so a 230 x 450 column gets a rectangle the same way round, and rounded
     UP to the policy plan step. Three things can enlarge it beyond that: the
-    minimum projection past the column face, the kern (e <= dim / 6 on each axis,
-    plus the combined corner rule that keeps the whole base in contact), and the
-    corner pressure once the gradient is applied. The walk only ever grows, so it
-    terminates, and the pressures on the settled size come back with it.
+    minimum projection past the column face, the biaxial kern
+    `6 |ex| / B + 6 |ey| / L <= 1`, and the corner pressure once the gradient is
+    applied. The walk only ever grows, so it terminates, and the physical
+    compression-only pressures on the settled size come back with it.
     """
     step = float(ctx.policy.footing_plan_step_mm)
     ratio = float(column.bx_mm) / float(column.dy_mm) if column.dy_mm > 0.0 else 1.0
@@ -1068,6 +1311,7 @@ def size_plan(
     # the walk re-enters IS 6403 as the plan grows. Only the last reading is
     # traced: a report wants the chain that sized the footing, not the search.
     iterations = 0
+    kern_grew = False
     with _quiet():
         for iterations in range(1, int(ctx.policy.max_iters) + 1):
             allow = allowable_pressure(soil, bx, ly)
@@ -1078,17 +1322,22 @@ def size_plan(
             bx_target = ratio * ly_target
             bx_new = C.round_up_mm(max(bx_target, bx_floor, kern_bx, bx), step)
             ly_new = C.round_up_mm(max(ly_target, ly_floor, kern_ly, ly), step)
+            kern_ratio = 6.0 * abs(float(ex_mm)) / bx_new + 6.0 * abs(float(ey_mm)) / ly_new
+            if kern_ratio > 1.0 + _EPS:
+                bx_new = C.round_up_mm(max(bx_new * kern_ratio, bx_floor, kern_bx), step)
+                ly_new = C.round_up_mm(max(ly_new * kern_ratio, ly_floor, kern_ly), step)
+                kern_grew = True
             if abs(bx_new - bx) < _EPS and abs(ly_new - ly) < _EPS:
                 break
             bx, ly = bx_new, ly_new
     allow = allowable_pressure(soil, bx, ly)
 
-    q0 = p_n / (bx * ly)
-    q_max = q0 * (1.0 + 6.0 * abs(float(ex_mm)) / bx + 6.0 * abs(float(ey_mm)) / ly) * 1000.0
-    q_min = q0 * (1.0 - 6.0 * abs(float(ex_mm)) / bx - 6.0 * abs(float(ey_mm)) / ly) * 1000.0
-    kern_ok = abs(float(ex_mm)) <= bx / 6.0 + _EPS and abs(float(ey_mm)) <= ly / 6.0 + _EPS
+    pressure = _contact_pressure(bx, ly, p_n, float(ex_mm), float(ey_mm))
+    q_max = pressure.q_max_mpa * 1000.0
+    q_min = pressure.q_min_mpa * 1000.0
+    kern_ok = pressure.elastic_q_min_mpa >= -_EPS
 
-    if kern_bx >= bx - _EPS or kern_ly >= ly - _EPS:
+    if kern_grew or kern_bx >= bx - _EPS or kern_ly >= ly - _EPS:
         driver = "kern eccentricity"
     elif bx_floor >= bx - _EPS and ly_floor >= ly - _EPS:
         driver = "minimum projection"
@@ -1106,6 +1355,8 @@ def size_plan(
         driver=driver,
         iterations=iterations,
         notes=(allow.source,) + tuple(allow.notes),
+        contact_ratio=pressure.contact_ratio,
+        elastic_q_min_kpa=pressure.elastic_q_min_mpa * 1000.0,
     )
 
 
@@ -1630,8 +1881,15 @@ def _pad_evaluate(
 
     rows.append(("bearing pressure", plan.notes[0], plan.q_max_kpa, plan.q_allow_kpa, "kPa"))
     if abs(plan.ex_mm) > _EPS or abs(plan.ey_mm) > _EPS:
-        rows.append(("kern x", "no tension at the base: e <= B/6", abs(plan.ex_mm), plan.bx_mm / 6.0, "mm"))
-        rows.append(("kern y", "no tension at the base: e <= L/6", abs(plan.ey_mm), plan.ly_mm / 6.0, "mm"))
+        rows.append(
+            (
+                "biaxial kern",
+                "IS 456 Cl 34.1, full base contact",
+                6.0 * abs(plan.ex_mm) / plan.bx_mm + 6.0 * abs(plan.ey_mm) / plan.ly_mm,
+                1.0,
+                "ratio",
+            )
+        )
 
     crit = field.critical(d_mm)
     inside = field.load_in(crit.x_lo_mm, crit.x_hi_mm, crit.y_lo_mm, crit.y_hi_mm)
@@ -1967,6 +2225,8 @@ def _emit_pad(
             "q_allow_kpa": plan.q_allow_kpa,
             "q_max_kpa": plan.q_max_kpa,
             "q_min_kpa": plan.q_min_kpa,
+            "elastic_q_min_kpa": plan.elastic_q_min_kpa,
+            "contact_ratio": plan.contact_ratio,
             "qu_mpa": field.q0_mpa,
         }
     )
@@ -2142,12 +2402,12 @@ def _settle(result: C.DesignResult, evaluation: Any) -> C.DesignResult:
 
 
 # ---------------------------------------------------------------------------
-# the two-column combined rectangle
+# the N-support combined rectangle
 # ---------------------------------------------------------------------------
 
 
 class _Beam(NamedTuple):
-    """The longitudinal beam-on-line: uniform upward line load, two reactions."""
+    """The longitudinal beam-on-line: uniform upward load and N reactions."""
 
     w_n_per_mm: float
     length_mm: float
@@ -2199,11 +2459,18 @@ class _Combined:
     width_mm: float
     centre_u_mm: float
     centre_v_mm: float
-    resultant_u_mm: float
+    service_resultant_u_mm: float
+    service_resultant_v_mm: float
+    factored_resultant_u_mm: float
+    factored_resultant_v_mm: float
     q_u_mpa: float
     q_service_kpa: float
+    q_service_min_kpa: float
+    q_service_average_kpa: float
     q_allow_kpa: float
     q_source: str
+    service_contact_ratio: float
+    service_kern_ratio: float
     beam: _Beam
     m_sag_nmm: float
     m_hog_nmm: float
@@ -2222,12 +2489,29 @@ class _Combined:
         return self.places[index][1] - self.centre_v_mm
 
     def band_width_mm(self, index: int, d_mm: float) -> float:
-        """Transverse strip under one column: the column plus d on each side."""
-        return min(self.places[index][2] + 2.0 * float(d_mm), self.length_mm)
+        """Symmetric transverse column band clipped at both footing ends."""
+        local_u = self.local_u(index)
+        return max(
+            min(
+                self.places[index][2] + 2.0 * float(d_mm),
+                2.0 * local_u,
+                2.0 * (self.length_mm - local_u),
+                self.length_mm,
+            ),
+            0.0,
+        )
 
     def band_arm_mm(self, index: int) -> float:
-        """Cantilever of that strip, from the column face out to the long edge."""
-        return max(0.5 * (self.width_mm - self.places[index][3]), 0.0)
+        """Longer cantilever from that column face to a transverse edge.
+
+        A column on the transverse centreline has two equal arms.  A skew
+        support does not: its far-edge arm grows by the absolute offset from
+        the footing centreline, and that longer strip governs the band.
+        """
+        return max(
+            0.5 * (self.width_mm - self.places[index][3]) + abs(self.offset_v(index)),
+            0.0,
+        )
 
 
 class _CombinedEval(NamedTuple):
@@ -2238,6 +2522,7 @@ class _CombinedEval(NamedTuple):
     dia_mm: int
     steel_bottom: MeshSteel
     steel_top: MeshSteel
+    steel_transverse_minimum: MeshSteel
     bands: Tuple[Tuple[int, float, float, MeshSteel], ...]
     dowel_list: Tuple[Dowels, ...]
     dowel_depth_mm: float
@@ -2268,8 +2553,8 @@ def _combined_punching(combined: _Combined, index: int, d_mm: float, ctx: Footin
 
 def _combined_steel(
     combined: _Combined, d_mm: float, overall_d_mm: float, ctx: FootingContext
-) -> Tuple[MeshSteel, MeshSteel, Tuple[Tuple[int, float, float, MeshSteel], ...]]:
-    """Longitudinal bottom and top steel plus one transverse band per column.
+) -> Tuple[MeshSteel, MeshSteel, MeshSteel, Tuple[Tuple[int, float, float, MeshSteel], ...]]:
+    """Longitudinal mats, a full transverse minimum mat and column bands.
 
     The longitudinal steel is designed as a 1 m strip of the full width: Annex G
     is linear in b, so a strip and the whole width give the same answer, and the
@@ -2278,6 +2563,7 @@ def _combined_steel(
     width = combined.width_mm
     bottom = mesh_steel(1000.0 * combined.m_sag_nmm / width, d_mm, overall_d_mm, ctx)
     top = mesh_steel(1000.0 * abs(combined.m_hog_nmm) / width, d_mm, overall_d_mm, ctx)
+    transverse_minimum = mesh_steel(0.0, d_mm, overall_d_mm, ctx)
     bands = []  # type: List[Tuple[int, float, float, MeshSteel]]
     for index in range(len(combined.columns)):
         band_width = combined.band_width_mm(index, d_mm)
@@ -2288,7 +2574,7 @@ def _combined_steel(
             arm - is456.cl_26_4_2_2__footing_cover(), ctx, _stress_ratio(mu_per_m, d_mm, overall_d_mm, ctx)
         )
         bands.append((index, band_width, arm, mesh_steel(mu_per_m, d_mm, overall_d_mm, ctx, max_dia_mm=cap)))
-    return (bottom, top, tuple(bands))
+    return (bottom, top, transverse_minimum, tuple(bands))
 
 
 def _combined_long_shear_at(
@@ -2425,17 +2711,19 @@ def design_combined_footing(
     soil: Any = None,
     ctx: Any = None,
 ) -> C.DesignResult:
-    """Design the two-column combined rectangle. Never raises.
+    """Design one combined rectangle carrying two or more columns. Never raises.
 
-    The rectangle is sized so its centroid sits under the load resultant, which
-    is what makes the contact pressure uniform; the length follows from the
-    outer column faces plus a projection and the width from the area the
-    allowable pressure asks for. The longitudinal direction is then a beam on a
-    uniform upward line load carrying two point reactions: its moment diagram
+    The rectangle is centred on the factored resultant, which makes its design
+    pressure uniform; the service resultant is retained as a biaxial pressure
+    field for the SBC and contact checks.  The length follows from the outer
+    support faces plus a projection and the width from the area the allowable
+    pressure asks for. The longitudinal direction is then a beam on a
+    uniform upward line load carrying every point reaction: its moment diagram
     hogs between the columns (top steel) and sags at them (bottom steel), and
     its shear is checked at d from each column face. Punching is checked per
-    column on a perimeter clipped to the rectangle, and the transverse strip
-    under each column is designed as a cantilever spanning out to the edges.
+    column on a perimeter clipped to the rectangle.  The transverse strip under
+    each column is designed as a cantilever spanning out to the edges, and the
+    full length also carries the Cl 34.5.1 minimum mat.
     """
     result = C.DesignResult(
         element_id=str(getattr(footing, "element_id", "") or "combined_footing"),
@@ -2465,14 +2753,14 @@ def _combined_body(
     """The combined walk: resultant, rectangle, beam line, punching, bands."""
     columns = list(geom.columns)
     result.section["kind"] = "combined"
-    if len(columns) != 2 or len(loads) != 2:
+    if len(columns) < 2 or len(columns) != len(loads):
         return result.fail_with(
             "combined footing inputs",
-            "v1 designs the exactly-two-column combined footing; got " + str(len(columns))
-            + " columns and " + str(len(loads)) + " load sets",
+            "a combined footing needs at least two columns and one load set per column; got "
+            + str(len(columns)) + " columns and " + str(len(loads)) + " load sets",
             clause="IS 456 Cl 34",
-            demand=float(max(len(columns), len(loads))),
-            capacity=2.0,
+            demand=float(max(2, len(columns), len(loads))),
+            capacity=float(len(columns)) if len(columns) == len(loads) and len(columns) >= 2 else 0.0,
             units="columns",
         )
     if min(float(item.p_service_kn) for item in loads) <= 0.0:
@@ -2480,6 +2768,15 @@ def _combined_body(
             "service load",
             "every column on a combined footing needs a positive service load",
             clause="IS 6403",
+            demand=1.0,
+            capacity=0.0,
+            units="kN",
+        )
+    if min(item.factored_p_kn(ctx.load_factor) for item in loads) <= 0.0:
+        return result.fail_with(
+            "factored load",
+            "every column on a combined footing needs a positive factored load",
+            clause="IS 456 Table 18",
             demand=1.0,
             capacity=0.0,
             units="kN",
@@ -2492,14 +2789,20 @@ def _combined_body(
     cover = C.resolve_cover("footing", ctx.exposure, ctx.fire_rating_h, seed_dia)
     result.add_note(cover.note)
 
-    span_x = abs(C.m_to_mm(columns[1].x_m) - C.m_to_mm(columns[0].x_m))
-    span_y = abs(C.m_to_mm(columns[1].y_m) - C.m_to_mm(columns[0].y_m))
+    xs = [C.m_to_mm(column.x_m) for column in columns]
+    ys = [C.m_to_mm(column.y_m) for column in columns]
+    span_x = max(xs) - min(xs)
+    span_y = max(ys) - min(ys)
     longitudinal = "x" if span_x >= span_y else "y"
-    result.add_note("longitudinal axis taken along " + longitudinal + ", the axis that separates the two columns")
+    result.add_note(
+        "longitudinal axis taken along " + longitudinal + ", the larger envelope of all "
+        + str(len(columns)) + " supports"
+    )
     if min(span_x, span_y) > _EPS:
         result.add_warning(
-            "the two columns are offset on both axes by " + _mm_text(span_x) + " and " + _mm_text(span_y)
-            + "; v1 designs the rectangle along the larger separation only"
+            "the columns are offset on both axes across " + _mm_text(span_x) + " and " + _mm_text(span_y)
+            + "; the larger envelope is longitudinal and every transverse offset is retained in the rectangle, "
+            "punching and dowel checks"
         )
 
     def local(column: ColumnStub) -> Tuple[float, float, float, float]:
@@ -2512,37 +2815,80 @@ def _combined_body(
     p_service = [float(item.p_service_kn) for item in loads]
     pu_kn = [item.factored_p_kn(ctx.load_factor) for item in loads]
     p_total = sum(p_service)
-    resultant_u = sum(place[0] * load for place, load in zip(places, p_service)) / p_total
+    pu_total = sum(pu_kn)
+    service_resultant_u = sum(place[0] * load for place, load in zip(places, p_service)) / p_total
+    service_resultant_v = sum(place[1] * load for place, load in zip(places, p_service)) / p_total
+    factored_resultant_u = sum(place[0] * load for place, load in zip(places, pu_kn)) / pu_total
+    factored_resultant_v = sum(place[1] * load for place, load in zip(places, pu_kn)) / pu_total
+    centre_u = factored_resultant_u
+    centre_v = factored_resultant_v
 
-    half = 0.0
-    for place, _load in zip(places, p_service):
-        half = max(half, abs(place[0] - resultant_u) + 0.5 * place[2] + MIN_PROJECTION_MM)
+    half_length = max(
+        abs(place[0] - centre_u) + 0.5 * place[2] + MIN_PROJECTION_MM
+        for place in places
+    )
+    half_width = max(
+        abs(place[1] - centre_v) + 0.5 * place[3] + MIN_PROJECTION_MM
+        for place in places
+    )
     step = float(ctx.policy.footing_plan_step_mm)
-    length = C.round_up_mm(2.0 * half, step)
-    width_floor = max(place[3] for place in places) + 2.0 * MIN_PROJECTION_MM
+    length_floor = 2.0 * half_length
+    width_floor = 2.0 * half_width
+    length = C.round_up_mm(length_floor, step)
+    width = C.round_up_mm(width_floor, step)
+
+    service_ex_u = service_resultant_u - centre_u
+    service_ex_v = service_resultant_v - centre_v
 
     p_eff_n = C.kn_to_n(p_total) * (1.0 + float(ctx.self_weight_allowance))
-    width = C.round_up_mm(width_floor, step)
     with _quiet():
         for _iteration in range(int(ctx.policy.max_iters)):
             allow = allowable_pressure(soil, width, length)
-            needed = C.round_up_mm(p_eff_n / (max(allow.q_allow_kpa, _EPS) / 1000.0) / length, step)
-            candidate = max(needed, width_floor, width)
-            if abs(candidate - width) < _EPS:
+            gradient = (
+                1.0
+                + 6.0 * abs(service_ex_u) / length
+                + 6.0 * abs(service_ex_v) / width
+            )
+            area_needed = p_eff_n * gradient / (max(allow.q_allow_kpa, _EPS) / 1000.0)
+            next_length = length
+            next_width = C.round_up_mm(max(area_needed / length, width_floor, width), step)
+            kern_ratio = (
+                6.0 * abs(service_ex_u) / next_length
+                + 6.0 * abs(service_ex_v) / next_width
+            )
+            if kern_ratio > 1.0 + _EPS:
+                next_length = C.round_up_mm(max(next_length * kern_ratio, length_floor), step)
+                next_width = C.round_up_mm(max(next_width * kern_ratio, width_floor), step)
+            if abs(next_length - length) < _EPS and abs(next_width - width) < _EPS:
                 break
-            width = candidate
+            length, width = next_length, next_width
     allow = allowable_pressure(soil, width, length)
     for note in allow.notes:
         result.add_note(note)
 
-    centre_u = resultant_u
-    offset_ratio = 0.0
-    q_service_kpa = 1000.0 * C.kn_to_n(p_total) / (width * length)
-    q_u_mpa = C.kn_to_n(sum(pu_kn)) / (width * length)
-    result.add_note(
-        "rectangle " + _mm_text(length) + " x " + _mm_text(width) + " centred on the load resultant, so the "
-        "contact pressure is uniform at " + _n(q_service_kpa, 1) + " kPa service"
+    service_pressure = _contact_pressure(
+        length,
+        width,
+        C.kn_to_n(p_total),
+        service_ex_u,
+        service_ex_v,
     )
+    q_service_average_kpa = 1000.0 * C.kn_to_n(p_total) / (width * length)
+    q_service_kpa = 1000.0 * service_pressure.q_max_mpa
+    q_service_min_kpa = 1000.0 * service_pressure.q_min_mpa
+    q_u_mpa = C.kn_to_n(pu_total) / (width * length)
+    service_kern_ratio = 6.0 * abs(service_ex_u) / length + 6.0 * abs(service_ex_v) / width
+    result.add_note(
+        "rectangle " + _mm_text(length) + " x " + _mm_text(width)
+        + " centred on the factored load resultant; service pressure ranges "
+        + _n(q_service_min_kpa, 1) + " to " + _n(q_service_kpa, 1) + " kPa"
+    )
+    if service_pressure.contact_ratio < 1.0 - 1e-9:
+        result.add_warning(
+            "the service resultant remains outside the biaxial kern after the bounded plan-sizing walk; "
+            + _n(100.0 * service_pressure.contact_ratio, 1)
+            + " percent of the base is in compression and the no-tension pressure field is used"
+        )
     if geom.placed_bx_m is not None and geom.placed_ly_m is not None:
         placed_u = C.m_to_mm(geom.placed_bx_m if longitudinal == "x" else geom.placed_ly_m)
         placed_v = C.m_to_mm(geom.placed_ly_m if longitudinal == "x" else geom.placed_bx_m)
@@ -2550,14 +2896,13 @@ def _combined_body(
             result.add_resize(
                 _mm_text(placed_u) + " x " + _mm_text(placed_v),
                 _mm_text(length) + " x " + _mm_text(width),
-                "rectangle re-sized onto the load resultant at the allowable pressure",
+                "rectangle re-sized onto the factored resultant at the allowable service pressure",
             )
 
-    centre_v = sum(place[1] * load for place, load in zip(places, p_service)) / p_total
-    order = sorted(range(2), key=lambda index: places[index][0])
+    order = sorted(range(len(columns)), key=lambda index: (places[index][0], columns[index].column_id))
     left_edge = centre_u - 0.5 * length
     beam = _Beam(
-        w_n_per_mm=C.kn_to_n(sum(pu_kn)) / length,
+        w_n_per_mm=C.kn_to_n(pu_total) / length,
         length_mm=length,
         stations_mm=tuple(places[index][0] - left_edge for index in order),
         loads_n=tuple(C.kn_to_n(pu_kn[index]) for index in order),
@@ -2569,11 +2914,18 @@ def _combined_body(
         width_mm=width,
         centre_u_mm=centre_u,
         centre_v_mm=centre_v,
-        resultant_u_mm=resultant_u,
+        service_resultant_u_mm=service_resultant_u,
+        service_resultant_v_mm=service_resultant_v,
+        factored_resultant_u_mm=factored_resultant_u,
+        factored_resultant_v_mm=factored_resultant_v,
         q_u_mpa=q_u_mpa,
         q_service_kpa=q_service_kpa,
+        q_service_min_kpa=q_service_min_kpa,
+        q_service_average_kpa=q_service_average_kpa,
         q_allow_kpa=allow.q_allow_kpa,
         q_source=allow.source,
+        service_contact_ratio=service_pressure.contact_ratio,
+        service_kern_ratio=service_kern_ratio,
         beam=beam,
         m_sag_nmm=m_sag,
         m_hog_nmm=m_hog,
@@ -2581,7 +2933,6 @@ def _combined_body(
         pu_n=tuple(C.kn_to_n(pu_kn[index]) for index in order),
         columns=tuple(columns[index] for index in order),
     )
-    offset_ratio = abs(centre_u - resultant_u) / length if length > 0.0 else 0.0
 
     demands = _combined_depth_demands(combined, ctx, cover.cover_mm)
     refused = [demand for demand in demands if demand.d_req_mm is None]
@@ -2610,7 +2961,6 @@ def _combined_body(
         overall = bumped
     evaluation = _combined_evaluate(combined, ctx, overall, cover.cover_mm)
 
-    result.section["centroid_offset_ratio"] = offset_ratio
     _emit_combined(result, combined, ctx, cover.cover_mm, evaluation)
     for demand in refused:
         result.add_warning(
@@ -2646,20 +2996,25 @@ def _combined_evaluate(
     fy = float(ctx.fy_mpa)
     dia = int(sorted(ctx.bar_dias_mm)[0])
     d_mm = float(overall_d_mm) - float(cover_mm) - 1.5 * dia
-    bottom = top = None  # type: Optional[MeshSteel]
+    bottom = top = transverse_minimum = None  # type: Optional[MeshSteel]
     bands = ()  # type: Tuple[Tuple[int, float, float, MeshSteel], ...]
     for _pass in range(4):
         d_mm = float(overall_d_mm) - float(cover_mm) - 1.5 * dia
         if d_mm <= 0.0:
             break
-        bottom, top, bands = _combined_steel(combined, d_mm, float(overall_d_mm), ctx)
-        wanted = max([bottom.dia_mm, top.dia_mm] + [band[3].dia_mm for band in bands])
+        bottom, top, transverse_minimum, bands = _combined_steel(combined, d_mm, float(overall_d_mm), ctx)
+        wanted = max(
+            [bottom.dia_mm, top.dia_mm, transverse_minimum.dia_mm]
+            + [band[3].dia_mm for band in bands]
+        )
         if wanted == dia:
             break
         dia = wanted
     d_mm = max(d_mm, 1.0)
-    if bottom is None or top is None:
-        bottom, top, bands = _combined_steel(combined, d_mm, float(overall_d_mm), ctx)
+    if bottom is None or top is None or transverse_minimum is None:
+        bottom, top, transverse_minimum, bands = _combined_steel(
+            combined, d_mm, float(overall_d_mm), ctx
+        )
 
     rows = []  # type: List[Tuple[Any, ...]]
     ratios = []  # type: List[Tuple[str, float]]
@@ -2674,11 +3029,18 @@ def _combined_evaluate(
 
     add("bearing pressure", combined.q_source, combined.q_service_kpa, combined.q_allow_kpa, "kPa")
     add(
-        "centroid on the resultant",
-        "uniform pressure requires the centroid under the resultant",
-        abs(combined.centre_u_mm - combined.resultant_u_mm),
-        0.05 * combined.length_mm,
-        "mm",
+        "service biaxial kern",
+        "IS 456 Cl 34.1, full base contact",
+        combined.service_kern_ratio,
+        1.0,
+        "ratio",
+    )
+    add(
+        "longitudinal equilibrium",
+        "factored pressure and column loads close at the free edge",
+        abs(combined.beam.moment_nmm(combined.length_mm)),
+        max(1.0, sum(combined.pu_n) * combined.length_mm * 1e-9),
+        "N.mm",
     )
 
     for index in range(len(combined.columns)):
@@ -2708,6 +3070,21 @@ def _combined_evaluate(
     for name, steel in (("bottom", bottom), ("top", top)):
         add("steel " + name, "IS 456 Cl 26.5.2.1", steel.ast_req_mm2_m, steel.ast_prov_mm2_m, "mm2 per m")
         add("bar spacing " + name, "IS 456 Cl 26.3.3", steel.spacing_mm, steel.max_spacing_mm, "mm")
+
+    add(
+        "steel transverse minimum",
+        "IS 456 Cl 34.5.1, Cl 26.5.2.1",
+        transverse_minimum.ast_req_mm2_m,
+        transverse_minimum.ast_prov_mm2_m,
+        "mm2 per m",
+    )
+    add(
+        "bar spacing transverse minimum",
+        "IS 456 Cl 34.5.1, Cl 26.3.3",
+        transverse_minimum.spacing_mm,
+        transverse_minimum.max_spacing_mm,
+        "mm",
+    )
 
     for index, band_width, arm, steel in bands:
         label = _column_label(combined, index)
@@ -2777,6 +3154,7 @@ def _combined_evaluate(
         dia_mm=int(dia),
         steel_bottom=bottom,
         steel_top=top,
+        steel_transverse_minimum=transverse_minimum,
         bands=bands,
         dowel_list=tuple(dowel_list),
         dowel_depth_mm=dowel_depth,
@@ -2809,8 +3187,18 @@ def _emit_combined(
             "D_mm": ev.overall_d_mm,
             "d_mm": ev.d_mm,
             "cover_mm": float(cover_mm),
+            "support_count": len(combined.columns),
             "q_allow_kpa": combined.q_allow_kpa,
             "q_service_kpa": combined.q_service_kpa,
+            "q_service_min_kpa": combined.q_service_min_kpa,
+            "q_service_average_kpa": combined.q_service_average_kpa,
+            "service_contact_ratio": combined.service_contact_ratio,
+            "service_kern_ratio": combined.service_kern_ratio,
+            "service_resultant_u_mm": combined.service_resultant_u_mm,
+            "service_resultant_v_mm": combined.service_resultant_v_mm,
+            "factored_resultant_u_mm": combined.factored_resultant_u_mm,
+            "factored_resultant_v_mm": combined.factored_resultant_v_mm,
+            "beam_end_moment_knm": combined.beam.moment_nmm(combined.length_mm) / 1e6,
             "qu_mpa": combined.q_u_mpa,
             "m_sag_knm": combined.m_sag_nmm / 1e6,
             "m_hog_knm": combined.m_hog_nmm / 1e6,
@@ -2820,6 +3208,10 @@ def _emit_combined(
         "bx_m": C.mm_to_m(bx_mm),
         "ly_m": C.mm_to_m(ly_mm),
         "depth_m": C.mm_to_m(ev.overall_d_mm),
+    }
+    result.extras["combined_line"] = {
+        "station_u_mm": list(combined.beam.stations_mm),
+        "factored_load_kn": [load / 1000.0 for load in combined.beam.loads_n],
     }
     for name, clause, demand, capacity, units in ev.rows:
         result.add_check(name, clause, demand, capacity, units=units)
@@ -2864,6 +3256,18 @@ def _emit_combined(
         )
 
     transverse = "y" if combined.longitudinal == "x" else "x"
+    result.add_bar(
+        role="transverse_minimum",
+        count=bar_count(combined.length_mm, cover_mm, ev.steel_transverse_minimum.spacing_mm),
+        dia_mm=ev.steel_transverse_minimum.dia_mm,
+        ld_mm=ev.steel_transverse_minimum.ld_mm,
+        zone_mm=[cover_mm, combined.width_mm - cover_mm],
+        layer=2,
+        spacing_mm=ev.steel_transverse_minimum.spacing_mm,
+        direction=transverse,
+        face="bottom",
+        strip="full length minimum mat, including between the column bands",
+    )
     for index, band_width, arm, steel in ev.bands:
         label = _column_label(combined, index)
         result.add_bar(
@@ -2900,6 +3304,8 @@ def _emit_combined(
     for name, steel in (("bottom", ev.steel_bottom), ("top", ev.steel_top)):
         if steel.note:
             result.add_warning("longitudinal " + name + " steel: " + steel.note)
+    if ev.steel_transverse_minimum.note:
+        result.add_warning("transverse minimum steel: " + ev.steel_transverse_minimum.note)
 
 
 def _strap_referral(

@@ -81,6 +81,7 @@ from ..model import (
     DisclosureLog,
     Lintel,
     Material,
+    Occupancy,
     SlabKind,
     SlabPanel,
     StructuralModel,
@@ -2765,6 +2766,363 @@ def _torsion_proxy(
 
 
 # ---------------------------------------------------------------------------
+# cantilever panel handoff
+# ---------------------------------------------------------------------------
+
+
+def _panel_edge_line(panel: _Panel, index: int) -> Tuple[str, int, int, int]:
+    """(orientation, station, low, high) for one panel outline edge."""
+    a = panel.outline_mm[index]
+    b = panel.outline_mm[(index + 1) % len(panel.outline_mm)]
+    if a[0] == b[0]:
+        return ("v", a[0], min(a[1], b[1]), max(a[1], b[1]))
+    return ("h", a[1], min(a[0], b[0]), max(a[0], b[0]))
+
+
+def _panel_edge_side(panel: _Panel, index: int) -> Optional[str]:
+    """Canonical bounding-box side occupied by an outline edge, if any."""
+    orient, pos, _lo, _hi = _panel_edge_line(panel, index)
+    xs = [point[0] for point in panel.outline_mm]
+    ys = [point[1] for point in panel.outline_mm]
+    if orient == "v":
+        if pos == min(xs):
+            return "x_min"
+        if pos == max(xs):
+            return "x_max"
+    else:
+        if pos == min(ys):
+            return "y_min"
+        if pos == max(ys):
+            return "y_max"
+    return None
+
+
+def _edge_outside_point(panel: _Panel, index: int) -> Tuple[int, int]:
+    """Point ten millimetres across an edge, on the side outside panel."""
+    a = panel.outline_mm[index]
+    b = panel.outline_mm[(index + 1) % len(panel.outline_mm)]
+    mid = ((a[0] + b[0]) // 2, (a[1] + b[1]) // 2)
+    if a[0] == b[0]:
+        first, second = (mid[0] - 10, mid[1]), (mid[0] + 10, mid[1])
+    else:
+        first, second = (mid[0], mid[1] - 10), (mid[0], mid[1] + 10)
+    return second if panel.region.covers(*first) else first
+
+
+def _edge_support_ids(
+    panel: _Panel,
+    index: int,
+    beams: Sequence[_PBeam],
+    walls: Sequence[Any],
+) -> List[str]:
+    """Resolved beam or wall ids covering at least 80 percent of an edge."""
+    support = panel.edge_support[index] if index < len(panel.edge_support) else "free"
+    if support == "free":
+        return []
+    orient, pos, lo, hi = _panel_edge_line(panel, index)
+    if hi <= lo:
+        return []
+    pieces = []  # type: List[Tuple[int, int]]
+    ids = []  # type: List[str]
+    if support == "beam":
+        for beam in beams:
+            if (
+                beam.storey != panel.level
+                or beam.level_key != str(panel.level)
+                or beam.kind == BeamKind.PLINTH
+                or beam.orient != orient
+                or abs(beam.pos_mm - pos) > 60
+            ):
+                continue
+            piece = (max(lo, beam.lo_mm), min(hi, beam.hi_mm))
+            if piece[1] <= piece[0]:
+                continue
+            pieces.append(piece)
+            if beam.id:
+                ids.append(str(beam.id))
+    elif support == "wall":
+        for wall in walls:
+            if int(getattr(wall, "storey", -1)) != panel.level:
+                continue
+            role = getattr(wall, "role", "")
+            if str(getattr(role, "value", role)) == WallRole.RAILING.value:
+                continue
+            a = getattr(wall, "a", (0.0, 0.0))
+            b = getattr(wall, "b", (0.0, 0.0))
+            ax, ay, bx, by = _mm(a[0]), _mm(a[1]), _mm(b[0]), _mm(b[1])
+            wall_orient = "v" if ax == bx else "h" if ay == by else ""
+            if wall_orient != orient:
+                continue
+            wall_pos = ax if orient == "v" else ay
+            tolerance = max(60, _mm(float(getattr(wall, "thickness_m", 0.0))) // 2)
+            if abs(wall_pos - pos) > tolerance:
+                continue
+            wall_lo, wall_hi = (min(ay, by), max(ay, by)) if orient == "v" else (min(ax, bx), max(ax, bx))
+            piece = (max(lo, wall_lo), min(hi, wall_hi))
+            if piece[1] <= piece[0]:
+                continue
+            pieces.append(piece)
+            wall_id = str(getattr(wall, "id", ""))
+            if wall_id:
+                ids.append(wall_id)
+    covered = sum(end - start for start, end in _merge_intervals(pieces))
+    if covered * 5 < 4 * (hi - lo):
+        return []
+    return sorted(set(ids))
+
+
+def _room_region_mm(room: Any) -> _Footprint:
+    """A source room polygon in the placement module's integer geometry."""
+    points = [(_mm(float(x)), _mm(float(y))) for x, y in getattr(room, "polygon", [])]
+    return _Footprint.from_polygons([points]) if len(points) >= 3 else _Footprint([])
+
+
+def _edge_region_coverage_mm(
+    panel: _Panel,
+    index: int,
+    regions: Sequence[_Footprint],
+) -> int:
+    """Length of one edge backed by the supplied room regions."""
+    orient, _pos, lo, hi = _panel_edge_line(panel, index)
+    probe = _edge_outside_point(panel, index)
+    pieces = []  # type: List[Tuple[int, int]]
+    for region in regions:
+        for x0, y0, x1, y1 in region.rects:
+            if orient == "v":
+                if x0 <= probe[0] <= x1:
+                    piece = (max(lo, y0), min(hi, y1))
+                else:
+                    continue
+            else:
+                if y0 <= probe[1] <= y1:
+                    piece = (max(lo, x0), min(hi, x1))
+                else:
+                    continue
+            if piece[1] > piece[0]:
+                pieces.append(piece)
+    return sum(end - start for start, end in _merge_intervals(pieces))
+
+
+def _balcony_root_side(panel: _Panel, rooms: Sequence[Any]) -> Optional[str]:
+    """Root side implied by normalized balcony and occupied-room regions.
+
+    The source occupancy describes intent. Generated perimeter beams describe
+    framing, and may surround a partial-width balcony without turning its slab
+    strip into an ordinary supported panel.
+    """
+    if panel.kind != "cantilever":
+        return None
+    balcony_regions = []  # type: List[_Footprint]
+    backing_regions = []  # type: List[_Footprint]
+    for room in rooms:
+        if int(getattr(room, "storey", -1)) != panel.level:
+            continue
+        occupancy = getattr(room, "occupancy", "")
+        value = str(getattr(occupancy, "value", occupancy))
+        region = _room_region_mm(room)
+        if region.is_empty():
+            continue
+        if value == Occupancy.BALCONY.value:
+            balcony_regions.append(region)
+        elif value not in (Occupancy.VOID.value, Occupancy.GREEN.value):
+            backing_regions.append(region)
+    overlap = sum(
+        _region_rect_area(panel.region, rect)
+        for region in balcony_regions
+        for rect in region.rects
+    )
+    if overlap * 2 <= panel.area_mm2() or not backing_regions:
+        return None
+    totals = {}  # type: Dict[str, List[int]]
+    for index in range(len(panel.outline_mm)):
+        side = _panel_edge_side(panel, index)
+        if side is None:
+            continue
+        _orient, _pos, lo, hi = _panel_edge_line(panel, index)
+        row = totals.setdefault(side, [0, 0])
+        row[0] += hi - lo
+        row[1] += _edge_region_coverage_mm(panel, index, backing_regions)
+    candidates = sorted(
+        side
+        for side, (length, covered) in totals.items()
+        if length > 0 and covered * 5 >= length * 4
+    )
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _vertical_support_ids_at_point(
+    panel: _Panel,
+    point: Tuple[int, int],
+    stacks: Sequence[_Stack],
+    walls: Sequence[Any],
+) -> List[str]:
+    """Actual column-stack or structural-wall ids supporting one beam end."""
+    x_mm, y_mm = point
+    ids = []  # type: List[str]
+    for stack in stacks:
+        if panel.level not in stack.exists:
+            continue
+        if abs(stack.x_mm - x_mm) <= _ON_LINE_TOL_MM and abs(stack.y_mm - y_mm) <= _ON_LINE_TOL_MM:
+            if stack.id:
+                ids.append(str(stack.id))
+    for wall in walls:
+        if int(getattr(wall, "storey", -1)) != panel.level:
+            continue
+        role = getattr(wall, "role", "")
+        role_value = str(getattr(role, "value", role))
+        if role_value != WallRole.CORE.value:
+            continue
+        axis = wall_axis(wall)
+        if axis is None:
+            continue
+        orient, pos_m, lo_m, hi_m = axis
+        pos, lo, hi = _mm(pos_m), _mm(lo_m), _mm(hi_m)
+        tolerance = max(60, _mm(float(getattr(wall, "thickness_m", 0.0))) // 2)
+        cross = x_mm if orient == "v" else y_mm
+        along = y_mm if orient == "v" else x_mm
+        if abs(cross - pos) <= tolerance and lo - tolerance <= along <= hi + tolerance:
+            wall_id = str(getattr(wall, "id", ""))
+            if wall_id:
+                ids.append(wall_id)
+    return sorted(set(ids))
+
+
+def _edge_independent_vertical_support(
+    panel: _Panel,
+    side: str,
+    beams: Sequence[_PBeam],
+    stacks: Sequence[_Stack],
+    walls: Sequence[Any],
+) -> Tuple[bool, Dict[str, Tuple[List[str], List[str]]]]:
+    """Whether a side is carried by members with real vertical supports.
+
+    A beam kind or its cached support tags are insufficient evidence. Each
+    contributing floor beam must resolve actual support ids at both endpoints.
+    """
+    edge_length = 0
+    covered = []  # type: List[Tuple[int, int]]
+    evidence = {}  # type: Dict[str, Tuple[List[str], List[str]]]
+    for index in range(len(panel.outline_mm)):
+        if _panel_edge_side(panel, index) != side:
+            continue
+        orient, pos, lo, hi = _panel_edge_line(panel, index)
+        edge_length += hi - lo
+        for beam in beams:
+            if (
+                beam.storey != panel.level
+                or beam.level_key != str(panel.level)
+                or beam.kind == BeamKind.PLINTH
+                or beam.orient != orient
+                or abs(beam.pos_mm - pos) > 60
+            ):
+                continue
+            piece = (max(lo, beam.lo_mm), min(hi, beam.hi_mm))
+            if piece[1] <= piece[0]:
+                continue
+            a, b = beam.points_mm()
+            left = _vertical_support_ids_at_point(panel, a, stacks, walls)
+            right = _vertical_support_ids_at_point(panel, b, stacks, walls)
+            if not left or not right:
+                continue
+            covered.append(piece)
+            if beam.id:
+                evidence[str(beam.id)] = (left, right)
+    coverage = sum(end - start for start, end in _merge_intervals(covered))
+    return (edge_length > 0 and coverage * 5 >= edge_length * 4, evidence)
+
+
+def _backspan_mm(panel: _Panel, backing: _Panel, side: str) -> int:
+    """Available adjacent slab length normal to the cantilever root."""
+    x0, y0, x1, y1 = panel.rect_mm
+    bx0, by0, bx1, by1 = backing.rect_mm
+    if side == "x_min":
+        return max(0, x0 - bx0)
+    if side == "x_max":
+        return max(0, bx1 - x1)
+    if side == "y_min":
+        return max(0, y0 - by0)
+    if side == "y_max":
+        return max(0, by1 - y1)
+    return 0
+
+
+def _cantilever_handoff(
+    panel: _Panel,
+    panels: Sequence[_Panel],
+    beams: Sequence[_PBeam],
+    walls: Sequence[Any],
+    root_side: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Resolve the unique root support and adjacent regular backing panel.
+
+    A root must be both supported and continuous into a regular slab.  Merely
+    finding one supported perimeter edge does not establish the negative-
+    moment load path or somewhere to develop the top bars.
+    """
+    empty = {
+        "backing_edge": None,
+        "backing_support_ids": [],
+        "backing_panel_id": None,
+        "backspan_m": None,
+    }  # type: Dict[str, Any]
+    if panel.kind != "cantilever":
+        return empty
+
+    roots = {}  # type: Dict[Tuple[str, str], Dict[str, Any]]
+    for index in range(len(panel.outline_mm)):
+        if index >= len(panel.edge_cont) or not panel.edge_cont[index]:
+            continue
+        side = _panel_edge_side(panel, index)
+        if side is None:
+            continue
+        if root_side is not None and side != root_side:
+            continue
+        support_ids = _edge_support_ids(panel, index, beams, walls)
+        if not support_ids:
+            continue
+        _orient, _pos, lo, hi = _panel_edge_line(panel, index)
+        adjacent = [
+            other
+            for other in panels
+            if other is not panel
+            and other.level == panel.level
+            and other.kind == "slab"
+            and _edge_region_coverage_mm(panel, index, [other.region]) * 5
+            >= (hi - lo) * 4
+        ]
+        if len(adjacent) != 1:
+            continue
+        backing = adjacent[0]
+        available = _backspan_mm(panel, backing, side)
+        if available <= 0:
+            continue
+        key = (side, backing.id)
+        root = roots.setdefault(
+            key,
+            {
+                "backing_edge": side,
+                "backing_support_ids": [],
+                "backing_panel_id": backing.id,
+                "backspan_mm": available,
+            },
+        )
+        root["backing_support_ids"] = sorted(
+            set(root["backing_support_ids"]) | set(support_ids)
+        )
+        root["backspan_mm"] = min(int(root["backspan_mm"]), int(available))
+
+    if len(roots) != 1:
+        return empty
+    root = roots[sorted(roots)[0]]
+    return {
+        "backing_edge": root["backing_edge"],
+        "backing_support_ids": list(root["backing_support_ids"]),
+        "backing_panel_id": root["backing_panel_id"],
+        "backspan_m": _m(int(root["backspan_mm"])),
+    }
+
+
+# ---------------------------------------------------------------------------
 # the result
 # ---------------------------------------------------------------------------
 
@@ -2864,6 +3222,39 @@ class FrameResult:
         for panel in sorted(self.panels, key=lambda p: p.id):
             if panel.kind not in ("slab", "cantilever"):
                 continue
+            semantic_root = _balcony_root_side(panel, model.rooms)
+            tip_supported = False
+            if semantic_root is not None:
+                tip_side = {
+                    "x_min": "x_max",
+                    "x_max": "x_min",
+                    "y_min": "y_max",
+                    "y_max": "y_min",
+                }[semantic_root]
+                tip_supported, _ = _edge_independent_vertical_support(
+                    panel,
+                    tip_side,
+                    self.beams,
+                    self.columns,
+                    model.walls,
+                )
+            structural_cantilever = panel.kind == "cantilever" and not tip_supported
+            cantilever = (
+                _cantilever_handoff(
+                    panel,
+                    self.panels,
+                    self.beams,
+                    model.walls,
+                    root_side=semantic_root,
+                )
+                if structural_cantilever
+                else {
+                    "backing_edge": None,
+                    "backing_support_ids": [],
+                    "backing_panel_id": None,
+                    "backspan_m": None,
+                }
+            )
             edge_cont = {}
             for i, support in enumerate(panel.edge_support):
                 cont = "cont" if (i < len(panel.edge_cont) and panel.edge_cont[i]) else "disc"
@@ -2879,7 +3270,19 @@ class FrameResult:
                     ly_m=_m(panel.ly_mm),
                     edge_continuity=edge_cont,
                     kind=SlabKind.ROOF if panel.level == top_storey else SlabKind.FLOOR,
-                    placed_by="placement.frame." + panel.kind,
+                    support_ids=list(cantilever["backing_support_ids"]),
+                    placed_by=(
+                        "placement.frame.cantilever"
+                        if structural_cantilever
+                        else "placement.frame.balcony_supported"
+                        if panel.kind == "cantilever"
+                        else "placement.frame.slab"
+                    ),
+                    span_kind="cantilever" if structural_cantilever else "regular",
+                    cantilever_backing_edge=cantilever["backing_edge"],
+                    cantilever_backing_support_ids=list(cantilever["backing_support_ids"]),
+                    cantilever_backing_panel_id=cantilever["backing_panel_id"],
+                    cantilever_backspan_m=cantilever["backspan_m"],
                 )
             )
         model.slabs = slabs

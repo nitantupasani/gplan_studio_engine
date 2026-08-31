@@ -483,6 +483,9 @@ def _cluster(units: Sequence[_Unit], fixed_tol_mm: Optional[int] = None) -> List
     ordered = sorted(units, key=lambda u: (u.pos_mm, u.priority, u.key))
     out = []  # type: List[_Unit]
     open_members = []  # type: List[_Cand]
+    # The opening member owns this window for the whole cluster. Re-resolving
+    # the anchor after each join lets a chain of close lines drift arbitrarily
+    # past the documented tolerance.
     open_anchor = None  # type: Optional[_Cand]
     for unit in ordered:
         if open_anchor is None:
@@ -495,7 +498,6 @@ def _cluster(units: Sequence[_Unit], fixed_tol_mm: Optional[int] = None) -> List
             tol_mm = fixed_tol_mm
         if abs(unit.pos_mm - open_anchor.pos_mm) <= tol_mm:
             open_members.extend(unit.members)
-            open_anchor = _anchor(open_members)
         else:
             out.append(_Unit(open_members))
             open_members = list(unit.members)
@@ -676,6 +678,7 @@ class Axis:
     member_spans_mm: Dict[int, List[Tuple[int, int, str]]] = field(default_factory=dict)
     members: List[Tuple[int, str]] = field(default_factory=list)
     corridor_keys: Tuple[str, ...] = ()
+    candidates: List[_Cand] = field(default_factory=list)
     label: str = ""
     id: str = ""
 
@@ -917,6 +920,7 @@ def _axis_from_unit(unit: _Unit, direction: AxisDir) -> Axis:
         member_spans_mm={s: sorted(v) for s, v in sorted(member_spans_mm.items())},
         members=sorted(set(members)),
         corridor_keys=tuple(sorted(set(corridor_keys))),
+        candidates=sorted(unit.members, key=lambda c: (c.storey, c.pos_mm, c.key)),
     )
 
 
@@ -966,16 +970,45 @@ def _extend_to_perpendicular(
     other_positions_mm: Sequence[int],
     footprint: _Footprint,
 ) -> Tuple[int, int]:
-    """Push each end out to the nearest perpendicular axis that crosses inside."""
+    """Extend to a crossing, snapping a near overshoot back to that crossing."""
+    tol_join_mm = _mm(DEFAULT_WALL_T_M) // 2 + TOL_JOIN_EXTRA_MM
     below = [
         p for p in other_positions_mm if p <= lo_mm and _crosses(p, pos_mm, orient, footprint)
     ]
     above = [
         p for p in other_positions_mm if p >= hi_mm and _crosses(p, pos_mm, orient, footprint)
     ]
-    low = max(below) if below else lo_mm
-    high = min(above) if above else hi_mm
-    return (min(low, lo_mm), max(high, hi_mm))
+    near_low = [
+        p for p in other_positions_mm
+        if abs(p - lo_mm) <= tol_join_mm and _crosses(p, pos_mm, orient, footprint)
+    ]
+    near_high = [
+        p for p in other_positions_mm
+        if abs(p - hi_mm) <= tol_join_mm and _crosses(p, pos_mm, orient, footprint)
+    ]
+    low = min(near_low, key=lambda p: (abs(p - lo_mm), p)) if near_low else (max(below) if below else lo_mm)
+    high = min(near_high, key=lambda p: (abs(p - hi_mm), p)) if near_high else (min(above) if above else hi_mm)
+    return (low, high)
+
+
+def _warn_axis_offsets(axes: Sequence[Axis], log: DisclosureLog) -> None:
+    """Disclose a merge that leaves a wall beyond its non-parametric window."""
+    for axis in axes:
+        far = [
+            cand for cand in axis.candidates
+            if cand.wall_id is not None and abs(cand.pos_mm - axis.pos_mm) > cand.t_mm // 2
+        ]
+        if not far:
+            continue
+        max_offset = max(abs(cand.pos_mm - axis.pos_mm) for cand in far)
+        wall_ids = sorted({str(cand.wall_id) for cand in far if cand.wall_id is not None})
+        log.add(
+            "N_GRID_AXIS_OFFSET",
+            "axis %s is up to %d mm from %d merged wall centreline(s), beyond their tol_wall; "
+            "the bounded merge is retained" % (axis.id, max_offset, len(wall_ids)),
+            [axis.id] + wall_ids,
+            stage=_STAGE,
+        )
 
 
 def _crosses(other_pos_mm: int, pos_mm: int, orient: str, footprint: _Footprint) -> bool:
@@ -1308,6 +1341,8 @@ def extract_axes(model: StructuralModel, params: Optional[FrameParams] = None) -
     )
 
     _label_axes(x_axes, y_axes)
+    _warn_axis_offsets(x_axes, log)
+    _warn_axis_offsets(y_axes, log)
     _warn_short_spans(x_axes, params, log)
     _warn_short_spans(y_axes, params, log)
     junctions = _build_junctions(model, x_axes, y_axes, storeys)

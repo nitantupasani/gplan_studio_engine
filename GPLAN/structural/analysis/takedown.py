@@ -994,6 +994,54 @@ def _panel_edges(model: StructuralModel, slab: Any) -> List[_EdgePlan]:
     return edges
 
 
+def _route_explicit_cantilever(slab: Any, edges: List[_EdgePlan]) -> bool:
+    """Make the declared backing edge the sole slab-load recipient."""
+    if str(getattr(slab, "span_kind", "regular")) != "cantilever":
+        return False
+    side = str(getattr(slab, "cantilever_backing_edge", "") or "")
+    edge_index = {
+        "y_min": 0,
+        "y_max": 1,
+        "x_min": 2,
+        "x_max": 3,
+    }.get(side)
+    support_ids = {
+        str(value)
+        for value in (getattr(slab, "cantilever_backing_support_ids", None) or [])
+        if str(value)
+    }
+    if edge_index is None or not support_ids:
+        raise AnalysisError(
+            "E_CANTILEVER_BACKING",
+            "cantilever panel %s has no valid declared backing edge and support ids" % slab.id,
+            [slab.id],
+        )
+    root = edges[edge_index]
+    members = [
+        member
+        for member in root.members
+        if str(getattr(member[0], "id", "")) in support_ids
+    ]
+    covered = sum(mhi - mlo for _element, mlo, mhi, _is_beam in members)
+    if not members or covered < 0.5 * root.length() - _EPS:
+        raise AnalysisError(
+            "E_CANTILEVER_BACKING",
+            "cantilever panel %s backing support does not cover its declared %s root"
+            % (slab.id, side),
+            [slab.id] + sorted(support_ids),
+        )
+    for edge in edges:
+        edge.supported = False
+        edge.profile = ""
+        edge.peak_unit = 0.0
+        edge.ramp_m = 0.0
+        edge.factor = 1.0
+    root.members = members
+    root.covered_m = covered
+    root.supported = True
+    return True
+
+
 def _opposite(index: int) -> int:
     return {0: 1, 1: 0, 2: 3, 3: 2}[index]
 
@@ -2014,6 +2062,7 @@ def _run_inner(model: StructuralModel, loadmodel: LoadModel, tol: float, force_e
             ratio = ly / lx if lx > 0.0 else 99.0
             two_way = slab.two_way if slab.two_way is not None else (ratio <= 2.0)
             edges = _panel_edges(model, slab)
+            _route_explicit_cantilever(slab, edges)
             _assign_edge_profiles(edges, w_m, h_m, bool(two_way), log, slab.id)
             for edge in edges:
                 centre_perp = rect[1] + 0.5 * h_m if edge.orient == "h" else rect[0] + 0.5 * w_m

@@ -23,7 +23,7 @@ import pytest
 # Relative: the engine repo root carries its own __init__.py, so pytest imports
 # this package as GPLAN.GPLAN.structural.tests, and an absolute GPLAN.structural
 # import would resolve against the outer directory instead.
-from ..analysis import BeamForces
+from ..analysis import BeamForces, ForceEnvelope, StationForces, to_beam_forces
 from ..codes import is13920, is456
 from ..codes.trace import CLAUSE_REGISTRY
 from ..design import common as C
@@ -78,6 +78,14 @@ def has_check(result, name):
     return any(row.name == name for row in result.checks)
 
 
+def role_area_mm2(result, role):
+    return sum(
+        float(bar["count"]) * C.bar_area_mm2(float(bar["dia_mm"]))
+        for bar in result.bars
+        if bar.get("role") == role
+    )
+
+
 # ---------------------------------------------------------------------------
 # worked vector 1: singly reinforced, 230 x 450, M20, Fe415, 100 kNm
 # ---------------------------------------------------------------------------
@@ -127,7 +135,6 @@ def test_singly_reinforced_sp16_vector():
     assert mid["ast_prov_mm2"] == pytest.approx(854.52, rel=1e-4)
     assert mid["ast_prov_mm2"] >= mid["ast_req_mm2"]
     assert mid["doubly"] is False
-
     row = check(result, "flexure_bottom_mid")
     assert row.demand == pytest.approx(100e6)
     assert row.capacity >= row.demand
@@ -145,6 +152,29 @@ def test_singly_reinforced_sp16_vector():
     # Ld = 20 x 0.87 x 415 / (4 x 1.92) = 940 mm, 47 diameters.
     twenty = [bar for bar in bottom if bar["dia_mm"] == 20.0]
     assert twenty and twenty[0]["ld_mm"] == pytest.approx(940.1, rel=0.002)
+
+
+def test_cover_is_re_resolved_against_the_selected_main_bar():
+    """B18: Cl 26.4.1 makes mild-exposure cover follow a 25 mm beam bar.
+
+    The initial Table 16 cover is 20 mm before flexure chooses a bar. This
+    300 x 600 beam needs a 25 mm longitudinal bar, so its delivered cover must
+    be re-resolved to 25 mm and the effective depth must be based on that
+    second pass. Before the re-resolve, this same result retained 20 mm cover.
+    """
+    result = beams.design_beam(
+        BeamForces(240.0, 240.0, 240.0, 100.0, 100.0),
+        beams.BeamGeometry(300.0, 600.0, 5000.0, "continuous", element_id="beam-cover-diameter"),
+        m25_fe500_ductile(exposure="mild", zone="II", frame="OMRF"),
+    )
+
+    main_dia = max(
+        bar["dia_mm"] for bar in result.bars if bar["role"] in ("top_left", "top_right", "bottom_mid")
+    )
+    assert main_dia == 25.0
+    assert result.section["cover_mm"] == C.resolve_cover("beam", "mild", 0.0, main_dia).cover_mm
+    assert result.section["cover_mm"] >= main_dia
+    assert result.section["d_mm"] == pytest.approx(600.0 - 25.0 - 8.0 - 0.5 * main_dia)
 
 
 def test_min_and_max_steel_rows_are_the_is456_clauses():
@@ -285,6 +315,65 @@ def test_table_20_cap_is_a_section_failure_and_resizes_the_beam():
         assert row.demand <= 2.8
 
 
+def test_b17_supplied_interior_shear_designs_and_checks_the_middle_cage():
+    """B17: the station just outside 2d needs more than minimum stirrups.
+
+    On this 230 x 450 M25/Fe500 beam the delivered d is 406 mm, so 2d is
+    812 mm.  Analysis supplies Vu = 119 kN at x = 820 mm, outside that end
+    zone.  With 2-12 bottom bars, pt = 0.2422 percent and tau_c = 0.3598 MPa:
+
+      Vus = 119000 - 0.3598 x 230 x 406 = 85404 N
+      Asv/s = 85404 / (0.87 x 500 x 406) = 0.4836 mm2/mm
+
+    Two-leg 8 mm stirrups therefore need 205 mm pitch.  The old path discarded
+    this station, emitted no stirrups_middle row and left 8 mm at 300 mm.
+    """
+    envelope = ForceEnvelope(
+        element_id="beam-middle-shear",
+        element_type="beam",
+        stations=(
+            StationForces(station=0.0, v_max_kn=200.0),
+            StationForces(station=0.205, v_max_kn=119.0),
+            StationForces(station=0.5, v_max_kn=0.0),
+            StationForces(station=1.0, v_max_kn=200.0),
+        ),
+    )
+    forces = to_beam_forces(envelope)
+    assert forces.shear_stations == (
+        (0.0, 200.0),
+        (0.205, 119.0),
+        (0.5, 0.0),
+        (1.0, 200.0),
+    )
+
+    result = beams.design_beam(
+        forces,
+        beams.BeamGeometry(230.0, 450.0, 4000.0, "continuous", element_id="beam-middle-shear"),
+        m25_fe500_ductile(zone="II", frame="OMRF"),
+    )
+    d_mm = result.section["d_mm"]
+    assert d_mm == pytest.approx(406.0)
+    bottom_area = role_area_mm2(result, "bottom_mid")
+    pt_pct = 100.0 * bottom_area / (230.0 * d_mm)
+    tau_c_mpa = is456.table_19__tau_c(pt_pct, 25.0)
+    expected_vus = 119000.0 - tau_c_mpa * 230.0 * d_mm
+    expected_asv = expected_vus / (0.87 * 500.0 * d_mm)
+
+    row = check(result, "stirrups_middle")
+    assert row.demand == pytest.approx(expected_asv)
+    assert row.capacity >= row.demand
+    assert 119000.0 / (230.0 * d_mm) < is456.table_20__tau_c_max(25.0)
+    old_minimum = D.choose_stirrups(
+        is456.cl_26_5_1_6__min_stirrups(230.0, 500.0),
+        is456.cl_26_5_1_5__max_stirrup_spacing(d_mm),
+    )
+    assert old_minimum.spacing_mm == 300.0
+    assert old_minimum.asv_per_mm_prov < row.demand
+    middle_zone = [zone for zone in result.stirrups if zone["zone_mm"][0] < 820.0 < zone["zone_mm"][1]][0]
+    assert middle_zone["spacing_mm"] == 205.0
+    assert not any("end shears only" in note for note in result.notes)
+
+
 # ---------------------------------------------------------------------------
 # worked vector 4: serviceability
 # ---------------------------------------------------------------------------
@@ -337,6 +426,98 @@ def test_cantilever_uses_the_seven_rule_and_reports_a_span_placement_should_have
     )
     assert any("E_CANTILEVER_SPAN" in text for text in long_one.warnings)
     assert any("2500" in text for text in long_one.warnings)
+
+
+def test_b16_support_reaches_the_rcc_dispatch_and_the_api_dispatch():
+    """B16: placement kind and analysed end continuity reach both call sites.
+
+    The cantilever must take basic l/d 7 and full-length top steel.  The
+    ordinary beam has zero hogging at both ends, so it is simply supported and
+    takes basic l/d 20.  Before B16 both dispatches omitted `support`, making
+    both sections silently continuous at basic l/d 26.
+    """
+    from types import SimpleNamespace
+
+    from .. import api as structural_api
+    from .. import model as M
+    from ..design import rcc
+
+    cantilever = M.Beam(
+        id="beam-support-cant",
+        storey=0,
+        a=(0.0, 0.0),
+        b=(2.0, 0.0),
+        width_m=0.23,
+        depth_m=0.45,
+        kind=M.BeamKind.CANTILEVER,
+    )
+    simple = M.Beam(
+        id="beam-support-ss",
+        storey=0,
+        a=(0.0, 1.0),
+        b=(4.0, 1.0),
+        width_m=0.23,
+        depth_m=0.45,
+        kind=M.BeamKind.PRIMARY,
+    )
+    envelopes = {
+        cantilever.id: ForceEnvelope(
+            element_id=cantilever.id,
+            element_type="beam",
+            stations=(
+                StationForces(station=0.0, m_neg_min_knm=-40.0, v_max_kn=45.0),
+                StationForces(station=0.5, v_max_kn=20.0),
+                StationForces(station=1.0, v_max_kn=5.0),
+            ),
+        ),
+        simple.id: ForceEnvelope(
+            element_id=simple.id,
+            element_type="beam",
+            stations=(
+                StationForces(station=0.0, v_max_kn=60.0),
+                StationForces(station=0.5, m_pos_max_knm=60.0, v_max_kn=0.0),
+                StationForces(station=1.0, v_max_kn=60.0),
+            ),
+        ),
+    }
+    model = M.StructuralModel(id="beam-support-routing", beams=[cantilever, simple])
+    analysis = SimpleNamespace(envelopes=envelopes, footing_loads={})
+    design_options = {
+        "materials": {"fck": 25.0, "fy": 500.0},
+        "seismic": {"zone": "II", "frame": "OMRF"},
+    }
+
+    rcc_results = {
+        result.element_id: result
+        for result in rcc.run_rcc_design(model, analysis, design_options)
+    }
+    assert rcc_results[cantilever.id].section["support"] == "cantilever"
+    assert rcc_results[cantilever.id].extras["serviceability"]["basic"] == 7.0
+    assert rcc_results[simple.id].section["support"] == "ss"
+    assert rcc_results[simple.id].extras["serviceability"]["basic"] == 20.0
+
+    class _Options(object):
+        soil = {}
+
+        @staticmethod
+        def design_options():
+            return dict(design_options)
+
+    api_results = {
+        result.element_id: result
+        for result in structural_api._design_members(
+            model,
+            analysis,
+            None,
+            _Options(),
+            "rc_frame",
+            M.DisclosureLog(),
+        )
+    }
+    assert api_results[cantilever.id].section["support"] == "cantilever"
+    assert api_results[cantilever.id].extras["serviceability"]["basic"] == 7.0
+    assert api_results[simple.id].section["support"] == "ss"
+    assert api_results[simple.id].extras["serviceability"]["basic"] == 20.0
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +576,23 @@ def test_capacity_shear_governs_over_the_analysis_shear_in_a_ductile_frame():
     assert any("Cl 6.3.3" in note and "governs" in note for note in result.notes)
 
 
+def test_ductile_stirrup_notes_describe_the_final_end_and_middle_schedule():
+    """N26: no IS 456 end note may survive after the hoop schedule replaces it."""
+    result = beams.design_beam(
+        BeamForces(120.0, 120.0, 90.0, 80.0, 80.0),
+        beams.BeamGeometry(300.0, 500.0, 4000.0, "continuous", clear_span_mm=3700.0, element_id="beam-notes"),
+        m25_fe500_ductile(),
+    )
+
+    schedule_notes = [note for note in result.notes if note.startswith("final stirrup schedule at ")]
+    assert len(schedule_notes) == 3
+    assert all("after the IS 13920 overlay" in note for note in schedule_notes)
+    assert any("at end a" in note and ("%.0f mm" % result.stirrups[0]["spacing_mm"]) in note for note in schedule_notes)
+    assert any("at middle" in note and ("%.0f mm" % result.stirrups[1]["spacing_mm"]) in note for note in schedule_notes)
+    assert any("at end b" in note and ("%.0f mm" % result.stirrups[-1]["spacing_mm"]) in note for note in schedule_notes)
+    assert not any(note.startswith("end a stirrups:") or note.startswith("end b stirrups:") for note in result.notes)
+
+
 def test_the_ductile_overlay_adds_bars_for_rho_min_and_never_resizes_the_section():
     """Cl 6.2.1 rho_min = 0.24 sqrt(fck)/fy on b d, top and bottom, everywhere."""
     ctx = m25_fe500_ductile()
@@ -444,6 +642,121 @@ def test_a_rho_min_top_up_feeds_the_capacity_shear_it_creates():
     )
     assert result.extras["ductile"]["shear_a"]["v_design_n"] == pytest.approx(expected.v_design_n)
     assert result.extras["ductile"]["shear_a"]["v_design_n"] > 70000.0
+
+
+def test_b15_zero_hogging_uses_final_through_capacity_in_both_sway_directions():
+    """B15 published vector: nominal ends still have provided top steel.
+
+    The 300 x 500 beam has zero analysed hogging at both ends, 95 kNm sagging,
+    95 kN gravity shear and Lclear = 3770 mm.  Cl 6.2.1 grows the top-through
+    group to 3-12 (339.3 mm2), about 63.4 kNm capacity.  Counting that built
+    section raises the sway term from the old 36.3 kN to about 59.8 kN and the
+    design shear from 131.3 kN to about 154.8 kN.
+    """
+    result = beams.design_beam(
+        BeamForces(0.0, 0.0, 95.0, 95.0, 95.0),
+        beams.BeamGeometry(
+            300.0,
+            500.0,
+            4000.0,
+            "continuous",
+            clear_span_mm=3770.0,
+            element_id="beam-zero-hog-capacity",
+        ),
+        m25_fe500_ductile(),
+    )
+    through = [bar for bar in result.bars if bar["role"] == "top_through"]
+    assert [(bar["count"], bar["dia_mm"]) for bar in through] == [(3, 12.0)]
+    through_area = role_area_mm2(result, "top_through")
+    through_d = (
+        result.section["D_mm"]
+        - result.section["cover_mm"]
+        - result.section["stirrup_dia_mm"]
+        - 0.5 * max(bar["dia_mm"] for bar in through)
+    )
+    through_capacity = D.moment_capacity_nmm(300.0, through_d, 25.0, 500.0, through_area)
+    assert through_capacity == pytest.approx(63.4e6, rel=0.02)
+
+    sag_capacity = station(result, "bottom_mid")["mu_cap_nmm"]
+    expected = is13920.cl_6_3_3__capacity_shear(
+        95000.0,
+        through_capacity,
+        sag_capacity,
+        3770.0,
+    )
+    old = is13920.cl_6_3_3__capacity_shear(95000.0, 0.0, sag_capacity, 3770.0)
+    for end in ("shear_a", "shear_b"):
+        shear = result.extras["ductile"][end]
+        assert shear["v_design_n"] == pytest.approx(expected.v_design_n)
+        assert shear["sway_term_n"] == pytest.approx(expected.sway_term_n)
+        assert shear["v_design_n"] == pytest.approx(
+            max(abs(expected.v_sway_right_n), abs(expected.v_sway_left_n))
+        )
+        observed_hog = shear["sway_term_n"] * 3770.0 / 1.4 - sag_capacity
+        assert observed_hog == pytest.approx(through_capacity)
+        assert shear["v_design_n"] == pytest.approx(154.8e3, rel=0.003)
+        assert shear["v_design_n"] > old.v_design_n + 20.0e3
+
+
+def test_n24_nominal_hogging_still_emits_joint_and_span_capacity_floors():
+    """N24: Cl 6.2.3 and 6.2.4 never disappear on zero-hog envelopes.
+
+    The final 3-12 top-through group has about 64.0 kNm capacity.  Therefore
+    the joint sagging floor is about 32.0 kNm and the along-span floor about
+    16.0 kNm.  Both rows were absent on this exact old-behaviour vector.
+    """
+    result = beams.design_beam(
+        BeamForces(0.0, 0.0, 95.0, 95.0, 95.0),
+        beams.BeamGeometry(300.0, 500.0, 4000.0, "continuous", clear_span_mm=3770.0),
+        m25_fe500_ductile(),
+    )
+    through = [bar for bar in result.bars if bar["role"] == "top_through"]
+    through_area = role_area_mm2(result, "top_through")
+    through_d = (
+        result.section["D_mm"]
+        - result.section["cover_mm"]
+        - result.section["stirrup_dia_mm"]
+        - 0.5 * max(bar["dia_mm"] for bar in through)
+    )
+    through_capacity = D.moment_capacity_nmm(300.0, through_d, 25.0, 500.0, through_area)
+    sag_capacity = station(result, "bottom_mid")["mu_cap_nmm"]
+
+    joint = check(result, "ductile_joint_sagging")
+    span = check(result, "ductile_span_capacity_floor")
+    assert joint.demand == pytest.approx(is13920.cl_6_2_3__joint_sagging(through_capacity))
+    assert joint.capacity == pytest.approx(sag_capacity)
+    assert span.demand == pytest.approx(is13920.cl_6_2_4__span_capacity_floor(through_capacity))
+    assert span.capacity == pytest.approx(min(sag_capacity, through_capacity))
+    assert joint.status == C.CHECK_PASS and span.status == C.CHECK_PASS
+
+    # A heavily loaded sagging section can already own its full-length top
+    # steel under the established `top_mid` compression role.  Five bars
+    # (3-25 + 2-16) provide 1874.7 mm2 at d = 397.5 mm as hogging steel, for
+    # 120.6 kNm.  The capacity rows and both sway pairings must name that
+    # physical group rather than reverting to zero or to the sagging capacity.
+    doubly = beams.design_beam(
+        BeamForces(0.0, 0.0, 345.214444, 12.901629, 130.058290),
+        beams.BeamGeometry(230.0, 300.0, 2438.0, "ss", clear_span_mm=2208.0),
+        m25_fe500_ductile(zone="III", frame="OMRF"),
+    )
+    top_mid = [bar for bar in doubly.bars if bar["role"] == "top_mid"]
+    assert [(bar["count"], bar["dia_mm"]) for bar in top_mid] == [
+        (3, 25.0),
+        (2, 16.0),
+    ]
+    top_mid_area = role_area_mm2(doubly, "top_mid")
+    top_mid_d = 450.0 - 32.0 - 8.0 - 0.5 * 25.0
+    top_mid_capacity = D.moment_capacity_nmm(230.0, top_mid_d, 25.0, 500.0, top_mid_area)
+    assert top_mid_capacity == pytest.approx(120.6e6, rel=0.002)
+    doubly_sag_capacity = station(doubly, "bottom_mid")["mu_cap_nmm"]
+    assert check(doubly, "ductile_joint_sagging").demand == pytest.approx(0.5 * top_mid_capacity)
+    assert check(doubly, "ductile_joint_sagging").capacity == pytest.approx(doubly_sag_capacity)
+    assert check(doubly, "ductile_span_capacity_floor").demand == pytest.approx(0.25 * top_mid_capacity)
+    assert check(doubly, "ductile_span_capacity_floor").capacity == pytest.approx(top_mid_capacity)
+    for end in ("shear_a", "shear_b"):
+        shear = doubly.extras["ductile"][end]
+        observed_hog = shear["sway_term_n"] * 2208.0 / 1.4 - doubly_sag_capacity
+        assert observed_hog == pytest.approx(top_mid_capacity)
 
 
 def test_the_overlay_is_skipped_outside_its_applicability_and_says_so():
@@ -512,6 +825,48 @@ def test_torsion_folds_into_equivalent_shear_and_moment():
     assert twisted.extras["shear"][0]["ve_n"] > plain.extras["shear"][0]["ve_n"]
     assert check(twisted, "torsion_transverse_steel").status == C.CHECK_PASS
     assert any("Cl 41" in note for note in twisted.notes)
+
+
+def test_n25_me2_midspan_is_carried_by_full_length_top_steel():
+    """N25: Cl 41.4.2 Me2 belongs on the top face at midspan.
+
+    For 300 x 500, Tu = 40 kNm and Mu,mid = 10 kNm:
+
+      Mt  = 40 (1 + 500/300) / 1.7 = 62.745 kNm
+      Me2 = Mt - Mu = 52.745 kNm
+
+    The published review vector needs about 337.5 mm2 on that face; the
+    catalogue supplies 3-12 = 339.3 mm2 over all 9000 mm.  The old code merely
+    reported Me2 and left 2-12 = 226.2 mm2 cage bars through midspan.
+    """
+    span_mm = 9000.0
+    result = beams.design_beam(
+        BeamForces(10.0, 10.0, 10.0, 50.0, 50.0, tu_knm=40.0),
+        beams.BeamGeometry(300.0, 500.0, span_mm, "continuous", element_id="beam-me2-mid"),
+        m25_fe500_ductile(zone="II", frame="OMRF"),
+    )
+    mt_nmm = 40.0e6 * (1.0 + 500.0 / 300.0) / 1.7
+    me2_nmm = mt_nmm - 10.0e6
+    torsion = result.extras["torsion"]
+    assert torsion["mt_nmm"] == pytest.approx(mt_nmm)
+    assert torsion["me2_mid_nmm"] == pytest.approx(me2_nmm)
+
+    top_mid = station(result, "top_mid")
+    assert top_mid["face"] == "top"
+    assert top_mid["mu_nmm"] == pytest.approx(me2_nmm)
+    assert check(result, "flexure_top_mid").demand == pytest.approx(me2_nmm)
+    assert check(result, "flexure_top_mid").status == C.CHECK_PASS
+
+    through = [bar for bar in result.bars if bar["role"] == "top_through"]
+    assert through
+    assert all(bar["zone_mm"] == [0.0, span_mm] for bar in through)
+    assert role_area_mm2(result, "top_through") == pytest.approx(3.0 * C.bar_area_mm2(12.0))
+    assert role_area_mm2(result, "top_through") >= 337.5
+    left = [bar for bar in result.bars if bar["role"] == "top_left"]
+    right = [bar for bar in result.bars if bar["role"] == "top_right"]
+    assert left[0]["zone_mm"][1] < span_mm / 2.0
+    assert right[0]["zone_mm"][0] > span_mm / 2.0
+    assert any("Me2 at midspan" in note and "full-length top-through" in note for note in result.notes)
 
 
 # ---------------------------------------------------------------------------

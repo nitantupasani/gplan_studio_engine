@@ -121,7 +121,7 @@ def test_table_8_is_case_insensitive_on_the_grade():
 
 
 # ---------------------------------------------------------------------------
-# IS 1905 Tables 4, 5, 6 and Cl 5.2
+# IS 1905 Tables 4, 5, 6 and Cl 4.6.1
 # ---------------------------------------------------------------------------
 
 
@@ -181,6 +181,7 @@ def test_table_6_refuses_a_half_described_pier():
 
 
 def test_slenderness_takes_the_lesser_term_and_tolerates_no_length():
+    assert slenderness_ratio.clause_meta.clause_id == "IS1905:1987 Cl 4.6.1"
     assert slenderness_ratio(2.1375, 3.6, 0.23) == pytest.approx(2.1375 / 0.23)
     assert slenderness_ratio(3.6, 2.1375, 0.23) == pytest.approx(2.1375 / 0.23)
     assert slenderness_ratio(2.025, None, 0.23) == pytest.approx(2.025 / 0.23)
@@ -303,6 +304,10 @@ def test_permissible_compressive_stress_is_the_product():
 
 
 def test_permissible_shear_rises_with_dead_stress_then_caps_at_half_an_mpa():
+    entries = []
+    with trace_into(entries):
+        permissible_shear(0.6, "M1")
+    assert [entry.clause_id for entry in entries] == ["IS1905:1987 Cl 5.4.3"]
     assert permissible_shear(0.0, "M1") == pytest.approx(0.1)
     assert permissible_shear(0.6, "M1") == pytest.approx(0.2)
     # 0.1 + 2.4/6 lands exactly on the cap.
@@ -327,6 +332,10 @@ def test_permissible_shear_is_restricted_to_mortar_not_leaner_than_m1():
 
 
 def test_permissible_tension_is_zero_under_the_default_policy():
+    entries = []
+    with trace_into(entries):
+        permissible_tension("normal_to_bed", "H1")
+    assert [entry.clause_id for entry in entries] == ["IS1905:1987 Cl 5.4.2"]
     assert permissible_tension("normal_to_bed", "H1") == pytest.approx(0.0)
     assert permissible_tension("parallel_to_bed", "M1") == pytest.approx(0.0)
 
@@ -668,7 +677,7 @@ def test_the_compressive_chain_lands_in_the_trace_sink_in_order():
         "IS1905:1987 Table 4",
         "IS1905:1987 Table 5",
         "IS1905:1987 Table 6",
-        "IS1905:1987 Cl 5.2",
+        "IS1905:1987 Cl 4.6.1",
         "IS1905:1987 Table 9",
         "IS1905:1987 Table 8",
         "IS1905:1987 Cl 5.4.1.2",

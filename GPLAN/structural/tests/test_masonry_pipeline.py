@@ -167,6 +167,42 @@ def forced_entry(design):
 
 
 @pytest.fixture(scope="module")
+def essential_entry(design):
+    """The masonry house in zone IV with a Table 8 category-word importance."""
+    envelope = api.run_design(
+        {
+            "source": "housing",
+            "housing": copy.deepcopy(design),
+            "params": {
+                "system": System.LOAD_BEARING_MASONRY.value,
+                "seismic_zone": "IV",
+                "importance_factor": "essential",
+            },
+        },
+        output={"detail": "full"},
+    )
+    assert envelope["status"] == "SUCCESS", envelope["message"]
+    return (envelope, _entries(envelope)[0])
+
+
+@pytest.fixture(scope="module")
+def confined_zone_iv_entry(design):
+    """The same geometry built as confined masonry in zone IV."""
+    envelope = api.run_design(
+        {
+            "source": "housing",
+            "housing": copy.deepcopy(design),
+            "params": {
+                "system": System.CONFINED_MASONRY.value,
+                "seismic_zone": "IV",
+            },
+        }
+    )
+    assert envelope["status"] == "SUCCESS", envelope["message"]
+    return (envelope, _entries(envelope)[0])
+
+
+@pytest.fixture(scope="module")
 def refusal_entry():
     """Negative control: masonry forced onto the 2BHK plan that cannot take it."""
     envelope = api.run_design(
@@ -344,6 +380,80 @@ def test_run_layout_agrees_with_run_design_on_the_system(design):
     entry = _entries(envelope)[0]
     assert entry["system"] == System.LOAD_BEARING_MASONRY.value
     assert entry["footings_sized"] is False, "layout runs no takedown, so it sizes no footing"
+
+
+# ---------------------------------------------------------------------------
+# IS 1893 Table 8 importance and Table 9 masonry system keys
+# ---------------------------------------------------------------------------
+
+
+def test_seismic_demand_uses_the_bands_the_placer_actually_built(auto_full):
+    """C9: two placed bands select urm_bands, not the frame ductility row."""
+    _envelope, entry = auto_full
+    masonry = entry["placement"]["masonry"]
+    assert len(masonry["bands"]) == 2
+    assert masonry["vertical_bars"] == []
+
+    seismic = entry["analysis"]["seismic"]
+    assert seismic["system"] == "urm_bands"
+    assert seismic["r"] == 2.0
+    assert seismic["directions"]["x"]["base_shear_kn"] == pytest.approx(
+        233.30013128755218
+    )
+    assert entry["options_echo"]["values"]["seismic_system"] == "urm_bands"
+
+    wall = next(
+        row
+        for row in entry["structural_model"]["design"]
+        if row["element_id"] == "wall-s0-h-0-0@s0"
+    )
+    shear = next(row for row in wall["checks"] if row["name"] == "shear")
+    assert shear["demand"] == pytest.approx(0.02329)
+
+
+def test_essential_importance_is_resolved_once_for_placement_loads_and_design(
+    essential_entry,
+):
+    """B26: the Table 8 word resolves to 1.5 for every engineering consumer."""
+    _envelope, entry = essential_entry
+    echo = entry["options_echo"]
+    assert echo["values"]["importance_factor"] == "essential"
+    assert "Table 8" in echo["origins"]["importance_factor"]
+
+    placement = entry["placement"]
+    assert placement["masonry"]["params"]["importance"] == 1.5
+    assert placement["system_decision"]["category"] == "E"
+    assert placement["masonry"]["vertical_bars"]
+    assert {row["dia_mm"] for row in placement["masonry"]["vertical_bars"]} == {12, 16}
+
+    seismic = entry["analysis"]["seismic"]
+    assert seismic["context"]["importance"] == 1.5
+    assert seismic["importance_factor"] == 1.5
+    assert seismic["importance_source"] == "given directly in the SeismicContext"
+    assert seismic["system"] == "urm_bands_vertical"
+    assert seismic["r"] == 2.5
+    assert seismic["directions"]["x"]["base_shear_kn"] == pytest.approx(
+        419.94023631759393
+    )
+
+    building = next(
+        row
+        for row in entry["structural_model"]["design"]
+        if row["element_type"] == "masonry_building"
+    )
+    assert building["prescription"]["category"] == "E"
+
+
+def test_confined_masonry_uses_its_own_table_9_row(confined_zone_iv_entry):
+    """C9: confining elements select confined_masonry, never zone-IV SMRF."""
+    _envelope, entry = confined_zone_iv_entry
+    assert entry["system"] == System.CONFINED_MASONRY.value
+    assert entry["placement"]["masonry"]["tie_columns"]
+
+    seismic = entry["analysis"]["seismic"]
+    assert seismic["system"] == "confined_masonry"
+    assert seismic["r"] == 3.0
+    assert seismic["directions"]["x"]["base_shear_kn"] == pytest.approx(240.83081513395234)
 
 
 # ---------------------------------------------------------------------------

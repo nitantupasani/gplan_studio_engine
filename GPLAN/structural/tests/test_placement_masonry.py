@@ -246,11 +246,48 @@ def test_no_thin_wall_and_no_floating_wall_ever_bears():
             assert set(range(0, wall.storey + 1)).issubset(present)
 
 
+def test_never_bearing_floor_blocks_regular_lifted_and_rule_73_paths():
+    """At 115 mm, a lower confined minimum cannot re-admit a wall by any path."""
+    model = _model(storeys=1, h=8.0, interiors=False)
+    thin = _wall(0, (0.0, 4.0), (9.0, 4.0), t=0.115)
+    model.walls.append(thin)
+    params = M.MasonryParams(
+        system="load_bearing_masonry", confined_min_t_mm=100.0, zone="III"
+    )
+    walls = M._masonry_walls(model)
+    eligibility = M._eligibility(model, params, walls, M._stack_index(model))
+    record = eligibility[thin.id]
+    assert record.never_bearing is True
+    assert record.eligible("confined_masonry") is False
+
+    grid = M._StoreyGrid(model, 0, walls)
+    lifted = M._cover_storey(
+        grid, walls, eligibility, "load_bearing_masonry", params, promoted=[thin.id]
+    )
+    assert thin.id not in lifted.bearing
+
+    placer = M.MasonryPlacer(params)
+    placer._model = model
+    placer._params = params
+    placer._walls = walls
+    placer._storeys = [0]
+    placer._count = 1
+    placer._stacks = M._stack_index(model)
+    placer._elig = eligibility
+    placer._grids = {0: grid}
+    placer._trace = []
+    placer._reset_attempt()
+    cover = placer._cover_all("load_bearing_masonry")[0]
+    assert placer._resolve_one_gap("load_bearing_masonry", cover) is True
+    assert placer._promoted == []
+    assert [beam.supports_wall_id for beam in placer._hybrid] == [thin.id]
+
+
 def test_slenderness_screen_is_reported_per_wall():
     placement = _place(_model(), zone="IV")
     row = placement.per_wall_reports[0]
     screen = [check for check in row.checks if check["check"] == "SR"][0]
-    assert screen["clause_id"] == "IS1905:1987 Cl 5.2"
+    assert screen["clause_id"] == "IS1905:1987 Cl 4.6.1"
     assert screen["limit"] == 27.0
     assert screen["ok"] is True
     # 0.75 x 3.0 / 0.23 = 9.78
@@ -332,6 +369,29 @@ def test_housing_fixture_discloses_the_thin_interior_rule():
     assert "E_SPAN_OVER_MAX" in [entry.code for entry in placement.warnings]
     assert "W_TERTIARY" not in [entry.code for entry in placement.warnings]
     assert placement.hybrid_beams == []
+
+
+def test_an_unsupported_panel_edge_has_its_own_blocker_code():
+    model = _model(storeys=1, w=4.0, h=12.0, interiors=False)
+    model.walls = [
+        wall
+        for wall in model.walls
+        if not (abs(wall.a[0] - 4.0) < 1e-9 and abs(wall.b[0] - 4.0) < 1e-9)
+    ]
+    placement = _place(
+        model,
+        system="load_bearing_masonry",
+        allow_promote=False,
+        zone="III",
+    )
+
+    codes = [entry.code for entry in placement.warnings]
+    assert "E_UNSUPPORTED_PANEL_EDGE" in codes
+    assert "E_SPAN_OVER_MAX" not in codes
+    blocker = next(entry for entry in placement.warnings if entry.code == "E_UNSUPPORTED_PANEL_EDGE")
+    assert blocker.clause == "IS1905:1987 Cl 4.1"
+    assert "unsupported edge" in blocker.message
+    assert MM.REGISTRY[blocker.code][0] == MM.Severity.ERROR
 
 
 def test_a_hybrid_beam_line_that_does_close_the_cover_is_kept_and_disclosed():
@@ -746,7 +806,7 @@ def test_lintels_for_infill_is_the_frame_path_entry_point():
     assert {row.wall_id for row in only_south} == {south.id}
 
 
-def test_point_load_hook_is_applied_by_the_caller_after_takedown():
+def test_point_load_helper_is_reusable_but_not_claimed_as_pipeline_wiring():
     model = _model(core=True)
     placement = _place(model, zone="IV")
     before = len(placement.tie_columns)
@@ -763,6 +823,9 @@ def test_point_load_hook_is_applied_by_the_caller_after_takedown():
     assert "point load" in added[0].reason
     assert len(placement.tie_columns) == before + 1
     assert M.POINT_LOAD_LIMIT_KN == 25.0
+    assert "currently unreached by the design pipeline" in M.tie_columns_for_point_loads.__doc__
+    assert "unconditional ties at injected" in M.tie_columns_for_point_loads.__doc__
+    assert "beam-line ends and core corners" in M.tie_columns_for_point_loads.__doc__
 
 
 # ---------------------------------------------------------------------------

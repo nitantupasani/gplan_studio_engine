@@ -124,6 +124,94 @@ def test_conservation_on_the_plan_fixture_per_case(plan_result):
         assert row["rel_err"] < TOL
 
 
+def test_explicit_cantilever_ring_sends_full_area_load_only_to_declared_root():
+    """C7: 1 kPa x 3.048 x 1.219 = 3.715512 kN at y_min.
+
+    The old four-edge route split 1.857756 kN to y_min and y_max. Explicit
+    cantilever intent must override the generated ring and leave every
+    non-root reaction exactly zero.
+    """
+    width = 3.048
+    projection = 1.219
+    model = M.StructuralModel(id="c7-ring", storeys=_storeys(1))
+    ring = [
+        ("beam-root", (0.0, 0.0), (width, 0.0)),
+        ("beam-tip", (0.0, projection), (width, projection)),
+        ("beam-left", (0.0, 0.0), (0.0, projection)),
+        ("beam-right", (width, 0.0), (width, projection)),
+    ]
+    model.beams = [
+        M.Beam(id=beam_id, storey=0, a=a, b=b, width_m=0.23, depth_m=0.45)
+        for beam_id, a, b in ring
+    ]
+    subject = M.SlabPanel(
+        id="slab-s0-2",
+        storey=0,
+        polygon=_rect_poly(0.0, 0.0, width, projection),
+        thickness_m=0.145,
+        two_way=False,
+        lx_m=projection,
+        ly_m=width,
+        span_kind="cantilever",
+        cantilever_backing_edge="y_min",
+        cantilever_backing_support_ids=["beam-root"],
+        cantilever_backing_panel_id="slab-s0-0",
+        cantilever_backspan_m=3.048,
+    )
+
+    edges = T._panel_edges(model, subject)
+    assert [edge.supported for edge in edges] == [True, True, True, True]
+    assert T._route_explicit_cantilever(subject, edges) is True
+    log = M.DisclosureLog()
+    T._assign_edge_profiles(edges, width, projection, False, log, subject.id)
+    reactions = [
+        edge.peak_unit
+        * edge.factor
+        * T._profile_area(edge.profile, edge.length(), edge.ramp_m)
+        if edge.profile
+        else 0.0
+        for edge in edges
+    ]
+
+    assert reactions[0] == pytest.approx(width * projection, abs=1.0e-9)
+    assert reactions[0] == pytest.approx(3.715512, abs=1.0e-9)
+    assert reactions[1:] == pytest.approx([0.0, 0.0, 0.0], abs=1.0e-12)
+    assert [member[0].id for member in edges[0].members] == ["beam-root"]
+    assert [entry.code for entry in log.entries] == ["W_CANTILEVER"]
+
+    ordinary = M.SlabPanel(
+        id="slab-regular-ring",
+        storey=0,
+        polygon=list(subject.polygon),
+        two_way=False,
+        lx_m=projection,
+        ly_m=width,
+    )
+    ordinary_edges = T._panel_edges(model, ordinary)
+    ordinary_log = M.DisclosureLog()
+    assert T._route_explicit_cantilever(ordinary, ordinary_edges) is False
+    T._assign_edge_profiles(
+        ordinary_edges,
+        width,
+        projection,
+        False,
+        ordinary_log,
+        ordinary.id,
+    )
+    ordinary_reactions = [
+        edge.peak_unit
+        * edge.factor
+        * T._profile_area(edge.profile, edge.length(), edge.ramp_m)
+        if edge.profile
+        else 0.0
+        for edge in ordinary_edges
+    ]
+    assert ordinary_reactions == pytest.approx(
+        [1.857756, 1.857756, 0.0, 0.0],
+        abs=1.0e-9,
+    )
+
+
 def test_conservation_on_the_housing_fixture_with_its_gable_roof():
     with open(os.path.join(FIXTURES, "housing_2storey.json"), "r") as handle:
         design = json.load(handle)

@@ -173,9 +173,9 @@ def test_eccentricity_outside_the_kern_enlarges_the_plan():
     assert eccentric.section["bx_mm"] > concentric.section["bx_mm"]
 
     check = rows(eccentric)
-    assert check["kern x"].demand == pytest.approx(500.0)
-    assert check["kern x"].capacity == pytest.approx(eccentric.section["bx_mm"] / 6.0)
-    assert check["kern x"].status == C.CHECK_PASS
+    assert check["biaxial kern"].demand == pytest.approx(6.0 * 500.0 / eccentric.section["bx_mm"])
+    assert check["biaxial kern"].capacity == 1.0
+    assert check["biaxial kern"].status == C.CHECK_PASS
     # the base stays in contact and the gradient is kept, not averaged away
     assert eccentric.section["q_min_kpa"] >= -1e-6
     assert eccentric.section["q_max_kpa"] > eccentric.section["q_min_kpa"]
@@ -185,6 +185,58 @@ def test_eccentricity_outside_the_kern_enlarges_the_plan():
     )
     assert sized.driver == "kern eccentricity"
     assert sized.bx_mm == 3000.0
+
+
+def test_the_biaxial_kern_uses_the_corner_sum_and_partial_contact_is_physical():
+    """At B = L = 3000 mm, ex = ey = 500 mm gives
+    6ex/B + 6ey/L = 2, not full contact.  The ordinary elastic corners are
+    -22.222 and +66.667 kPa.  A bounded walk that cannot enlarge the plan must
+    therefore mark the kern false, put no soil in tension, and solve a higher
+    compression-only peak rather than report the negative corner as contact.
+    """
+    stopped = FT.FootingContext(policy=C.ResizePolicy(max_iters=0))
+    partial = FT.size_plan(
+        200.0,
+        FT.ColumnStub("C1", 300.0, 300.0),
+        FT.SoilProfile(sbc_kpa=200.0),
+        stopped,
+        ex_mm=500.0,
+        ey_mm=500.0,
+    )
+    assert partial.bx_mm == partial.ly_mm == 3000.0
+    assert not partial.kern_ok
+    assert partial.elastic_q_min_kpa == pytest.approx(-22.2222222222)
+    assert partial.q_min_kpa == 0.0
+    assert 0.0 < partial.contact_ratio < 1.0
+    assert partial.q_max_kpa > 66.6666666667
+
+    # Exact no-tension oracle: on a 1200 mm square, P = 144 kN and
+    # ex = ey = 300 mm are carried by q=max(0, 0.3X + 0.3Y) MPa over half the
+    # normalized square.  Its resultants are P ex = P ey = 43.2e6 N.mm.
+    pressure = FT._contact_pressure(1200.0, 1200.0, 144000.0, 300.0, 300.0)
+    force, moment_x, moment_y = FT._pressure_integrals(
+        pressure, 1200.0, 1200.0, -600.0, 600.0, -600.0, 600.0
+    )
+    assert pressure.contact_ratio == pytest.approx(0.5)
+    assert pressure.q_max_mpa == pytest.approx(0.6)
+    assert pressure.elastic_q_min_mpa == pytest.approx(-0.2)
+    assert force == pytest.approx(144000.0)
+    assert moment_x == pytest.approx(43.2e6)
+    assert moment_y == pytest.approx(43.2e6)
+
+    grown = FT.size_plan(
+        200.0,
+        FT.ColumnStub("C1", 300.0, 300.0),
+        FT.SoilProfile(sbc_kpa=200.0),
+        FT.FootingContext(),
+        ex_mm=500.0,
+        ey_mm=500.0,
+    )
+    assert grown.bx_mm == grown.ly_mm == 6000.0
+    assert grown.kern_ok
+    assert grown.contact_ratio == 1.0
+    assert grown.elastic_q_min_kpa >= -1e-9
+    assert 6.0 * 500.0 / grown.bx_mm + 6.0 * 500.0 / grown.ly_mm <= 1.0 + 1e-12
 
 
 def test_the_pressure_gradient_reaches_the_design_moments():
@@ -449,15 +501,215 @@ def combined_pair(p1=600.0, p2=800.0, spacing_m=4.0, column_mm=300.0):
 
 def test_the_combined_rectangle_sits_its_centroid_on_the_load_resultant():
     """600 kN at x = 0 and 800 kN at x = 4 m put the resultant at 2.286 m; the
-    rectangle is symmetric about it, so the pressure really is uniform."""
+    default 1.5 factor leaves the factored resultant there too, so the pressure
+    is uniform and the beam closes at its free edge."""
     geometry, loads = combined_pair()
     result = FT.design_combined_footing(geometry, loads, FT.SoilProfile(sbc_kpa=150.0))
     assert result.status in (C.STATUS_PASS, C.STATUS_RESIZED)
-    assert result.section["centroid_offset_ratio"] <= 0.05
-    assert rows(result)["centroid on the resultant"].status == C.CHECK_PASS
     resultant_m = (600.0 * 0.0 + 800.0 * 4.0) / 1400.0
     assert resultant_m == pytest.approx(2.2857, rel=1e-3)
+    assert result.section["service_resultant_u_mm"] == pytest.approx(1000.0 * resultant_m)
+    assert result.section["factored_resultant_u_mm"] == pytest.approx(1000.0 * resultant_m)
+    assert result.section["beam_end_moment_knm"] == pytest.approx(0.0, abs=1e-9)
+    check = rows(result)
+    assert "centroid on the resultant" not in check
+    assert check["longitudinal equilibrium"].status == C.CHECK_PASS
     assert result.section["q_service_kpa"] <= result.section["q_allow_kpa"] + 1e-9
+
+
+def test_three_column_combined_vector_uses_every_support_in_the_diagram():
+    """Hand vector for three 500 kN columns at x = 0, 3 and 6 m.
+
+    The service and factored resultants are both x = 3.0 m.  With a 300 mm
+    column and 150 mm edge projection, L = 6.6 m and the stations from the left
+    edge are 0.3, 3.3 and 6.3 m.  Pu = 3 x 750 = 2250 kN, hence
+    w = 2250 / 6.6 = 340.909 kN/m.  At u = 2.2 m, after the first load,
+    V = 340.909(2.2) - 750 = 0 and
+    M = 340.909(2.2)^2/2 - 750(2.2 - 0.3) = -600.000 kNm.
+    By symmetry the second zero-shear point at 4.4 m is also -600.000 kNm.
+    At either outer column M = 340.909(0.3)^2/2 = +15.3409 kNm, and at
+    u = 6.6 m the upward and downward moments are both 7425 kNm, so M = 0.
+    """
+    geometry = FT.CombinedGeometry(
+        element_id="FC-3",
+        columns=tuple(
+            FT.ColumnStub("C" + str(index), 300.0, 300.0, x_m=x_m, y_m=0.0)
+            for index, x_m in enumerate((0.0, 3.0, 6.0), 1)
+        ),
+    )
+    result = FT.design_combined_footing(
+        geometry,
+        [FT.FootingLoads(p_service_kn=500.0) for _ in range(3)],
+        FT.SoilProfile(sbc_kpa=200.0),
+    )
+    assert result.status in (C.STATUS_PASS, C.STATUS_RESIZED)
+    assert result.section["support_count"] == 3
+    assert result.section["length_mm"] == 6600.0
+    assert result.extras["combined_line"]["station_u_mm"] == [300.0, 3300.0, 6300.0]
+    assert result.extras["combined_line"]["factored_load_kn"] == [750.0, 750.0, 750.0]
+    assert result.section["m_hog_knm"] == pytest.approx(-600.0)
+    assert result.section["m_sag_knm"] == pytest.approx(15.3409090909)
+    assert result.section["beam_end_moment_knm"] == pytest.approx(0.0, abs=1e-9)
+    check_names = set(rows(result))
+    for column_id in ("C1", "C2", "C3"):
+        assert "two-way shear " + column_id in check_names
+        assert "transverse band " + column_id in check_names
+    assert len(bars(result, "band_transverse")) == 3
+    assert len(bars(result, "dowel")) == 3
+
+
+def test_api_dispatch_hands_every_combined_support_to_the_designer():
+    """The model footing carries C1/C2/C3 and each stack carries 500 kN.
+    The public dispatch must not turn that 1500 kN footing into the first two
+    alphabetic supports and report 1000 kN as complete.
+    """
+    from types import SimpleNamespace
+
+    from .. import api as structural_api
+    from .. import model as M
+
+    model = M.StructuralModel(id="combined-three-dispatch")
+    for index, x_m in enumerate((0.0, 3.0, 6.0), 1):
+        model.columns.append(
+            M.Column(
+                id="C" + str(index),
+                stack_id="S" + str(index),
+                storey=0,
+                x_m=x_m,
+                y_m=0.0,
+                width_m=0.3,
+                depth_m=0.3,
+            )
+        )
+    model.footings.append(
+        M.Footing(
+            id="FC-api-3",
+            kind=M.FootingKind.COMBINED,
+            supports=["C1", "C2", "C3"],
+            x_m=3.0,
+            y_m=0.0,
+            w_m=6.6,
+            h_m=1.3,
+            depth_m=0.9,
+        )
+    )
+    analysis = SimpleNamespace(
+        envelopes={},
+        footing_loads={
+            "columns": dict(
+                ("S" + str(index), {"p_dl_kn": 400.0, "p_ll_reduced_kn": 100.0})
+                for index in range(1, 4)
+            ),
+            "walls": {},
+        },
+    )
+    options = structural_api._Resolved({"params": {"soil": {"sbc_kpa": 200.0}}}, {})
+    designed = structural_api._design_members(
+        model,
+        analysis,
+        None,
+        options,
+        "rc_frame",
+        M.DisclosureLog(),
+    )
+    assert len(designed) == 1
+    result = designed[0]
+    assert result.element_id == "FC-api-3"
+    assert result.section["support_count"] == 3
+    assert result.extras["combined_line"]["factored_load_kn"] == [750.0, 750.0, 750.0]
+    check_names = set(rows(result))
+    assert {"two-way shear C1", "two-way shear C2", "two-way shear C3"} <= check_names
+    assert len(bars(result, "dowel")) == 3
+
+
+def test_api_dispatch_refuses_an_unresolved_combined_support():
+    """C1/C2 exist but C-missing does not: designing the two resolved columns
+    would repeat C6's silent subset failure under a different trigger.  The
+    declared three-support footing must instead return a named failed result.
+    """
+    from types import SimpleNamespace
+
+    from .. import api as structural_api
+    from .. import model as M
+
+    model = M.StructuralModel(id="combined-incomplete-dispatch")
+    for index, x_m in enumerate((0.0, 3.0), 1):
+        model.columns.append(
+            M.Column(
+                id="C" + str(index),
+                stack_id="S" + str(index),
+                storey=0,
+                x_m=x_m,
+                y_m=0.0,
+                width_m=0.3,
+                depth_m=0.3,
+            )
+        )
+    model.footings.append(
+        M.Footing(
+            id="FC-api-incomplete",
+            kind=M.FootingKind.COMBINED,
+            supports=["C1", "C2", "C-missing"],
+            x_m=1.5,
+            y_m=0.0,
+            w_m=3.6,
+            h_m=1.3,
+            depth_m=0.9,
+        )
+    )
+    analysis = SimpleNamespace(
+        envelopes={},
+        footing_loads={
+            "columns": {
+                "S1": {"p_dl_kn": 400.0, "p_ll_reduced_kn": 100.0},
+                "S2": {"p_dl_kn": 400.0, "p_ll_reduced_kn": 100.0},
+            },
+            "walls": {},
+        },
+    )
+    options = structural_api._Resolved({"params": {"soil": {"sbc_kpa": 200.0}}}, {})
+    designed = structural_api._design_members(
+        model,
+        analysis,
+        None,
+        options,
+        "rc_frame",
+        M.DisclosureLog(),
+    )
+    assert len(designed) == 1
+    result = designed[0]
+    assert result.status == C.STATUS_FAIL
+    assert result.governing_check == "combined footing support roster"
+    assert result.section["declared_support_count"] == 3
+    assert result.section["resolved_support_count"] == 2
+    assert any("C-missing" in warning and "refusing to design a subset" in warning for warning in result.warnings)
+    assert "support_count" not in result.section
+
+
+def test_factored_resultant_closes_the_beam_when_load_factors_differ():
+    """700/700 kN service at x = 0/4 m has xs = 2.000 m, while
+    Pu = 1050/1300 kN has xu = 1300(4)/2350 = 2.212766 m.  The old 4.6 m beam
+    was centred at xs and ended with 5405 - 4515 - 390 = +500 kNm.  Centring
+    the factored pressure at xu makes the actual free-end residual zero while
+    retaining xs as a service eccentricity for the bearing and kern checks.
+    """
+    geometry, _loads = combined_pair(p1=700.0, p2=700.0)
+    result = FT.design_combined_footing(
+        geometry,
+        [
+            FT.FootingLoads(p_service_kn=700.0, pu_kn=1050.0),
+            FT.FootingLoads(p_service_kn=700.0, pu_kn=1300.0),
+        ],
+        FT.SoilProfile(sbc_kpa=200.0),
+    )
+    assert result.section["service_resultant_u_mm"] == pytest.approx(2000.0)
+    assert result.section["factored_resultant_u_mm"] == pytest.approx(2212.76595745)
+    assert result.section["q_service_kpa"] > result.section["q_service_average_kpa"]
+    assert result.section["beam_end_moment_knm"] == pytest.approx(0.0, abs=1e-9)
+    check = rows(result)
+    assert "centroid on the resultant" not in check
+    assert check["longitudinal equilibrium"].demand <= check["longitudinal equilibrium"].capacity
+    assert check["longitudinal equilibrium"].status == C.CHECK_PASS
 
 
 def test_the_combined_footing_hogs_between_the_columns_and_gets_top_steel():
@@ -526,13 +778,56 @@ def test_punching_is_checked_under_every_column_of_a_combined_footing():
     assert len(bars(result, "dowel")) == 2
 
 
-def test_the_combined_designer_refuses_anything_but_two_columns():
+def test_combined_transverse_minimum_runs_full_length_and_end_bands_are_clipped():
+    """The B20 vector is two 300 mm columns 5.5 m apart, 700 kN each and
+    SBC 200 kPa.  It settles at 6100 x 1300 x 1300 mm with d = 1226 mm.
+    Cl 34.5.1 sends the minimum mat to Cl 26.5.2.1: 0.12 percent gives
+    1560 mm2/m and the selected 16 @ 120 has 51 bars over the covered 6.0 m.
+    Each end column is only 300 mm from the edge, so its symmetric local band
+    is clipped to 2(300) = 600 mm, six bars, rather than counting a nominal
+    300 + 2(1226) = 2752 mm band that lies mostly outside the footing.
+    """
+    geometry = FT.CombinedGeometry(
+        element_id="FC-band",
+        columns=(
+            FT.ColumnStub("C1", 300.0, 300.0, x_m=0.0, y_m=0.0),
+            FT.ColumnStub("C2", 300.0, 300.0, x_m=5.5, y_m=0.0),
+        ),
+    )
+    result = FT.design_combined_footing(
+        geometry,
+        [FT.FootingLoads(p_service_kn=700.0), FT.FootingLoads(p_service_kn=700.0)],
+        FT.SoilProfile(sbc_kpa=200.0),
+    )
+    assert result.section["length_mm"] == 6100.0
+    assert result.section["width_mm"] == 1300.0
+    assert result.section["D_mm"] == 1300.0
+    minimum = bars(result, "transverse_minimum")
+    assert len(minimum) == 1
+    assert minimum[0]["direction"] == "y"
+    assert minimum[0]["count"] == 51
+    assert minimum[0]["count"] == FT.bar_count(
+        result.section["length_mm"], result.section["cover_mm"], minimum[0]["spacing_mm"]
+    )
+    assert rows(result)["steel transverse minimum"].demand == pytest.approx(
+        is456.cl_26_5_2_1__min_slab_steel(result.section["D_mm"], 500.0)
+    )
+
+    edge_bands = bars(result, "band_transverse")
+    assert len(edge_bands) == 2
+    assert {bar["count"] for bar in edge_bands} == {6}
+    assert all("band 600 mm" in bar["strip"] for bar in edge_bands)
+    uncut = 300.0 + 2.0 * result.section["d_mm"]
+    assert edge_bands[0]["count"] < FT.bar_count(uncut, 0.0, edge_bands[0]["spacing_mm"])
+
+
+def test_the_combined_designer_refuses_fewer_than_two_columns():
     geometry = FT.CombinedGeometry(element_id="FC-2", columns=(FT.ColumnStub("C1", 300.0, 300.0),))
     result = FT.design_combined_footing(geometry, [FT.FootingLoads(p_service_kn=500.0)], FT.SoilProfile(sbc_kpa=150.0))
     assert result.status == C.STATUS_FAIL
     assert result.governing_check == "combined footing inputs"
     assert result.checks  # a refusal is still a populated result
-    assert any("exactly-two-column" in text for text in result.warnings)
+    assert any("at least two columns" in text for text in result.warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -733,6 +1028,15 @@ def test_a_combined_footing_offset_on_both_axes_says_what_it_designed():
     )
     assert any("offset on both axes" in text for text in result.warnings)
     assert result.section["longitudinal_axis"] == "x"
+    assert result.section["width_mm"] == 2100.0
+    bands_by_column = dict((bar["column_id"], bar) for bar in bars(result, "band_transverse"))
+    assert "cantilever 1650 mm" in bands_by_column["C1"]["strip"]
+    assert "cantilever 1650 mm" in bands_by_column["C2"]["strip"]
+    q_band_mpa = 900.0e3 / (2100.0 * 600.0)
+    expected_mu_per_m = 1000.0 * q_band_mpa * 1650.0**2 / 2.0
+    check = rows(result)
+    assert check["transverse band C1"].demand == pytest.approx(expected_mu_per_m)
+    assert check["transverse band C2"].demand == pytest.approx(expected_mu_per_m)
 
 
 def test_the_units_boundary_converts_once_in_and_once_out():

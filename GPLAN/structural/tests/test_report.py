@@ -508,11 +508,22 @@ def test_an_error_blocks_its_element_and_zeroes_its_quantity_rows():
     assert report["summary"]["blocked_element_count"] == 1
 
 
-def test_the_steel_total_agrees_with_the_schedule_after_a_block():
+def test_the_costed_gross_steel_reconciles_to_the_blocked_net_schedule():
+    """B32: the display correction cannot silently change the costed headline.
+
+    The old report replaced `steel_kg` with whichever net mass it could derive
+    from the displayed BBS rows. It exposed neither the removed mass nor the
+    fact that the BOQ still priced the original gross schedule.
+    """
     log = _log(("E_CANTILEVER_SPAN", "cantilever over the cap", ("beam-s0-x1-0",)))
     report = _full_report(disclosures=log)
-    assert report["summary"]["totals"]["steel_kg"] == round(36.0 * 1.03, 3)
-    assert report["summary"]["totals"]["steel_kg"] == report["bbs"]["total_with_wastage_kg"]
+    totals = report["summary"]["totals"]
+    assert totals["steel_kg"] == round(66.3 * 1.03, 3)
+    assert totals["steel_kg_blocked"] == round(30.3 * 1.03, 3)
+    assert totals["steel_kg_net"] == round(36.0 * 1.03, 3)
+    assert totals["steel_kg_net"] == report["bbs"]["total_with_wastage_kg"]
+    assert totals["steel_kg"] == pytest.approx(totals["steel_kg_blocked"] + totals["steel_kg_net"])
+    assert totals["steel_cost_basis"] == "steel_kg"
 
 
 def test_no_error_leaves_the_schedule_untouched():
@@ -541,6 +552,10 @@ def test_a_failed_design_zeroes_its_rows_with_a_marker_not_a_registry_code():
     assert rows["beam-s0-x1-0"]["blocked_by"] == ["design_status:fail"]
     assert rows["beam-s0-x1-0"]["blocked_by"][0] not in MM.REGISTRY
     assert report["blocked_elements"][0]["quantities_zeroed"] is True
+    totals = report["summary"]["totals"]
+    assert totals["steel_kg"] == round(66.3 * 1.03, 3)
+    assert totals["steel_kg_net"] == round(36.0 * 1.03, 3)
+    assert totals["steel_kg_blocked"] == round(30.3 * 1.03, 3)
 
 
 def test_quantities_zeroed_is_false_when_the_blocked_element_has_no_rows():
@@ -862,6 +877,9 @@ def test_totals_are_read_from_the_quantity_blocks_never_reinvented():
     assert totals["masonry_m3"] == 8.4
     assert totals["excavation_m3"] == 9.6
     assert totals["steel_kg"] == round(66.3 * 1.03, 3)
+    assert totals["steel_kg_blocked"] == 0.0
+    assert totals["steel_kg_net"] == totals["steel_kg"]
+    assert totals["steel_cost_basis"] == "steel_kg"
     assert totals["cost"] == 30888.0
     assert totals["currency"] == "INR"
     assert totals["cost_per_m2"] == 321.75
@@ -992,6 +1010,23 @@ def test_the_schedules_elide_past_the_row_cap_and_keep_their_aggregates():
     assert report["boq"]["items_elided"] is True
     assert report["boq"]["items_total"] == 600
     assert report["boq"]["total"] == 30888.0
+
+
+def test_the_row_cap_preserves_an_upstream_producers_honest_elision():
+    """B31: a truncated input may never be relabelled as a complete schedule.
+
+    The old `_cap_rows` replaced both producer fields from `len(items)`, so 500
+    received rows from a 4519-row BBS became `items_total=500, items_elided=false`.
+    """
+    bbs = _bbs()
+    bbs["items_total"] = 4519
+    bbs["items_elided"] = True
+
+    report = _full_report(bbs=bbs)
+
+    assert report["bbs"]["items_total"] == 4519
+    assert report["bbs"]["items_shown"] == 2
+    assert report["bbs"]["items_elided"] is True
 
 
 def test_the_row_cap_is_option_overridable():

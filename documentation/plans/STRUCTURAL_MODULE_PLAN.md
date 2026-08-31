@@ -1,5 +1,51 @@
 # Engine plan: the structural module
 
+STATUS 2026-08-31, fourth entry (structural review fix wave): the confirmed
+review ledger is closed except for two explicit policy choices. The review
+record contains 90 findings: 9 critical, 33 major, 41 minor, and 7 notes. The
+fix wave regression-pinned 88 of them. B2 is NOT FIXED pending a choice about
+frontend-versus-adapter rotation ownership. B11 is NOT FIXED pending a choice
+about the default infill idealization; explicit modes and the current default
+are disclosed and tested. Five deeper re-read clusters and every PRINT row
+remain owed. Six `REVIEW_PENDING.md` markers now retain 21 rows: eight OWED
+rows representing those five clusters, two policy-open rows, seven PRINT rows,
+and five FABLE-BUILT provenance rows, with the diaphragm row counted in both
+the OWED and policy-open sets.
+
+The independent verifier state is 1709 passed, 0 failed in the full structural
+engine suite, 181/181 in the root API battery, and 73/73 in backend structural
+smoke. C1, C4, and C7 pass end to end. The compact `building_3storey` response
+is 1,499,992 canonical JSON bytes. Repeated `housing_masonry` output is
+byte-identical at 170,600 bytes with SHA256
+`872cce570dd4f04d2f04265511a639aecf156244da93705bbf5ac52411fbc493`.
+Fresh processes agree on structural fingerprint `st-5001740edadf76e9`.
+
+Fixture counts use the order
+`storeys/rooms/walls/cores/columns/beams/slabs/bands/lintels/footings/design`:
+
+| fixture and system | count vector | base shear (kN) |
+|---|---:|---:|
+| `plan` / `rc_frame` | `2/16/48/0/48/110/26/0/26/24/208` | 213.306467 |
+| `building` / `rc_frame` | `3/6/32/2/177/422/130/0/0/46/781` | 1060.906699 |
+| `housing` / `rc_frame` | `2/10/22/1/62/142/25/0/4/26/259` | 214.713586 |
+| `housing_masonry` / `load_bearing_masonry` | `2/20/20/1/8/0/0/2/0/7/30` | 233.300131 |
+
+The masonry base shear is about 1.55710 times, or 55.71 percent, above the
+recorded pre-F1 value of 149.83 kN. The shared test battery changed only four
+B25 numeric expectations in `test_masonry_pipeline.py`:
+`224.73910327680005` to `233.30013128755218`, `0.0224` to `0.02329`,
+`404.53038589824007` to `419.94023631759393`, and `231.9801454368` to
+`240.83081513395234`. `test_api_pipeline.py` was unchanged. Cantilever
+root-edge torsion remains a disclosed v1 limitation, not a failed C7 result.
+
+The deployment record now treats structural cache keys as content-addressed
+over Python plus every sorted raw YAML table byte and requires matching web and
+worker fingerprints. Normal rebuilt deployments require no Redis flush; db 0
+must never be flushed. VM planning now includes both Redis db 1 response bytes
+and `django-db` Postgres `TaskResult` rows, a six-hour cleanup cadence, exactly
+one beat scheduler, and up to approximately 30 hours of retained rows. Nothing
+was committed, pushed, or deployed.
+
 STATUS 2026-08-30, third entry (wave 9, the two gaps and the paperwork): the
 first wave that added no feature. It closed both gaps the entry below records
 as open, read the first slice of the data tables back against the printed

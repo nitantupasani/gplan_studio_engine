@@ -258,9 +258,9 @@ cl_5_4_1_2_area_reduction:
 # CLAUSE NUMBERS ARE SWAPPED IN THE TWO KEY NAMES BELOW, found 2026-08-30.
 # In IS 1905:1987, Cl 5.4.2 is Permissible Tensile Stress and Cl 5.4.3 is
 # Permissible Shear Stress. The key names say the opposite. The `source:`
-# strings have been corrected to the real clause numbers, which is what the
-# response trace cites; the KEYS are left alone because codes/is1905.py reads
-# them by name, so renaming them is a code change and not a data change.
+# strings and the matching @clause refs in codes/is1905.py carry the real
+# clause numbers. The KEYS are left alone because codes/is1905.py reads them
+# by name, so renaming them is a code change and not a data change.
 cl_5_4_2_shear:
   source: "IS 1905:1987 Cl 5.4.3, permissible shear stress in masonry (the key name carries the wrong clause number, see the comment above)"
   edition: "1987, third revision"

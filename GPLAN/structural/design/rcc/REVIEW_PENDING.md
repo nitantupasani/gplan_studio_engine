@@ -6,8 +6,8 @@ Every module here was scoped fable tier and built by an opus agent at max effort
 
 | File | Built by | Status | Check |
 |---|---|---|---|
-| `_interaction_fallback.py` | opus max | PENDING | the strain-plane sweep against the closed-form anchors at both ends, the balanced point, displaced-concrete netting on compression bars, and that the lru_cache key cannot collide across layouts |
-| `columns.py` | opus max | PENDING | additional-moment k iteration convergence, biaxial alpha_n interpolation, the 0.8 to 6 percent ladder ordering, tie leg patterns |
-| `slabs.py` | opus max | PENDING | Annex D case matching from the continuity mask (the easiest place to silently pick the wrong case), corner torsion only where an edge is discontinuous, the 150 mm stop with the add_secondary_beams referral, the stair waist derivation |
-| `footings.py` | opus max | PENDING | which check actually governs (punching versus one-way versus flexure) on both a square and a 2:1 rectangular case, the kern enlargement, band steel distribution, the strap referral path |
-| `beams.py`, `detailing.py` | opus max | PENDING | the capacity-design shear recomputation from PROVIDED steel (safety critical), hoop zone geometry, the Table 20 cap treated as a section failure not a stirrup problem, curtailment conventions |
+| `_interaction_fallback.py` | opus max | REVIEWED 2026-08-30, OWED, CLEAN | deeper re-read: no external oracle for the constitutive choice, the general-theta path, and signed-moment interpolation for asymmetric cages |
+| `columns.py` | opus max | REVIEWED-AND-FIXED 2026-08-31, OWED | deeper re-read: the IS 13920 handoff and whether placement can emit a section below 230 mm, alongside the interaction-engine questions |
+| `slabs.py` | opus max | REVIEWED-AND-FIXED 2026-08-31, OWED | deeper re-read: irregular panels; cantilever root-edge torsion remains a disclosed v1 limitation |
+| `footings.py` | opus max | REVIEWED-AND-FIXED 2026-08-31, OWED | deeper re-read: strap-span provenance, partial-contact pressure after lift-off, dowel compression Ld, the diameter-depth fixed point, and irregular panels |
+| `beams.py`, `detailing.py` | opus max | REVIEWED-AND-FIXED 2026-08-31, OWED | deeper re-read: printed Cl 6.3.4, the SP 34 curtailment datum, the SP 16 Table F and Fig 4-6 grids, the 10 mm hoop minimum, and the `zone_mm` convention |

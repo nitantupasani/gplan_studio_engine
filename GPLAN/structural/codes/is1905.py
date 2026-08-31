@@ -13,7 +13,7 @@ The compressive chain reads, in order:
     heff = effective_height(H, top, bottom)                           Table 4
     leff = effective_length(L, ends)                                  Table 5
     teff = effective_thickness(t, ...)                                Table 6
-    SR  = slenderness_ratio(heff, leff, teff)                         Cl 5.2
+    SR  = slenderness_ratio(heff, leff, teff)                         Cl 4.6.1
           check_max_slenderness(SR, storeys, mortar_grade)            Table 7
     ks  = stress_reduction_factor(SR, e_over_t).ks                    Table 9
     ka  = area_reduction_factor(A_m2)                                 Cl 5.4.1.2
@@ -297,7 +297,7 @@ def basic_compressive_stress(unit_strength_mpa: float, mortar_grade: str) -> flo
 
 
 # ---------------------------------------------------------------------------
-# Tables 4, 5, 6 and Cl 5.2: slenderness inputs
+# Tables 4, 5, 6 and Cl 4.6.1: slenderness inputs
 # ---------------------------------------------------------------------------
 
 
@@ -413,7 +413,7 @@ def effective_thickness(
 
 @clause(
     code=CODE,
-    ref="Cl 5.2",
+    ref="Cl 4.6.1",
     title="Slenderness ratio of a wall",
     symbol="SR",
     units="",
@@ -438,7 +438,7 @@ def slenderness_ratio(heff_m: float, leff_m: Optional[float], teff_m: float) -> 
     units="",
 )
 def check_max_slenderness(slenderness: float, storeys: int, mortar_grade: str) -> bool:
-    """True while the wall is inside the Cl 5.2 cap: 27 on cement, 20 on lime mortars.
+    """True while the wall is inside the Cl 4.6.1 cap: 27 on cement, 20 on lime mortars.
 
     The storey count is carried into the trace. This transcription of Table 7
     does not reduce the cap with storey count and no such reduction is invented
@@ -636,7 +636,7 @@ def permissible_compressive_stress(fb_mpa: float, ks: float, ka: float, kp: floa
 
 @clause(
     code=CODE,
-    ref="Cl 5.4.2",
+    ref="Cl 5.4.3",
     title="Permissible shear stress in masonry",
     symbol="fs",
     units="MPa",
@@ -666,7 +666,7 @@ def permissible_shear(fd_mpa: float, mortar_grade: str) -> float:
 
 @clause(
     code=CODE,
-    ref="Cl 5.4.3",
+    ref="Cl 5.4.2",
     title="Permissible tensile stress in masonry",
     symbol="ft",
     units="MPa",
@@ -676,7 +676,7 @@ def permissible_tension(bending_plane: str, mortar_grade: str, policy: str = "no
 
     The engine default is `no_tension`: ft = 0.0, and any net tension is a
     failure carrying a prescription (add vertical reinforcement, or raise the
-    dead load). `allow_flexural_tension` returns the Cl 5.4.3 values, 0.07 MPa
+    dead load). `allow_flexural_tension` returns the Cl 5.4.2 values, 0.07 MPa
     normal to the bed joints and 0.14 MPa parallel to them, and only for the
     stronger mortars; a weaker mortar still returns 0.0. That policy is for a
     laterally loaded panel, never for a primary gravity wall, and the design

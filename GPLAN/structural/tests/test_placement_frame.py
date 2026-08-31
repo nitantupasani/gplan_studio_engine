@@ -27,6 +27,8 @@ from ..placement.frame import (
     _ColumnState,
     _Stack,
     _View,
+    _balcony_root_side,
+    _edge_independent_vertical_support,
     enforce_continuity,
     insert_secondary_beams,
     place_lintels_for_infill,
@@ -348,6 +350,43 @@ def test_plan_fixture_balcony_panels_are_cantilever_kind(plan_result):
     kinds = {p.kind for p in plan_result.panels}
     assert "cantilever" in kinds  # the 5 ft balcony strip
     assert "slab" in kinds
+
+
+def test_full_width_balcony_tip_has_real_column_support_and_stays_regular(plan_result):
+    """The control has three tip beams whose endpoints are actual stacks."""
+    source = plan_model()
+    balcony_panels = [panel for panel in plan_result.panels if panel.kind == "cantilever"]
+    assert [(panel.id, panel.level) for panel in balcony_panels] == [
+        ("slab-s0-4", 0),
+        ("slab-s1-4", 1),
+    ]
+    for panel in balcony_panels:
+        assert _balcony_root_side(panel, source.rooms) == "y_min"
+        supported, evidence = _edge_independent_vertical_support(
+            panel,
+            "y_max",
+            plan_result.beams,
+            plan_result.columns,
+            source.walls,
+        )
+        level = panel.level
+        assert supported is True
+        assert evidence == {
+            "beam-s%d-yF-0" % level: (["stk-1-F"], ["stk-2-F"]),
+            "beam-s%d-yF-1" % level: (["stk-2-F"], ["stk-3-F"]),
+            "beam-s%d-yF-2" % level: (["stk-3-F"], ["stk-4-F"]),
+        }
+
+    plan_result.write_back(source)
+    written = [
+        slab
+        for slab in source.slabs
+        if slab.id in {"slab-s0-4", "slab-s1-4"}
+    ]
+    assert len(written) == 2
+    assert all(slab.placed_by == "placement.frame.balcony_supported" for slab in written)
+    assert all(slab.span_kind == "regular" for slab in written)
+    assert all(slab.cantilever_backing_edge is None for slab in written)
 
 
 def test_plan_fixture_column_sizes_follow_the_two_storey_rung(plan_result):

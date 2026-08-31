@@ -247,6 +247,38 @@ def test_merge_tol_folds_partition_onto_party_axis():
     assert sorted(wall for _, wall in axis.members) == ["w-s0-part-off", "w-s0-party"]
 
 
+def test_merge_tol_is_bounded_by_its_opening_member_and_discloses_far_wall():
+    """A fixed merge window cannot chain through a stronger middle candidate."""
+    from ..grid import _Cand, _Unit, _cluster
+
+    def candidate(pos, source, key):
+        return _Cand(pos, source, 1000, 0, 1000, 115, 0, key, wall_id=key)
+
+    clusters = _cluster(
+        [
+            _Unit([candidate(0, M.AxisSource.WALL, "w0")]),
+            _Unit([candidate(90, M.AxisSource.OUTLINE, "w90")]),
+            _Unit([candidate(180, M.AxisSource.WALL, "w180")]),
+        ],
+        fixed_tol_mm=100,
+    )
+    assert [[member.pos_mm for member in cluster.members] for cluster in clusters] == [
+        [0, 90],
+        [180],
+    ]
+
+    grid = extract_axes(two_storey_model())
+    note = [
+        entry
+        for entry in grid.log.entries
+        if entry.code == "N_GRID_AXIS_OFFSET"
+        and entry.element_ids == ["gx-4", "w-s0-part-off"]
+    ]
+    assert len(note) == 1
+    assert note[0].element_ids == ["gx-4", "w-s0-part-off"]
+    assert "140 mm" in note[0].message
+
+
 def test_tol_wall_is_not_parametric():
     """The 0.2 m offset survives a merge_tol of zero: tol_wall alone keeps them apart."""
     grid = extract_axes(two_storey_model(), FrameParams(merge_tol=0.0))
@@ -313,6 +345,16 @@ def test_extents_stop_at_the_nearest_crossing_axis():
     assert axis.extents[0] == [(0.0, 12.06)]
     # storey 1 has no wall on that line: the full chord instead
     assert axis.extents_mm[1] == [(0, 16000)]
+
+
+def test_extents_snap_to_a_near_crossing_on_either_side_of_the_wall_end():
+    """A crossing 50 mm before the end beats the old outward 6 m extension."""
+    from ..grid import _Footprint, _extend_to_perpendicular
+
+    footprint = _Footprint.from_rects([(0, 0, 10000, 12000)])
+    assert _extend_to_perpendicular(
+        5000, 0, 6000, "v", [0, 5950, 12000], footprint
+    ) == (0, 5950)
 
 
 def test_extents_are_clipped_to_the_footprint():

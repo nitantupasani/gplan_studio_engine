@@ -93,25 +93,31 @@ class Soil:
         table = load_yaml(SOIL_TABLE)
         base = dict(table["defaults"])
         supplied = dict(value or {})
-        assumed = []  # type: List[str]
+        incoming = supplied.get("assumed", [])
+        if isinstance(incoming, (list, tuple, set, frozenset)):
+            assumed = {str(name) for name in incoming if str(name)}
+        elif incoming is None:
+            assumed = set()
+        else:
+            assumed = {str(incoming)}
         soil_type = str(supplied.get("type", base["type"]))
         if "type" not in supplied:
-            assumed.append("type")
+            assumed.add("type")
         types = table.get("types", {})
         row = types.get(soil_type, {}) if isinstance(types, dict) else {}
         if "sbc_kpa" in supplied and supplied["sbc_kpa"] is not None:
             sbc = float(supplied["sbc_kpa"])
         elif row.get("typical_sbc_kpa") is not None:
             sbc = float(row["typical_sbc_kpa"])
-            assumed.append("sbc_kpa")
+            assumed.add("sbc_kpa")
         else:
             sbc = float(base["sbc_kpa"])
-            assumed.append("sbc_kpa")
+            assumed.add("sbc_kpa")
         if "founding_depth_m" in supplied and supplied["founding_depth_m"] is not None:
             depth = float(supplied["founding_depth_m"])
         else:
             depth = float(base["founding_depth_m"])
-            assumed.append("founding_depth_m")
+            assumed.add("founding_depth_m")
         if "soft" in supplied:
             soft = bool(supplied["soft"])
         else:
@@ -183,6 +189,10 @@ class Widening:
     width_m: float
     taper_m: float
     p_service_kn: float
+    s0_m: float = 0.0
+    s1_m: float = 0.0
+    effective_length_m: float = 0.0
+    line_load_kn_per_m: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -191,6 +201,10 @@ class Widening:
             "width_m": round(float(self.width_m), 6),
             "taper_m": round(float(self.taper_m), 6),
             "p_service_kn": round(float(self.p_service_kn), 6),
+            "s0_m": round(float(self.s0_m), 6),
+            "s1_m": round(float(self.s1_m), 6),
+            "effective_length_m": round(float(self.effective_length_m), 6),
+            "line_load_kn_per_m": round(float(self.line_load_kn_per_m), 6),
         }
 
 
@@ -327,6 +341,8 @@ class CombinedFooting:
     resultant_x_m: float
     resultant_y_m: float
     centroid_offset_ratio: float
+    eccentric: bool = False
+    e_m: float = 0.0
     note: str = ""
 
     def rect(self) -> Tuple[float, float, float, float]:
@@ -346,10 +362,12 @@ class CombinedFooting:
             "depth_m": round(float(self.depth_m), 6),
             "rect_m": [round(x, 6), round(y, 6), round(w, 6), round(h, 6)],
             "centroid_offset_ratio": round(float(self.centroid_offset_ratio), 6),
+            "eccentric": bool(self.eccentric),
             "demands": {
                 "p_service_kn": round(float(self.p_service_kn), 6),
                 "resultant_x_m": round(float(self.resultant_x_m), 6),
                 "resultant_y_m": round(float(self.resultant_y_m), 6),
+                "e_m": round(float(self.e_m), 6),
                 "source": "takedown",
             },
             "note": self.note,
@@ -422,6 +440,9 @@ class FoundationPlan:
                     h_m=h,
                     depth_m=strip.depth_m,
                     placed_by=PLACED_BY,
+                    eccentric=strip.eccentric,
+                    e_m=strip.e_m,
+                    w_service_kn_per_m=strip.w_service_kn_per_m,
                 )
             )
         for pad in self.pads:
@@ -436,6 +457,8 @@ class FoundationPlan:
                     h_m=pad.h_m,
                     depth_m=pad.depth_m,
                     placed_by=PLACED_BY,
+                    eccentric=pad.eccentric,
+                    e_m=pad.e_m,
                 )
             )
         for comb in self.combined:
@@ -450,6 +473,8 @@ class FoundationPlan:
                     h_m=comb.h_m,
                     depth_m=comb.depth_m,
                     placed_by=PLACED_BY,
+                    eccentric=comb.eccentric,
+                    e_m=comb.e_m,
                 )
             )
         for strap in self.straps:
@@ -563,6 +588,31 @@ def _party_lines(model: StructuralModel) -> List[Tuple[str, float]]:
     return sorted(out)
 
 
+def _party_inward(
+    model: StructuralModel, orient: str, pos: float, reference: Optional[float] = None
+) -> float:
+    """Side of a party line owned by this footing.
+
+    Pads use their own load point, so an internal demising line never turns the
+    opposite half of the building into forbidden ground. A load exactly on the
+    line, including a wall strip, uses the model footprint centre as the stable
+    tie breaker.
+    """
+    if reference is not None:
+        if reference < pos - GEOM_TOL_M:
+            return -1.0
+        if reference > pos + GEOM_TOL_M:
+            return 1.0
+    bounds = _plot_bounds(model)
+    plot = model.meta.get("plot_bounds_m")
+    if isinstance(plot, (list, tuple)) and len(plot) == 4:
+        bounds = tuple(float(value) for value in plot)
+    if bounds is None:
+        return 1.0
+    centre = 0.5 * (bounds[0] + bounds[2]) if orient == "v" else 0.5 * (bounds[1] + bounds[3])
+    return 1.0 if centre >= pos else -1.0
+
+
 def _lookup_load(loads: Dict[str, float], keys: Sequence[str]) -> Tuple[float, bool]:
     """The largest load found under any of these ids, and whether one was found."""
     found = False
@@ -649,9 +699,10 @@ def layout_foundations(
 
     strips = _strips(model, bearing_wall_ids, wall_loads, resolved, params, plan, notes)
     pads = _pads(model, column_ids, column_loads, resolved, params, plan, notes)
-    pads = _column_on_strip(strips, pads, params, plan, notes)
+    pads = _column_on_strip(strips, pads, resolved, params, plan, notes)
     pads, combined = _combine(pads, params, plan, notes)
     _straps(model, strips, pads, combined, params, plan, notes)
+    _disclose_pad_strip_overlaps(strips, pads, combined, plan, notes)
 
     plan.strips = sorted(strips, key=lambda row: row.id)
     plan.pads = sorted(pads, key=lambda row: row.id)
@@ -755,13 +806,20 @@ def _strips(
                     wall_t_m=thickness,
                     rc=rc,
                     eccentric=party,
-                    e_m=0.5 * width - 0.5 * thickness if party else 0.0,
+                    e_m=0.0,
                     w_service_kn_per_m=load,
                     load_source="takedown" if found else "geometric_minimum",
-                    note=note + ("; party wall, so the strip is eccentric to the boundary" if party else ""),
+                    note=note + ("; party wall strip is flushed inside the boundary" if party else ""),
                 )
             )
     _mitre(strips)
+    for strip in strips:
+        if not strip.eccentric:
+            continue
+        wall_pos = strip.pos_m
+        inward = _party_inward(model, strip.orient, wall_pos)
+        strip.e_m = 0.5 * strip.width_m
+        strip.pos_m = wall_pos + inward * strip.e_m
     if missing:
         plan.warnings.append(
             make_disclosure(
@@ -780,8 +838,8 @@ def _strips(
             plan.warnings.append(
                 make_disclosure(
                     "W_ECCENTRIC_COLUMN",
-                    "strip %s runs under a party wall, so it is eccentric to the boundary by %.3f m; "
-                    "the eccentricity is handed to design rather than shrunk away here"
+                    "strip %s runs under a party wall and was flushed inside the boundary; the wall "
+                    "resultant is %.3f m off the emitted strip centre and that eccentricity is handed to design"
                     % (strip.id, strip.e_m),
                     [strip.id],
                     clause="IS6403:1981",
@@ -885,11 +943,18 @@ def _pads(
 def _column_on_strip(
     strips: Sequence[StripFooting],
     pads: Sequence[PadFooting],
+    soil: Soil,
     params: FoundationParams,
     plan: FoundationPlan,
     notes: List[str],
 ) -> List[PadFooting]:
-    """Absorb every pad whose column sits within B/2 of a strip axis."""
+    """Absorb a pad into real widening geometry and the strip's design demand.
+
+    The point load is conservatively spread over the inscribed pad width plus
+    the two taper lengths. The resulting line-load increment is carried on the
+    strip record and on the emitted model footing, so deleting the separate pad
+    never deletes its axial load from design.
+    """
     kept = []  # type: List[PadFooting]
     for pad in sorted(pads, key=lambda row: row.id):
         host = None
@@ -912,25 +977,71 @@ def _column_on_strip(
             kept.append(pad)
             continue
         strip, station = host
-        strip.widenings.append(
-            Widening(
-                column_id=pad.column_ids[0],
-                at_m=station,
-                width_m=max(strip.width_m, pad.w_m),
-                taper_m=float(params.taper_m),
-                p_service_kn=pad.p_service_kn,
-            )
+        lo = strip.s0_m - strip.mitre_m[0]
+        hi = strip.s1_m + strip.mitre_m[1]
+        half_zone = 0.5 * pad.w_m + float(params.taper_m)
+        spread_lo = max(lo, station - half_zone)
+        spread_hi = min(hi, station + half_zone)
+        effective_length = max(spread_hi - spread_lo, min(pad.w_m, max(hi - lo, _ETA)), _ETA)
+        line_load = max(0.0, float(pad.p_service_kn)) / effective_length
+        widening = Widening(
+            column_id=pad.column_ids[0],
+            at_m=station,
+            width_m=max(strip.width_m, pad.w_m),
+            taper_m=float(params.taper_m),
+            p_service_kn=pad.p_service_kn,
+            s0_m=spread_lo,
+            s1_m=spread_hi,
+            effective_length_m=effective_length,
+            line_load_kn_per_m=line_load,
         )
+        strip.widenings.append(widening)
         strip.widenings.sort(key=lambda row: (round(row.at_m, 6), row.column_id))
-        if pad.w_m > strip.width_m + _ETA:
-            strip.note += (
-                "; widened locally to %.3f m under %s, tapered over %.2f m each side"
-                % (pad.w_m, pad.column_ids[0], float(params.taper_m))
-            )
-        notes.append(
-            "column %s lands on strip %s and is carried by a local widening, not a separate pad"
-            % (pad.column_ids[0], strip.id)
+    for strip in sorted(strips, key=lambda row: row.id):
+        if not strip.widenings:
+            continue
+        boundaries = sorted(
+            {value for widening in strip.widenings for value in (widening.s0_m, widening.s1_m)}
         )
+        probes = [widening.at_m for widening in strip.widenings]
+        probes.extend(
+            0.5 * (left + right)
+            for left, right in zip(boundaries[:-1], boundaries[1:])
+            if right > left + _ETA
+        )
+        peak = max(
+            sum(
+                widening.line_load_kn_per_m
+                for widening in strip.widenings
+                if widening.s0_m - _ETA <= probe <= widening.s1_m + _ETA
+            )
+            for probe in probes
+        )
+        strip.w_service_kn_per_m += peak
+        pressure_width = _round_up(
+            strip.w_service_kn_per_m / max(float(soil.sbc_kpa), _ETA), params.strip_round_mm
+        )
+        for widening in strip.widenings:
+            widening.width_m = max(widening.width_m, pressure_width)
+            if widening.width_m > strip.width_m + _ETA:
+                strip.note += (
+                    "; widened locally to %.3f m under %s, tapered over %.2f m each side"
+                    % (widening.width_m, widening.column_id, widening.taper_m)
+                )
+            strip.note += (
+                "; %.3f kN from %s is carried as %.3f kN/m over %.3f m in the strip demand"
+                % (
+                    widening.p_service_kn,
+                    widening.column_id,
+                    widening.line_load_kn_per_m,
+                    widening.effective_length_m,
+                )
+            )
+            notes.append(
+                "column %s lands on strip %s and its %.3f kN service load is carried by a %.3f m "
+                "local widening, not a separate pad"
+                % (widening.column_id, strip.id, widening.p_service_kn, widening.width_m)
+            )
     return kept
 
 
@@ -1034,7 +1145,9 @@ def _combine_group(
         resultant_y_m=ry,
         centroid_offset_ratio=offset,
         note="%d pads within %d mm of each other were combined; the rectangle was extended so its plan "
-        "centroid sits on the load resultant" % (len(members), int(round(params.combine_gap_m * 1000.0))),
+        "centroid sits on the load resultant; this rectangle is a cover on the resultant and bearing area "
+        "is set by the designer"
+        % (len(members), int(round(params.combine_gap_m * 1000.0))),
     )
     if dry_run:
         return footing
@@ -1059,11 +1172,48 @@ def _combine_group(
 # ---------------------------------------------------------------------------
 
 
+def _disclose_pad_strip_overlaps(
+    strips: Sequence[StripFooting],
+    pads: Sequence[PadFooting],
+    combined: Sequence[CombinedFooting],
+    plan: FoundationPlan,
+    notes: List[str],
+) -> None:
+    """Name every final pad/combined rectangle that still shares strip soil."""
+    others = list(pads) + list(combined)
+    for strip in sorted(strips, key=lambda row: row.id):
+        sx, sy, sw, sh = strip.rect()
+        for footing in sorted(others, key=lambda row: row.id):
+            fx, fy, fw, fh = footing.rect()
+            dx = min(sx + sw, fx + fw) - max(sx, fx)
+            dy = min(sy + sh, fy + fh) - max(sy, fy)
+            if dx <= GEOM_TOL_M or dy <= GEOM_TOL_M:
+                continue
+            area = dx * dy
+            plan.warnings.append(
+                make_disclosure(
+                    "W_FOOTING_OVERLAP",
+                    "footing %s and strip %s overlap by %.3f m2 and share bearing soil; both are "
+                    "kept at full size for engineer resolution rather than silently double-crediting the area"
+                    % (footing.id, strip.id, area),
+                    [footing.id, strip.id],
+                    clause="IS6403:1981",
+                    stage="placement.foundations",
+                )
+            )
+            notes.append(
+                "footing %s overlaps strip %s by %.3f m2; see W_FOOTING_OVERLAP"
+                % (footing.id, strip.id, area)
+            )
+
+
 def _crosses(rect: Tuple[float, float, float, float], lines: Sequence[Tuple[str, float, float]]) -> bool:
-    """True when an (x, y, w, h) rectangle reaches past any boundary line."""
+    """True when a rectangle crosses a one-sided plot or two-sided party line."""
     for orient, pos, inward in lines:
         low = rect[0] if orient == "v" else rect[1]
         high = low + (rect[2] if orient == "v" else rect[3])
+        if inward == 0.0 and low < pos - GEOM_TOL_M and high > pos + GEOM_TOL_M:
+            return True
         if inward > 0.0 and low < pos - GEOM_TOL_M:
             return True
         if inward < 0.0 and high > pos + GEOM_TOL_M:
@@ -1074,28 +1224,59 @@ def _crosses(rect: Tuple[float, float, float, float], lines: Sequence[Tuple[str,
 def _boundary_lines(model: StructuralModel) -> List[Tuple[str, float, float]]:
     """(orientation, position, inward sign) of every line a footing may not cross.
 
-    Party walls are always a boundary. The plot line itself is only a boundary
+    Party walls carry inward=0: they are two-sided internal lines and only a
+    rectangle that straddles them crosses. The owning side is selected later
+    from that footing's own load point. The plot line itself is only a boundary
     when the caller supplies it as `model.meta["plot_bounds_m"] = [x0, y0, x1,
     y1]`: the wall network draws the BUILDING outline, and a footing projecting
     into the setback beyond that outline is normal, not a violation.
     """
     lines = []  # type: List[Tuple[str, float, float]]
-    bounds = _plot_bounds(model)
-    centre = None
-    if bounds is not None:
-        centre = (0.5 * (bounds[0] + bounds[2]), 0.5 * (bounds[1] + bounds[3]))
     plot = model.meta.get("plot_bounds_m")
     if isinstance(plot, (list, tuple)) and len(plot) == 4:
         x0, y0, x1, y1 = (float(value) for value in plot)
         lines.extend([("v", x0, 1.0), ("v", x1, -1.0), ("h", y0, 1.0), ("h", y1, -1.0)])
-        centre = (0.5 * (x0 + x1), 0.5 * (y0 + y1))
     for orient, pos in _party_lines(model):
-        if centre is None:
-            lines.append((orient, pos, 1.0))
-            continue
-        reference = centre[0] if orient == "v" else centre[1]
-        lines.append((orient, pos, 1.0 if reference >= pos else -1.0))
+        lines.append((orient, pos, 0.0))
     return sorted(set(lines))
+
+
+def _flush_centre(
+    model: StructuralModel,
+    x_m: float,
+    y_m: float,
+    w_m: float,
+    h_m: float,
+    load_x_m: float,
+    load_y_m: float,
+    lines: Sequence[Tuple[str, float, float]],
+) -> Tuple[float, float, bool]:
+    """Flush one rectangle across each boundary it actually crosses."""
+    x = float(x_m)
+    y = float(y_m)
+    moved = False
+    for orient, pos, inward in lines:
+        half = 0.5 * (w_m if orient == "v" else h_m)
+        centre = x if orient == "v" else y
+        low = centre - half
+        high = centre + half
+        if inward == 0.0:
+            crosses = low < pos - GEOM_TOL_M and high > pos + GEOM_TOL_M
+            reference = load_x_m if orient == "v" else load_y_m
+            side = _party_inward(model, orient, pos, reference)
+        else:
+            crosses = (inward > 0.0 and low < pos - GEOM_TOL_M) or (
+                inward < 0.0 and high > pos + GEOM_TOL_M
+            )
+            side = inward
+        if not crosses:
+            continue
+        if orient == "v":
+            x = pos + side * half
+        else:
+            y = pos + side * half
+        moved = True
+    return (x, y, moved)
 
 
 def _straps(
@@ -1117,21 +1298,16 @@ def _straps(
         return
     offenders = []  # type: List[PadFooting]
     for pad in sorted(pads, key=lambda row: row.id):
-        moved = False
-        for orient, pos, inward in lines:
-            half = 0.5 * (pad.w_m if orient == "v" else pad.h_m)
-            centre = pad.x_m if orient == "v" else pad.y_m
-            low = centre - half
-            high = centre + half
-            crosses = (inward > 0.0 and low < pos - GEOM_TOL_M) or (inward < 0.0 and high > pos + GEOM_TOL_M)
-            if not crosses:
-                continue
-            flush = pos + inward * half
-            if orient == "v":
-                pad.x_m = flush
-            else:
-                pad.y_m = flush
-            moved = True
+        pad.x_m, pad.y_m, moved = _flush_centre(
+            model,
+            pad.x_m,
+            pad.y_m,
+            pad.w_m,
+            pad.h_m,
+            pad.load_x_m,
+            pad.load_y_m,
+            lines,
+        )
         if not moved:
             continue
         pad.eccentric = True
@@ -1139,12 +1315,37 @@ def _straps(
         pad.note += "; shifted flush to the boundary, so the load is %.3f m off the footing centre" % pad.e_m
         offenders.append(pad)
 
-    if not offenders:
+    combined_offenders = []  # type: List[CombinedFooting]
+    for footing in sorted(combined, key=lambda row: row.id):
+        footing.x_m, footing.y_m, moved = _flush_centre(
+            model,
+            footing.x_m,
+            footing.y_m,
+            footing.w_m,
+            footing.h_m,
+            footing.resultant_x_m,
+            footing.resultant_y_m,
+            lines,
+        )
+        if not moved:
+            continue
+        footing.eccentric = True
+        footing.e_m = math.hypot(
+            footing.x_m - footing.resultant_x_m, footing.y_m - footing.resultant_y_m
+        )
+        footing.note += (
+            "; shifted flush to the boundary, so the load resultant is %.3f m off the footing centre"
+            % footing.e_m
+        )
+        combined_offenders.append(footing)
+
+    if not offenders and not combined_offenders:
         return
 
     interior = [pad for pad in pads if not pad.eccentric]
+    interior_combined = [footing for footing in combined if not footing.eccentric]
     for pad in offenders:
-        target = _nearest(pad, interior, combined)
+        target = _nearest(pad, interior, interior_combined)
         if target is not None and target[1] <= float(params.strap_search_m) + _ETA:
             other = target[0]
             mid_x = 0.5 * (pad.x_m + other[1])
@@ -1196,20 +1397,82 @@ def _straps(
         )
         notes.append("eccentric footing %s could not be strapped or combined" % pad.id)
 
+    for footing in combined_offenders:
+        target = _nearest_point(
+            footing.id, footing.x_m, footing.y_m, interior, interior_combined
+        )
+        if target is not None and target[1] <= float(params.strap_search_m) + _ETA:
+            other = target[0]
+            mid_x = 0.5 * (footing.x_m + other[1])
+            mid_y = 0.5 * (footing.y_m + other[2])
+            plan.straps.append(
+                StrapBeam(
+                    id="ftg-strap-@" + pos_token(mid_x) + "x" + pos_token(mid_y),
+                    from_id=footing.id,
+                    to_id=other[0],
+                    a=(footing.x_m, footing.y_m),
+                    b=(other[1], other[2]),
+                    e_m=footing.e_m,
+                    note="eccentric boundary combined footing tied back to the nearest interior footing "
+                    "within %.1f m; the strap beam carries the couple"
+                    % float(params.strap_search_m),
+                )
+            )
+            notes.append("strap beam from %s to %s" % (footing.id, other[0]))
+            plan.warnings.append(
+                make_disclosure(
+                    "W_ECCENTRIC_COLUMN",
+                    "combined footing %s was flushed inside the boundary and a strap was laid out to %s, "
+                    "but the automatic combined-footing designer does not consume that strap; engineer "
+                    "design of the %.3f m eccentricity and strap is required"
+                    % (footing.id, other[0], footing.e_m),
+                    [footing.id, other[0]],
+                    clause="IS6403:1981",
+                    stage="placement.foundations",
+                )
+            )
+            continue
+        plan.warnings.append(
+            make_disclosure(
+                "W_ECCENTRIC_COLUMN",
+                "combined footing %s was flushed inside the boundary with its load resultant %.3f m "
+                "off centre, but there is no separate interior footing within %.1f m to strap it to; "
+                "automatic design does not resolve this eccentric condition, so engineer review is required"
+                % (footing.id, footing.e_m, float(params.strap_search_m)),
+                [footing.id],
+                clause="IS6403:1981",
+                stage="placement.foundations",
+            )
+        )
+        notes.append("eccentric combined footing %s could not be strapped" % footing.id)
+
 
 def _nearest(
     pad: PadFooting, interior: Sequence[PadFooting], combined: Sequence[CombinedFooting]
 ) -> Optional[Tuple[Tuple[str, float, float], float]]:
     """Nearest interior pad or combined footing to this one, by centre distance."""
+    return _nearest_point(pad.id, pad.x_m, pad.y_m, interior, combined)
+
+
+def _nearest_point(
+    element_id: str,
+    x_m: float,
+    y_m: float,
+    interior: Sequence[PadFooting],
+    combined: Sequence[CombinedFooting],
+) -> Optional[Tuple[Tuple[str, float, float], float]]:
+    """Nearest interior pad or combined footing to an arbitrary centre."""
     best = None
     for other in sorted(interior, key=lambda row: row.id):
-        if other.id == pad.id:
+        if other.id == element_id:
             continue
-        distance = math.hypot(other.x_m - pad.x_m, other.y_m - pad.y_m)
+        distance = math.hypot(other.x_m - x_m, other.y_m - y_m)
         if best is None or distance < best[1] - _ETA:
             best = ((other.id, other.x_m, other.y_m), distance)
     for other in sorted(combined, key=lambda row: row.id):
-        distance = math.hypot(other.x_m - pad.x_m, other.y_m - pad.y_m)
+        if other.id == element_id:
+            continue
+        distance = math.hypot(other.x_m - x_m, other.y_m - y_m)
         if best is None or distance < best[1] - _ETA:
             best = ((other.id, other.x_m, other.y_m), distance)
     return best

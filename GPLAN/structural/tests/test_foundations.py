@@ -8,10 +8,13 @@ B_pad = max(sqrt(P / sbc), 1.0) snapped up to 150 mm.
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
+from .. import api
 from .. import model as MM
+from ..design import rcc
 from ..placement import foundations as F
 
 SBC = 150.0
@@ -89,6 +92,18 @@ def test_soil_defaults_come_from_the_catalogue_and_are_disclosed():
     soil = plan.report["soil"]
     assert soil["type"] == "II"
     assert soil["founding_depth_m"] == 1.5  # finding 30: 1.5 m everywhere
+    codes = [entry.code for entry in plan.warnings]
+    assert "W_ASSUMED_SBC" in codes
+    assert "W_ASSUMED_FOUNDING_DEPTH" in codes
+
+
+def test_resolved_soil_round_trip_preserves_assumption_disclosures():
+    model = _rect_model()
+    resolved = api.resolve_soil(None)
+    soil = F.Soil.from_params(resolved)
+    assert soil.assumed == resolved["assumed"]
+
+    plan = F.layout_foundations(model, _bearing(model), [], {}, {}, soil=resolved)
     codes = [entry.code for entry in plan.warnings]
     assert "W_ASSUMED_SBC" in codes
     assert "W_ASSUMED_FOUNDING_DEPTH" in codes
@@ -217,9 +232,19 @@ def test_a_party_wall_strip_is_flagged_eccentric():
     plan = F.layout_foundations(model, _bearing(model), [], {}, {}, soil=SOIL)
     party = [strip for strip in plan.strips if strip.eccentric]
     assert len(party) == 1
-    assert party[0].e_m > 0.0
-    assert "party wall" in party[0].note
+    strip = party[0]
+    assert strip.e_m == pytest.approx(0.5 * strip.width_m)
+    assert strip.pos_m == pytest.approx(0.5 * strip.width_m)
+    assert strip.rect()[0] == pytest.approx(0.0), "the strip is flush inside the party line"
+    assert "party wall" in strip.note
     assert "W_ECCENTRIC_COLUMN" in [entry.code for entry in plan.warnings]
+
+    placed = next(footing for footing in model.footings if footing.id == strip.id)
+    assert placed.eccentric is True
+    assert placed.e_m == pytest.approx(strip.e_m)
+    geometry = rcc.strip_geometry_from_model(placed, {wall.id: wall for wall in model.walls})
+    assert geometry.eccentric is True
+    assert geometry.e_m == pytest.approx(strip.e_m)
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +302,7 @@ def test_a_missing_axial_load_is_disclosed():
 # ---------------------------------------------------------------------------
 
 
-def test_a_column_on_a_strip_axis_widens_it_instead_of_taking_a_pad():
+def test_a_column_on_a_strip_axis_widens_it_and_reaches_the_strip_designer(monkeypatch):
     model = _rect_model()
     column = _column(0, 4.5, 6.0)
     model.columns.append(column)
@@ -297,8 +322,33 @@ def test_a_column_on_a_strip_axis_widens_it_instead_of_taking_a_pad():
     assert widening.at_m == pytest.approx(6.0)
     assert widening.width_m == pytest.approx(2.1)
     assert widening.taper_m == pytest.approx(1.0)
+    assert widening.effective_length_m > 0.0
+    assert widening.line_load_kn_per_m == pytest.approx(600.0 / widening.effective_length_m)
+    assert hosts[0].w_service_kn_per_m == pytest.approx(40.0 + widening.line_load_kn_per_m)
     assert "widened locally" in hosts[0].note
     assert any("lands on strip" in note for note in plan.report["notes"])
+
+    placed = next(footing for footing in model.footings if footing.id == hosts[0].id)
+    assert placed.w_service_kn_per_m == pytest.approx(hosts[0].w_service_kn_per_m)
+    restored = MM.StructuralModel.from_dict(model.to_dict())
+    restored_footing = next(footing for footing in restored.footings if footing.id == placed.id)
+    assert restored_footing.w_service_kn_per_m == pytest.approx(placed.w_service_kn_per_m)
+
+    captured = {}
+
+    def fake_design(geometry, loads, soil, ctx):
+        captured["load"] = loads.n_service_kn_per_m
+        return SimpleNamespace(add_note=lambda _note: None)
+
+    monkeypatch.setattr(rcc, "design_strip_footing", fake_design)
+    rcc._design_one_strip(
+        placed,
+        {wall.id: wall for wall in model.walls},
+        {wall.id: 40.0 for wall in model.walls},
+        SOIL,
+        None,
+    )
+    assert captured["load"] == pytest.approx(hosts[0].w_service_kn_per_m)
 
 
 def test_a_column_off_the_strip_axis_keeps_its_own_pad():
@@ -315,6 +365,27 @@ def test_a_column_off_the_strip_axis_keeps_its_own_pad():
     )
     assert len(plan.pads) == 1
     assert all(strip.widenings == [] for strip in plan.strips)
+
+
+def test_separate_widening_zones_use_the_governing_local_load_not_their_sum():
+    model = _base()
+    wall = _wall(0, (0.0, 2.0), (20.0, 2.0), role=MM.WallRole.INTERIOR)
+    columns = [_column(0, 3.0, 2.0), _column(0, 17.0, 2.0)]
+    model.walls.append(wall)
+    model.columns.extend(columns)
+    plan = F.layout_foundations(
+        model,
+        [wall.id],
+        [column.id for column in columns],
+        {wall.id: 40.0},
+        {column.id: 300.0 for column in columns},
+        soil=SOIL,
+    )
+
+    strip = plan.strips[0]
+    assert len(strip.widenings) == 2
+    increment = strip.widenings[0].line_load_kn_per_m
+    assert strip.w_service_kn_per_m == pytest.approx(40.0 + increment)
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +441,42 @@ def test_pads_further_apart_than_the_gap_stay_apart():
     assert plan.combined == []
 
 
+def test_combined_cover_note_names_the_designer_as_bearing_area_owner():
+    model = _base()
+    columns = [_column(0, 2.0, 2.0), _column(0, 2.8, 2.0)]
+    model.columns.extend(columns)
+    plan = F.layout_foundations(
+        model, [], [column.id for column in columns], {}, {column.id: 300.0 for column in columns}, soil=SOIL
+    )
+
+    assert len(plan.combined) == 1
+    assert "bearing area is set by the designer" in plan.combined[0].note
+
+
+def test_a_combined_footing_passes_the_party_boundary_ladder():
+    model = _base()
+    model.walls.extend(
+        [
+            _wall(0, (0.0, 0.0), (0.0, 12.0), role=MM.WallRole.PARTY),
+            _wall(0, (6.0, 0.0), (6.0, 12.0), role=MM.WallRole.EXTERIOR),
+        ]
+    )
+    edge = _column(0, 0.0, 6.0)
+    inner = _column(0, 1.5, 6.0)
+    model.columns.extend([edge, inner])
+    plan = F.layout_foundations(
+        model, [], [edge.id, inner.id], {}, {edge.id: 300.0, inner.id: 300.0}, soil=SOIL
+    )
+
+    assert len(plan.combined) == 1
+    combined = plan.combined[0]
+    assert combined.rect()[0] == pytest.approx(0.0)
+    assert combined.eccentric is True
+    assert combined.e_m == pytest.approx(0.75)
+    assert "bearing area is set by the designer" in combined.note
+    assert "W_ECCENTRIC_COLUMN" in [entry.code for entry in plan.warnings]
+
+
 # ---------------------------------------------------------------------------
 # boundaries and straps
 # ---------------------------------------------------------------------------
@@ -420,6 +527,27 @@ def test_a_party_wall_is_a_boundary_even_without_a_plot_outline():
     assert len(plan.straps) == 1
 
 
+def test_an_internal_party_line_does_not_teleport_far_side_pads():
+    model = _base()
+    model.walls.extend(
+        [
+            _wall(0, (0.0, 0.0), (0.0, 12.0), role=MM.WallRole.EXTERIOR),
+            _wall(0, (4.5, 0.0), (4.5, 12.0), role=MM.WallRole.PARTY),
+            _wall(0, (9.0, 0.0), (9.0, 12.0), role=MM.WallRole.EXTERIOR),
+        ]
+    )
+    left = _column(0, 1.0, 3.0)
+    right = _column(0, 8.0, 9.0)
+    model.columns.extend([left, right])
+    plan = F.layout_foundations(
+        model, [], [left.id, right.id], {}, {left.id: 150.0, right.id: 150.0}, soil=SOIL
+    )
+
+    centres = sorted((pad.load_x_m, pad.x_m, pad.eccentric) for pad in plan.pads)
+    assert centres == [(1.0, 1.0, False), (8.0, 8.0, False)]
+    assert plan.straps == []
+
+
 def test_no_interior_footing_within_six_metres_combines_instead():
     # 6.25 m apart, so the strap search fails; the resultant sits right of the
     # bounding box centre, so the rectangle grows away from the boundary
@@ -464,6 +592,23 @@ def test_without_a_plot_outline_nothing_is_called_eccentric():
     assert plan.straps == []
     assert plan.pads[0].eccentric is False
     assert any("no plot or party boundary" in note for note in plan.report["notes"])
+
+
+def test_a_surviving_pad_strip_overlap_is_disclosed():
+    model = _base()
+    wall = _wall(0, (0.0, 2.0), (10.0, 2.0), role=MM.WallRole.INTERIOR)
+    column = _column(0, 5.0, 2.35)
+    model.walls.append(wall)
+    model.columns.append(column)
+    plan = F.layout_foundations(
+        model, [wall.id], [column.id], {wall.id: 40.0}, {column.id: 600.0}, soil=SOIL
+    )
+
+    assert len(plan.pads) == 1
+    overlap = [entry for entry in plan.warnings if entry.code == "W_FOOTING_OVERLAP"]
+    assert len(overlap) == 1
+    assert set(overlap[0].element_ids) == {plan.pads[0].id, plan.strips[0].id}
+    assert "share" in overlap[0].message
 
 
 # ---------------------------------------------------------------------------

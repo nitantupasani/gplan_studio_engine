@@ -45,8 +45,8 @@ budgeted. Content falls in three tiers and the tier decides what a level may do
 to it:
 
   TIER 1, whole at every level, because a reader acts on it: the DISCLAIMER,
-  EVERY Disclosure on the ladder (`errors` + `warnings`, and `report.disclosures`
-  in full), `options_echo`, `placement`, `layout_score` / `report.layout_metrics`,
+  EVERY Disclosure on the entry ladder (`errors` + `warnings`), `options_echo`,
+  `placement`, `layout_score` / `report.layout_metrics`,
   the model's geometry slots, the take-off class rows and their bases, the whole
   BOQ with its subtotals and totals, `design.failed`, `design.coverage`, and the
   section, reinforcement, status, utilization and GOVERNING CHECK of every
@@ -57,14 +57,17 @@ to it:
   every check row and note included, and their element cards.
 
   TIER 3, elided at `compact` (the default) and whole at `full`: the non-governing
-  check rows, notes, bars, stirrups and resize history of a passing member; the
+  check rows, notes, bars, stirrups and resize history of a passing member; a
+  passing member's non-masonry extra detail blocks; `report.disclosures` (ERROR rows stay,
+   while the entry ladder remains whole); the
   per-element unfactored load rows; the takedown's force envelopes, beam runs and
   column loads; the per-element concrete volumes and the per-bar schedule; the
   per-pier lateral distribution; the cards of members that are neither blocked nor
   failed. `DETAIL_POLICY` lists every one of them with the key that names where
   the whole block lives, `run_options()` publishes that table, and every design
-  entry echoes the resolved level in `entry["detail"]`. Nothing is elided
-  silently: an elided block always ships a sibling `_ref` or `_total`.
+   entry echoes the resolved level in `entry["detail"]`. `DETAIL_POLICY` names
+   every elided block and `full` restores it; bulk blocks also carry their
+   applicable `_ref` or `_total` marker.
 
 `output.trace: true` resolves the level to `full` unless the caller states one,
 because asking for the working and being handed a summary is a trap. Nothing a
@@ -105,7 +108,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from . import quantities as Q
 from . import report as R
 from .codes import is1893
-from .data._loader import load_yaml
+from .data._loader import available_tables, data_path, load_yaml
 from .grid import FrameParams, extract_axes
 from .loads import (
     CASE_DL,
@@ -259,6 +262,9 @@ DETAIL_POLICY = (
         "block": "structural_model.design[]",
         "elided": [
             "bars", "materials", "notes", "referrals", "resize_history", "stirrups", "trace",
+            "ductile, flexure, serviceability and shear extras for beams",
+            "deflection_route, edges, method and slab_mode extras for slabs",
+            "si extras for footings",
             "every check row but the governing one",
             "the derived numbers in `section` (effective depths, clear spans, panel "
             "spans, bearing pressures, table cases)",
@@ -270,6 +276,7 @@ DETAIL_POLICY = (
             "reinforcement (the display string)",
             "governing_check", "checks (the governing row, whole)", "utilization_max",
             "checks_total", "disclosure_codes", "warnings",
+            "masonry and prescription extras for masonry walls",
         ],
         "reason": "a passing member's full working is roughly 8 kB; the governing "
                   "check, the section and the reinforcement string are what a reader acts on",
@@ -348,9 +355,12 @@ DETAIL_POLICY = (
     },
     {
         "block": "report.bbs.items / report.disclosures",
-        "elided": ["the per-bar rows", "nothing: report.disclosures is always whole"],
-        "kept": ["every schedule aggregate, blocked_mass_kg, the whole ladder"],
-        "reason": "the schedule aggregates are the priced numbers; a disclosure is never elided",
+        "elided": ["the per-bar rows", "WARNING and NOTE report disclosures at compact"],
+        "kept": [
+            "every schedule aggregate", "blocked_mass_kg", "every ERROR disclosure",
+            "disclosures_total, disclosures_ref and disclosures_elided",
+        ],
+        "reason": "the entry-level errors and warnings carry the whole ladder once; compact report disclosures keep ERROR rows and point there",
     },
     {
         "block": "design.failed[]",
@@ -374,16 +384,17 @@ DETAIL_POLICY = (
 #: Referral actions this orchestrator can act on; everything else is disclosed.
 ACTIONABLE_REFERRALS = ("add_secondary_beams", "confined_masonry_conversion")
 
-#: Storey height when a caller states none, feet (the adapters' own default).
+#: Plan/building adapter default, feet. Housing owns its distinct 10.4 ft
+#: default; an omitted request value is left to the selected adapter.
 DEFAULT_STOREY_HEIGHT_FT = 10.0
 
 #: Element classes the v1 design layer owns, per system family.
-_FRAME_DESIGN_CLASSES = ("beam", "column", "slab", "footing")
+_FRAME_DESIGN_CLASSES = ("beam", "column", "slab", "stair", "footing")
 _MASONRY_DESIGN_CLASSES = ("wall",)
 
 #: Every class `design.coverage` reports, owned or not. Lintels and bands are
 #: placed and quantified with no v1 designer, and the coverage row says so.
-_COVERAGE_CLASSES = ("band", "beam", "column", "footing", "lintel", "slab", "wall")
+_COVERAGE_CLASSES = ("band", "beam", "column", "footing", "lintel", "slab", "stair", "wall")
 
 _MASONRY_SYSTEMS = (System.LOAD_BEARING_MASONRY.value, System.CONFINED_MASONRY.value)
 
@@ -489,38 +500,37 @@ _FINGERPRINT_CACHE = []  # type: List[str]
 
 
 def structural_fingerprint() -> str:
-    """Schema version plus the versions of the data tables the answer depends on.
+    """Schema version plus the bytes of every shipped structural data table.
 
     The backend folds this into its cache key so a table edit invalidates the
     cached responses that were computed from the old numbers. Computed once per
     process: the tables themselves are cached by `data/_loader`, and a response
     asks for this several times.
+
+    Each component is length-framed. The framing makes the digest sensitive to
+    table additions and removals and prevents a filename or byte boundary from
+    being reinterpreted as part of a neighbouring component.
     """
     if _FINGERPRINT_CACHE:
         return _FINGERPRINT_CACHE[0]
-    parts = [STRUCTURAL_SCHEMA_VERSION]
-    for name in (
-        "is1893",
-        "is1905_tables",
-        "is4326_tables",
-        "is456_tables",
-        "is875_1_unit_weights",
-        "is875_2_imposed",
-        "is875_3_wind",
-        "rates",
-        "rebar",
-        "soil_defaults",
-        "steel_mass",
-    ):
-        try:
-            table = load_yaml(name)
-        except Exception:  # a table that will not load must not hide the rest
-            parts.append(name + "=missing")
-            continue
-        parts.append(
-            "%s=%s/%s" % (name, table.get("schema_version", "-"), table.get("edition", "-"))
-        )
-    digest = hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+    digest_builder = hashlib.sha256()
+
+    def add_component(name: str, value: bytes) -> None:
+        name_bytes = name.encode("utf-8")
+        digest_builder.update(len(name_bytes).to_bytes(8, "big"))
+        digest_builder.update(name_bytes)
+        digest_builder.update(len(value).to_bytes(8, "big"))
+        digest_builder.update(value)
+
+    add_component("schema_version", STRUCTURAL_SCHEMA_VERSION.encode("utf-8"))
+    names = available_tables()
+    add_component("table_count", str(len(names)).encode("ascii"))
+    for name in names:
+        filename = name + ".yaml"
+        with open(data_path(name), "rb") as handle:
+            add_component(filename, handle.read())
+
+    digest = digest_builder.hexdigest()
     _FINGERPRINT_CACHE.append("st-" + digest[:16])
     return _FINGERPRINT_CACHE[0]
 
@@ -673,7 +683,10 @@ def _default_params_echo() -> Dict[str, Any]:
             "value": {"max_m": MAX_SPAN_M, "min_m": MIN_SPAN_M},
             "origin": "grid.FrameParams (finding 35: metric engine defaults are canonical)",
         },
-        "storey_height_ft": {"value": DEFAULT_STOREY_HEIGHT_FT, "origin": "adapter default"},
+        "storey_height_ft": {
+            "value": None,
+            "origin": "source adapter default: plan/building 10.0 ft; housing 10.4 ft",
+        },
         "wind": {"value": None, "origin": "wind is skipped unless a basic speed is supplied"},
         "output": {
             "value": {
@@ -964,7 +977,21 @@ class _Resolved(object):
         self.zone = self._pick("seismic_zone", params.get("seismic_zone"), "III")
         self.soil = resolve_soil(params.get("soil"))
         self.origins["soil"] = "request" if params.get("soil") is not None else "data/soil_defaults.yaml"
-        self.importance = self._pick("importance_factor", params.get("importance_factor"), 1.0)
+        importance = self._pick("importance_factor", params.get("importance_factor"), 1.0)
+        # Keep a category word only for the request echo. Every engineering
+        # consumer gets the one Table 8 factor resolved here (B26), so placement,
+        # loads and masonry design cannot interpret the same option differently.
+        self.importance_echo = importance
+        self.importance = (
+            is1893.importance_factor(importance)
+            if isinstance(importance, str)
+            else _num(importance, 1.0)
+        )
+        if isinstance(importance, str):
+            self.origins["importance_factor"] = (
+                "request category resolved by IS 1893 (Part 1):2016 Table 8"
+            )
+        self.seismic_system = None  # type: Optional[str]
 
         ductility = params.get("frame_ductility")
         if ductility is None:
@@ -1003,10 +1030,14 @@ class _Resolved(object):
         self.interior_wall_ft = walls.get("interior_ft")
         self.origins["walls"] = "request" if walls else "adapter defaults"
 
-        self.storey_height_ft = _num(
-            self._pick("storey_height_ft", params.get("storey_height_ft"), DEFAULT_STOREY_HEIGHT_FT),
-            DEFAULT_STOREY_HEIGHT_FT,
-        )
+        supplied_height = params.get("storey_height_ft")
+        self.storey_height_supplied = supplied_height is not None
+        if self.storey_height_supplied:
+            self.storey_height_ft = _num(supplied_height, DEFAULT_STOREY_HEIGHT_FT)
+            self.origins["storey_height_ft"] = "request"
+        else:
+            self.storey_height_ft = None  # type: Optional[float]
+            self.origins["storey_height_ft"] = "source adapter default"
         self.live_load_kpa = params.get("live_load_kpa")
         self.origins["live_load_kpa"] = (
             "request" if self.live_load_kpa is not None else "IS 875-2 by occupancy"
@@ -1085,7 +1116,7 @@ class _Resolved(object):
         return _masonry.MasonryParams(
             system=system,
             zone=self.zone,
-            importance=_num(self.importance, 1.0) if not isinstance(self.importance, str) else 1.0,
+            importance=self.importance,
             mortar_grade=self.mortar_grade,
             soil=dict(self.soil),
         )
@@ -1104,7 +1135,7 @@ class _Resolved(object):
             "system": self.system_requested,
             "code_profile": self.code_profile,
             "seismic_zone": self.zone,
-            "importance_factor": self.importance,
+            "importance_factor": self.importance_echo,
             "frame_ductility": self.ductility,
             "soil": dict(self.soil),
             "grades": {
@@ -1133,6 +1164,8 @@ class _Resolved(object):
                 "report_format": self.report_format,
             },
         }
+        if self.seismic_system is not None:
+            values["seismic_system"] = self.seismic_system
         return {
             "values": _plain(values),
             "origins": dict((key, self.origins[key]) for key in sorted(self.origins)),
@@ -1154,6 +1187,26 @@ class _Resolved(object):
 # ---------------------------------------------------------------------------
 # adapters (source dispatch)
 # ---------------------------------------------------------------------------
+
+
+def _record_adapter_storey_height(
+    opts: _Resolved, source: str, models: Sequence[StructuralModel]
+) -> None:
+    """Echo the source adapter's effective default after it built geometry."""
+    if opts.storey_height_supplied:
+        return
+    for model in models:
+        storeys = sorted(model.storeys, key=lambda one: int(one.index))
+        if not storeys:
+            continue
+        opts.storey_height_ft = m_to_ft(float(storeys[0].height_m))
+        break
+    module = {
+        "plan": "adapters.plan_json.from_plan",
+        "building": "adapters.building.from_building",
+        "housing": "adapters.housing.from_housing",
+    }[source]
+    opts.origins["storey_height_ft"] = module + " default"
 
 
 def _adapt(request: Dict[str, Any], source: str, opts: _Resolved) -> List[StructuralModel]:
@@ -1199,15 +1252,17 @@ def _adapt(request: Dict[str, Any], source: str, opts: _Resolved) -> List[Struct
                 "storeys", "must be an integer, got " + repr(request.get("storeys"))
             )
         _check_storey_caps(storeys, hint, opts.zone, "storeys")
+        adapter_options = dict(thickness)
+        adapter_options.update({"system_hint": hint, "assume_windows": assume_windows})
+        if opts.storey_height_supplied:
+            adapter_options["storey_height_ft"] = opts.storey_height_ft
         model = from_plan(
             request["plan"],
             storeys=storeys,
             plan_index=plan_index,
-            storey_height_ft=opts.storey_height_ft,
-            system_hint=hint,
-            assume_windows=assume_windows,
-            **thickness
+            **adapter_options
         )
+        _record_adapter_storey_height(opts, source, [model])
         return [model]
 
     if source == "building":
@@ -1221,13 +1276,12 @@ def _adapt(request: Dict[str, Any], source: str, opts: _Resolved) -> List[Struct
             raise StructuralValidationError(
                 "building.totalFloors", "must be an integer, got " + repr(total)
             )
-        model = from_building(
-            building,
-            storey_height_ft=opts.storey_height_ft,
-            system_hint=hint,
-            assume_windows=assume_windows,
-            **thickness
-        )
+        adapter_options = dict(thickness)
+        adapter_options.update({"system_hint": hint, "assume_windows": assume_windows})
+        if opts.storey_height_supplied:
+            adapter_options["storey_height_ft"] = opts.storey_height_ft
+        model = from_building(building, **adapter_options)
+        _record_adapter_storey_height(opts, source, [model])
         return [model]
 
     from .adapters.housing import from_housing
@@ -1242,16 +1296,20 @@ def _adapt(request: Dict[str, Any], source: str, opts: _Resolved) -> List[Struct
             "%d floors exceeds the housing limit of %d" % (len(floors), MAX_HOUSING_FLOORS),
         )
     _check_storey_caps(len(floors), hint, opts.zone, "housing.floors")
-    models = from_housing(
-        housing,
-        plot_id=request.get("plot_id"),
-        resolved_regions=request.get("resolved_regions"),
-        storey_height_ft=opts.storey_height_ft,
-        system_hint=hint,
-        assume_windows=assume_windows,
-        **thickness
+    adapter_options = dict(thickness)
+    adapter_options.update({"system_hint": hint, "assume_windows": assume_windows})
+    if opts.storey_height_supplied:
+        adapter_options["storey_height_ft"] = opts.storey_height_ft
+    models = list(
+        from_housing(
+            housing,
+            plot_id=request.get("plot_id"),
+            resolved_regions=request.get("resolved_regions"),
+            **adapter_options
+        )
     )
-    return list(models)
+    _record_adapter_storey_height(opts, source, models)
+    return models
 
 
 # ---------------------------------------------------------------------------
@@ -1523,6 +1581,37 @@ def _lateral_case(record: Dict[str, Any]) -> LoadCase:
     return case
 
 
+def _seismic_system_key(model: StructuralModel, opts: _Resolved) -> str:
+    """IS 1893 Table 9 key for the structural system that was actually built.
+
+    Frame ductility selects only a frame row. Masonry rows instead follow the
+    delivered placer output: confined construction is its own system, while
+    load-bearing masonry earns the reinforced rows only when the placer emitted
+    the corresponding bands and vertical-bar runs.
+    """
+    delivered = model.system.value if hasattr(model.system, "value") else str(model.system)
+    if delivered == System.RC_FRAME.value:
+        return opts.ductility.lower()
+    if delivered == System.CONFINED_MASONRY.value:
+        return "confined_masonry"
+    if delivered == System.LOAD_BEARING_MASONRY.value:
+        placement = model.meta.get("masonry_placement")
+        if not isinstance(placement, dict):
+            raise ValueError(
+                "load-bearing masonry has no masonry_placement record from which "
+                "to resolve its IS 1893 Table 9 system"
+            )
+        if placement.get("vertical_bars"):
+            return "urm_bands_vertical"
+        if placement.get("bands"):
+            return "urm_bands"
+        return "urm"
+    raise ValueError(
+        "no IS 1893 Table 9 response-reduction row is mapped for delivered system "
+        + repr(delivered)
+    )
+
+
 def _build_loads(
     model: StructuralModel,
     opts: _Resolved,
@@ -1568,14 +1657,15 @@ def _build_loads(
     rows = _storey_weight_rows(model, ledger)
     plan_dims = _plan_dims_m(model)
     if rows:
-        importance = opts.importance
-        if not isinstance(importance, str):
-            importance = _num(importance, 1.0)
+        seismic_system = _seismic_system_key(model, opts)
+        opts.seismic_system = seismic_system
+        delivered = model.system.value if hasattr(model.system, "value") else str(model.system)
+        opts.origins["seismic_system"] = "derived from placed " + delivered + " reinforcement"
         ctx = SeismicContext(
             zone=opts.zone,
             soil=str(opts.soil.get("type", "II")),
-            importance=importance,
-            system=opts.ductility.lower(),
+            importance=opts.importance,
+            system=seismic_system,
             infilled=True,
         )
         try:
@@ -1600,25 +1690,28 @@ def _build_loads(
         lateral_cases.extend(cases)
 
     if opts.wind_speed_ms is not None:
-        storeys = [
-            {
-                "storey": int(storey.index),
-                "bottom_z_m": float(storey.bottom_z_m),
-                "height_m": float(storey.height_m),
-            }
-            for storey in sorted(model.storeys, key=lambda s: s.index)
-        ]
-        model_like = {
-            "storeys": storeys,
-            "plan_dims_m": plan_dims,
-            "x_m": plan_dims["x_m"],
-            "y_m": plan_dims["y_m"],
-        }
-        ctx = WindContext(
-            basic_speed_ms=_num(opts.wind_speed_ms, 0.0),
-            terrain_category=int(_num(opts.wind_terrain, 2)),
-        )
         try:
+            storeys = sorted(model.storeys, key=lambda s: s.index)
+            base_z_m = min(
+                (float(storey.bottom_z_m) for storey in storeys),
+                default=0.0,
+            )
+            model_like = {
+                "width_m": plan_dims["x_m"],
+                "depth_m": plan_dims["y_m"],
+                "storey_levels": [
+                    {
+                        "storey": int(storey.index),
+                        "z_top_m": float(storey.bottom_z_m) + float(storey.height_m),
+                    }
+                    for storey in storeys
+                ],
+                "base_z_m": base_z_m,
+            }
+            ctx = WindContext(
+                Vb_ms=_num(opts.wind_speed_ms, 0.0),
+                terrain_category=int(_num(opts.wind_terrain, 2)),
+            )
             cases, wind_report = build_wind(model_like, ctx, log=log, trace=trace)
         except (ValueError, KeyError, TypeError) as error:
             log.append(
@@ -1706,7 +1799,7 @@ def _storey_shears(lateral_cases: Sequence[Dict[str, Any]]) -> Dict[str, Dict[in
 
 
 def _centres_of_mass(model: StructuralModel) -> Dict[int, Tuple[float, float]]:
-    """Slab-area centroid per storey; the diaphragm's mass centre fallback."""
+    """Slab-area centroid per storey, not a storey mass-centroid ledger."""
     acc = {}  # type: Dict[int, List[float]]
     for slab in model.slabs:
         rect = polygon_rect(slab.polygon)
@@ -1729,6 +1822,54 @@ def _centres_of_mass(model: StructuralModel) -> Dict[int, Tuple[float, float]]:
 # ---------------------------------------------------------------------------
 
 
+def _slab_design_context(
+    base: Dict[str, Any], loadmodel: Optional[LoadModel], panel_id: str
+) -> Dict[str, Any]:
+    """Per-panel design context with the unfactored dead/imposed split.
+
+    The frozen SlabLoad contract intentionally carries combined pressures only.
+    The load model still owns the unfactored area rows, so the orchestrator
+    sums those rows here instead of applying one building-wide live pressure to
+    mixed occupancies and roof panels.
+    """
+    context = dict(base)
+    if loadmodel is None:
+        return context
+
+    def _sum(case_names: Sequence[str]) -> Tuple[float, bool]:
+        total = 0.0
+        found = False
+        for case_name in case_names:
+            case = loadmodel.cases.get(case_name)
+            if case is None:
+                continue
+            for area in case.area:
+                if str(area.panel_id) != str(panel_id):
+                    continue
+                total += float(area.q_kpa)
+                found = True
+        return (total, found)
+
+    dead, has_dead = _sum((CASE_DL,))
+    imposed, has_imposed = _sum((CASE_LL, CASE_LLR))
+    if has_dead:
+        context["dead_kpa"] = dead
+    if has_imposed:
+        context["imposed_kpa"] = imposed
+    return context
+
+
+def _promote_result_errors(result: Any, log: DisclosureLog) -> None:
+    """Move result-local ERROR disclosures onto the pipeline blocking ladder."""
+    extras = getattr(result, "extras", {}) or {}
+    for payload in extras.get("disclosures", ()) or ():
+        if not isinstance(payload, dict):
+            continue
+        entry = Disclosure.from_dict(payload)
+        if Severity(entry.severity) == Severity.ERROR:
+            log.append(entry)
+
+
 def _design_members(
     model: StructuralModel,
     analysis: Any,
@@ -1736,6 +1877,7 @@ def _design_members(
     opts: _Resolved,
     system: str,
     log: DisclosureLog,
+    loadmodel: Optional[LoadModel] = None,
 ) -> List[Any]:
     """Design every element the analysis carries a demand for.
 
@@ -1750,10 +1892,16 @@ def _design_members(
     is left alone and the adaptation lives here (see the module docstring).
     """
     from .analysis import to_beam_forces, to_column_forces, to_slab_load
-    from .design.common import m_to_mm
+    from .design.common import DesignResult, m_to_mm
     from .design.rcc.beams import design_beam
     from .design.rcc.columns import COLUMN_ROLE_FRAME, COLUMN_ROLE_TIE, design_column
-    from .design.rcc import strip_geometry_from_model
+    from .design.rcc import (
+        beam_support_condition,
+        design_stair_flight,
+        stair_design_inputs,
+        stair_flights_from_model,
+        strip_geometry_from_model,
+    )
     from .design.rcc.footings import (
         STRIP_VERDICT_PLAIN,
         ColumnStub,
@@ -1780,6 +1928,7 @@ def _design_members(
                 lateral,
                 options={
                     "zone": opts.zone,
+                    "importance": opts.importance,
                     "assumed_mortar_grade": opts.mortar_grade,
                     "assumed_unit_strength_mpa": opts.masonry_unit_mpa,
                     "soft_soil": bool(opts.soil.get("soft", False)),
@@ -1803,15 +1952,17 @@ def _design_members(
             beam = beams.get(element_id)
             if beam is None or not beam.span_m():
                 continue
+            beam_forces = to_beam_forces(envelope)
             results.append(
                 design_beam(
-                    to_beam_forces(envelope),
+                    beam_forces,
                     {
                         "element_id": element_id,
                         "b_mm": m_to_mm(beam.width_m),
                         "D_mm": m_to_mm(beam.depth_m if beam.depth_m else 0.3),
                         "span_mm": m_to_mm(beam.span_m()),
                         "storey": int(beam.storey),
+                        "support": beam_support_condition(beam, beam_forces),
                     },
                     ctx,
                 )
@@ -1853,7 +2004,24 @@ def _design_members(
             panel = slabs.get(element_id)
             if panel is None:
                 continue
-            results.append(design_slab(panel, to_slab_load(envelope), ctx))
+            slab_result = design_slab(
+                panel,
+                to_slab_load(envelope),
+                _slab_design_context(ctx, loadmodel, element_id),
+            )
+            _promote_result_errors(slab_result, log)
+            results.append(slab_result)
+
+    # Inclined flights are placed under frame-placement meta, not model.slabs,
+    # and takedown emits no flight envelope. Give each one the shared synthetic
+    # IS 875 stair occupancy input; the stair designer adds its own dead load.
+    stairs = stair_flights_from_model(model)
+    if stairs:
+        stair_load, stair_ctx = stair_design_inputs(ctx)
+        for stair in stairs:
+            stair_result = design_stair_flight(stair, stair_load, stair_ctx)
+            _promote_result_errors(stair_result, log)
+            results.append(stair_result)
 
     # Footings are walked off the model, not off the envelope index: the
     # takedown envelopes one footing per column stack, while `layout_foundations`
@@ -1913,17 +2081,45 @@ def _design_members(
             results.append(result)
             continue
         supports = []  # type: List[Any]
-        for support in sorted(footing.supports):
+        unresolved = []  # type: List[str]
+        declared_supports = sorted(footing.supports)
+        for support in declared_supports:
             found = columns.get(support) or column_by_stack.get(support)
             if found is not None:
                 supports.append(found)
-        if not supports:
-            continue
-        if kind == "combined" and len(supports) >= 2:
-            pair = supports[:2]
+            else:
+                unresolved.append(str(support))
+        if kind == "combined":
+            if unresolved or len(supports) < 2:
+                failure = DesignResult(element_id=element_id, element_type="footing")
+                failure.section.update(
+                    {
+                        "kind": "combined",
+                        "declared_support_count": len(declared_supports),
+                        "resolved_support_count": len(supports),
+                    }
+                )
+                reason = (
+                    "combined footing " + element_id + " declares " + str(len(declared_supports))
+                    + " supports but only " + str(len(supports)) + " resolved"
+                )
+                if unresolved:
+                    reason += "; unresolved: " + ", ".join(unresolved)
+                reason += "; refusing to design a subset"
+                results.append(
+                    failure.fail_with(
+                        "combined footing support roster",
+                        reason,
+                        clause="foundation support routing completeness",
+                        demand=float(len(declared_supports)),
+                        capacity=float(len(supports)),
+                        units="supports",
+                    )
+                )
+                continue
             geometry = CombinedGeometry(
                 element_id=element_id,
-                columns=tuple(_stub(one) for one in pair),
+                columns=tuple(_stub(one) for one in supports),
                 placed_bx_m=footing.w_m,
                 placed_ly_m=footing.h_m,
                 placed_depth_m=footing.depth_m,
@@ -1931,11 +2127,13 @@ def _design_members(
             results.append(
                 design_combined_footing(
                     geometry,
-                    [_loads_for(one, element_id) for one in pair],
+                    [_loads_for(one, element_id) for one in supports],
                     opts.soil,
                     ctx,
                 )
             )
+            continue
+        if not supports:
             continue
         source = supports[0]
         geometry = PadGeometry(
@@ -1981,6 +2179,10 @@ def _design_types_for_class(kind: str) -> Tuple[str, ...]:
     the same reason every other design import in this module is: a layout call
     must not pay for the design layer's YAML.
     """
+    if kind == "stair":
+        # The existing stair mode deliberately returns element_type="slab";
+        # identity, not the shared designer type, separates flights from panels.
+        return ("slab",)
     if kind != "wall":
         return (kind,)
     from .design.masonry import ELEMENT_TYPE_WALL
@@ -2000,10 +2202,24 @@ def _design_ids(kind: str, element: Any) -> set:
     ever keys a whole wall in one row reads here as an undesigned wall, which
     is the safe direction to be wrong in.
     """
-    storey = getattr(element, "storey", None)
+    element_id = (
+        str(element.get("id", ""))
+        if isinstance(element, dict)
+        else str(getattr(element, "id", ""))
+    )
+    storey = (
+        element.get("storey")
+        if isinstance(element, dict)
+        else getattr(element, "storey", None)
+    )
     if kind == "wall" and storey is not None:
-        return {str(element.id) + "@s" + str(int(storey))}
-    return {str(element.id)}
+        return {element_id + "@s" + str(int(storey))}
+    return {element_id}
+
+
+def _placed_design_id(kind: str, element: Any) -> str:
+    """The deterministic primary id for one placed coverage roster entry."""
+    return sorted(_design_ids(kind, element))[0]
 
 
 def _designed_ids_by_class(results: Sequence[Any]) -> Dict[str, set]:
@@ -2045,10 +2261,13 @@ def _disclose_undesigned(
         if Severity(entry.severity) == Severity.ERROR:
             blocked.update(str(one) for one in entry.element_ids)
 
+    from .design.rcc import stair_flights_from_model
+
     slots = {
         "column": model.columns,
         "beam": model.beams,
         "slab": model.slabs,
+        "stair": stair_flights_from_model(model),
         "footing": model.footings,
     }
     if system in _MASONRY_SYSTEMS:
@@ -2058,10 +2277,10 @@ def _disclose_undesigned(
     labels = []  # type: List[str]
     for kind in sorted(slots):
         ids = sorted(
-            str(element.id)
+            _placed_design_id(kind, element)
             for element in slots[kind]
             if not (_design_ids(kind, element) & designed[kind])
-            and str(element.id) not in blocked
+            and _placed_design_id(kind, element) not in blocked
         )
         if ids:
             missing.extend(ids)
@@ -2090,10 +2309,13 @@ def _design_coverage(model: StructuralModel, results: Sequence[Any], system: str
     """
     designed = _designed_ids_by_class(results)
 
+    from .design.rcc import stair_flights_from_model
+
     placed = {
         "column": list(model.columns),
         "beam": list(model.beams),
         "slab": list(model.slabs),
+        "stair": stair_flights_from_model(model),
         "footing": list(model.footings),
         "wall": [wall for wall in model.walls if wall.bearing],
         "lintel": list(model.lintels),
@@ -2105,9 +2327,11 @@ def _design_coverage(model: StructuralModel, results: Sequence[Any], system: str
 
     out = {}  # type: Dict[str, Any]
     for kind in sorted(placed):
-        elements = sorted(placed[kind], key=lambda element: str(element.id))
+        elements = sorted(
+            placed[kind], key=lambda element: _placed_design_id(kind, element)
+        )
         missing = sorted(
-            str(element.id)
+            _placed_design_id(kind, element)
             for element in elements
             if not (_design_ids(kind, element) & designed[kind])
         )
@@ -2199,10 +2423,95 @@ def _design_wire(results: Sequence[Any], trace: bool) -> List[Dict[str, Any]]:
     return out
 
 
+_CODE_SET_ORDER = (
+    "IS 456:2000",
+    "IS 875-1:1987",
+    "IS 875-2:1987",
+    "IS 875-3:2015",
+    "IS 1893-1:2016",
+    "IS 13920:2016",
+    "IS 1905:1987",
+    "IS 4326:1993",
+)
+
+
+def _emitted_code(value: Any) -> Optional[str]:
+    """Return the published code prefix from one emitted clause or source."""
+    text = str(value or "").strip()
+    compact = text.replace(" ", "")
+    if text.startswith("IS 456") or compact.startswith("IS456"):
+        return "IS 456:2000"
+    if text.startswith("IS 875-1"):
+        return "IS 875-1:1987"
+    if text.startswith("IS 875-2"):
+        return "IS 875-2:1987"
+    if text.startswith("IS 875-3"):
+        return "IS 875-3:2015"
+    if text.startswith("IS 1893-1") or compact.startswith("IS1893-1"):
+        return "IS 1893-1:2016"
+    if text.startswith("IS 13920") or compact.startswith("IS13920"):
+        return "IS 13920:2016"
+    if text.startswith("IS 1905") or compact.startswith("IS1905"):
+        return "IS 1905:1987"
+    if text.startswith("IS 4326") or compact.startswith("IS4326"):
+        return "IS 4326:1993"
+    return None
+
+
+def _code_strings(value: Any, keys: Sequence[str]) -> List[str]:
+    """Code-bearing values beneath `value`, in deterministic tree order."""
+    wanted = set(str(key) for key in keys)
+    found = []  # type: List[str]
+    if isinstance(value, dict):
+        for key in sorted(value):
+            item = value[key]
+            if key in wanted and isinstance(item, str):
+                found.append(item)
+            if isinstance(item, (dict, list, tuple)):
+                found.extend(_code_strings(item, keys))
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            found.extend(_code_strings(item, keys))
+    return found
+
+
+def _design_code_set(
+    design_rows: Sequence[Dict[str, Any]], load_wire: Dict[str, Any], seismic: Any
+) -> List[str]:
+    """The codes actually cited by this design, never an imported-code roster."""
+    cited = set()  # type: set
+    for row in design_rows:
+        for check in row.get("checks") or ():
+            if isinstance(check, dict):
+                code = _emitted_code(check.get("clause"))
+                if code:
+                    cited.add(code)
+        for code_text in _code_strings(row.get("prescription"), ("code", "clause")):
+            code = _emitted_code(code_text)
+            if code:
+                cited.add(code)
+    for code_text in _code_strings(load_wire, ("source",)):
+        code = _emitted_code(code_text)
+        if code:
+            cited.add(code)
+    for code_text in _code_strings(seismic, ("code", "clause", "ref", "source")):
+        code = _emitted_code(code_text)
+        if code:
+            cited.add(code)
+    return [code for code in _CODE_SET_ORDER if code in cited]
+
+
 #: What a compact design row carries out of the full DesignResult, verbatim.
 #: `materials` is deliberately not here: it is the same two grades on every RC
 #: member and `design.materials` states them once for the whole run.
 _COMPACT_ROW_KEEP = ("element_id", "element_type", "status")
+
+#: Masonry uses these small top-level extension blocks instead of an RC bar
+#: schedule: `masonry` carries the wall check waterfall and `prescription` the
+#: adopted material and escalation. They are actionable even on a passing row,
+#: so compact preserves them while the larger RC, slab and footing extras stay
+#: at full as DETAIL_POLICY records.
+_COMPACT_EXTRA_KEEP = ("masonry", "prescription")
 
 #: The NUMERIC section keys a compact row keeps: the dimensions a reader acts on
 #: and builds from. Every other number in `DesignResult.section` -- effective
@@ -2224,7 +2533,12 @@ _COMPACT_SECTION_KEEP = (
 
 
 def _compact_section(section: Any) -> Dict[str, Any]:
-    """The dimensions and the descriptors out of a DesignResult section."""
+    """The dimensions and descriptors out of a DesignResult section.
+
+    Integral floats serialize as integers at the compact level. JSON's number
+    type preserves the exact value, while avoiding two redundant characters on
+    thousands of whole-millimetre dimensions in a large frame response.
+    """
     if not isinstance(section, dict):
         return {}
     out = {}  # type: Dict[str, Any]
@@ -2232,6 +2546,8 @@ def _compact_section(section: Any) -> Dict[str, Any]:
         value = section[key]
         numeric = isinstance(value, (int, float)) and not isinstance(value, bool)
         if not numeric or key in _COMPACT_SECTION_KEEP:
+            if isinstance(value, float) and value.is_integer():
+                value = int(value)
             out[key] = value
     return out
 
@@ -2283,6 +2599,9 @@ def _compact_design_row(row: Dict[str, Any], codes: Sequence[str]) -> Dict[str, 
         out["disclosure_codes"] = list(codes)
     if row.get("warnings"):
         out["warnings"] = list(row["warnings"])
+    for key in _COMPACT_EXTRA_KEEP:
+        if key in row:
+            out[key] = row[key]
     out["trace"] = []
     out["trace_elided"] = True
     out["detail"] = DETAIL_COMPACT
@@ -2719,11 +3038,14 @@ def _design_once(
     opts: _Resolved,
     log: DisclosureLog,
     placement: _Placement,
+    place_foundations: bool = True,
 ) -> Dict[str, Any]:
     """One full pass of loads, takedown, foundations, diaphragm and design.
 
     Called at most twice per model: once for the design proper, and once more
-    after the single bounded referral re-pass (finding 19).
+    after the single bounded referral re-pass (finding 19). ``run_check`` sets
+    ``place_foundations`` false so posted footing identities and dimensions are
+    designed as given rather than replaced by a fresh foundation layout.
     """
     from .analysis import diaphragm, takedown
 
@@ -2734,23 +3056,37 @@ def _design_once(
     if result.log is not None:
         log.extend(result.log.entries)
 
-    column_loads, wall_loads = _foundation_loads(result)
-    bearing = sorted(
-        wall.id
-        for wall in model.walls
-        if wall.bearing and wall.storey == min((w.storey for w in model.walls), default=0)
-    )
-    ground = min((column.storey for column in model.columns), default=0)
-    column_ids = sorted(column.id for column in model.columns if column.storey == ground)
-    plan = _foundations.layout_foundations(
-        model,
-        bearing_wall_ids=bearing,
-        column_ids=column_ids,
-        wall_loads=wall_loads,
-        column_loads=column_loads,
-        soil=opts.soil,
-    )
-    log.extend(plan.warnings)
+    plan = None  # type: Any
+    if place_foundations:
+        column_loads, wall_loads = _foundation_loads(result)
+        bearing = sorted(
+            wall.id
+            for wall in model.walls
+            if wall.bearing and wall.storey == min((w.storey for w in model.walls), default=0)
+        )
+        ground = min((column.storey for column in model.columns), default=0)
+        column_ids = sorted(column.id for column in model.columns if column.storey == ground)
+        plan = _foundations.layout_foundations(
+            model,
+            bearing_wall_ids=bearing,
+            column_ids=column_ids,
+            wall_loads=wall_loads,
+            column_loads=column_loads,
+            soil=opts.soil,
+        )
+        log.extend(plan.warnings)
+    elif model.footings:
+        footing_ids = sorted(str(footing.id) for footing in model.footings)
+        log.append(
+            make_disclosure(
+                "N_CHECK_FOOTINGS_AS_GIVEN",
+                "%d posted footing(s) were taken as given for this check; foundation placement "
+                "did not run and any required design resize is reported on the element check row"
+                % len(footing_ids),
+                footing_ids,
+                stage="api.check.foundation",
+            )
+        )
 
     lateral = None
     lateral_block = None  # type: Optional[Dict[str, Any]]
@@ -2762,6 +3098,7 @@ def _design_once(
                 shears,
                 ctx=diaphragm.LateralContext(fck_mpa=opts.fck_mpa()),
                 centres_of_mass=_centres_of_mass(model),
+                cm_source="slab-area CM",
                 log=log,
             )
             lateral_block = _plain(lateral.to_dict())
@@ -2777,7 +3114,15 @@ def _design_once(
                 )
             )
 
-    results = _design_members(model, result, lateral, opts, placement.system, log)
+    results = _design_members(
+        model,
+        result,
+        lateral,
+        opts,
+        placement.system,
+        log,
+        loadmodel=loadmodel,
+    )
 
     return {
         "loadmodel": loadmodel,
@@ -2815,7 +3160,11 @@ def _analysis_block(pass_out: Dict[str, Any], opts: _Resolved, re_passes: int) -
         "wind": pass_out["wind"],
         "storey_shears": pass_out["storey_shears"],
         "lateral": lateral,
-        "foundations": pass_out["foundations"].to_dict(),
+        "foundations": (
+            None
+            if pass_out["foundations"] is None
+            else pass_out["foundations"].to_dict()
+        ),
         # The bulky blocks live once, where findings 6 and 14 put them: the
         # unfactored cases on `structural_model.loads`, the takedown on
         # `structural_model.analysis`. These names say where, so nothing is
@@ -3084,6 +3433,7 @@ def _design_one(
     # rendered off the same numbers whatever the level, and only the copy that
     # rides on the model is abbreviated.
     full_rows = _design_wire(results, opts.trace)
+    code_set = _design_code_set(full_rows, pass_out["loadmodel"].to_dict(), pass_out["seismic"])
     _dedupe_model_ladder(model, log)
     ladder = model.disclosure_log()
     model.design = _project_design_rows(
@@ -3150,7 +3500,7 @@ def _design_one(
     entry["detail"] = _detail_block(opts, model.design, warnings)
     entry["analysis"] = _analysis_block(pass_out, opts, re_passes)
     entry["design"] = {
-        "code_set": ["IS 456:2000", "IS 1893 (Part 1):2016", "IS 13920:2016", "IS 1905:1987"],
+        "code_set": code_set,
         "materials": {
             "concrete": opts.concrete_grade,
             "steel": opts.steel_grade,
@@ -3383,7 +3733,7 @@ def run_check(payload: Any, **options: Any) -> Dict[str, Any]:
         try:
             placement = _Placement()
             placement.system = str(getattr(model.system, "value", model.system))
-            pass_out = _design_once(model, opts, log, placement)
+            pass_out = _design_once(model, opts, log, placement, place_foundations=False)
             analysis_block = {
                 "method": "tributary_takedown_v1",
                 "combos_used": [combo.name for combo in pass_out["loadmodel"].combos],
@@ -3403,15 +3753,20 @@ def run_check(payload: Any, **options: Any) -> Dict[str, Any]:
                         getattr(worst, "ratio", 0.0)
                     ):
                         worst = row
+                status = str(getattr(result, "status", ""))
+                resize_history = _plain(getattr(result, "resize_history", ()) or ())
+                geometry_changed = status == "resized" or bool(resize_history)
                 element_checks.append(
                     {
                         "element_id": str(getattr(result, "element_id", "")),
                         "element_type": str(getattr(result, "element_type", "")),
-                        "status": str(getattr(result, "status", "")),
-                        "pass": str(getattr(result, "status", "")) != "fail",
+                        "status": status,
+                        "pass": status == "pass" and not geometry_changed,
                         "check": str(getattr(result, "governing_check", "")),
                         "clause": str(getattr(worst, "clause", "")) if worst is not None else "",
                         "utilization": _num(getattr(result, "utilization_max", 0.0)),
+                        "geometry_changed": geometry_changed,
+                        "resize_history": resize_history,
                     }
                 )
         except Exception as error:  # a check must report, never explode
@@ -3449,7 +3804,9 @@ def run_check(payload: Any, **options: Any) -> Dict[str, Any]:
         "element_checks": element_checks,
         "element_check_count": len(element_checks),
         "element_checks_failed": sum(1 for row in element_checks if not row["pass"]),
-        "changed_hint": [],
+        "changed_hint": sorted(
+            row["element_id"] for row in element_checks if row["geometry_changed"]
+        ),
         "analysis": analysis_block,
         "options_echo": opts.echo(),
         "input_ref": {"source": "model", "model_id": model.id, "hash": ref},

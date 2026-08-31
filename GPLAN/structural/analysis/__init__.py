@@ -151,6 +151,11 @@ class BeamForces:
     vu_b_kn: float
     tu_knm: Optional[float] = None
     combo_tags: Tuple[Tuple[str, str], ...] = ()
+    # Additive B17 contract: every shear station the analysis supplied,
+    # expressed as (parametric station 0..1, absolute shear kN).  The empty
+    # tuple preserves the legacy five-force constructor and tells the beam
+    # designer that it must use its explicitly disclosed end-only fallback.
+    shear_stations: Tuple[Tuple[float, float], ...] = ()
 
     def combo_map(self) -> Dict[str, str]:
         return dict(self.combo_tags)
@@ -208,6 +213,10 @@ def to_beam_forces(envelope: ForceEnvelope) -> BeamForces:
         vu_b_kn=abs(end_b.v_max_kn),
         tu_knm=None,
         combo_tags=tuple(sorted(envelope.governing.items())),
+        shear_stations=tuple(
+            (float(station.station), abs(float(station.v_max_kn)))
+            for station in sorted(envelope.stations, key=lambda item: float(item.station))
+        ),
     )
 
 

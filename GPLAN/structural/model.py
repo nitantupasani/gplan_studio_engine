@@ -202,9 +202,17 @@ REGISTRY = MappingProxyType(
         "E_STACK_DISCONTINUOUS": (Severity.ERROR, "a built storey has no storey below it"),
         "E_TRANSFER_REQUIRED": (Severity.ERROR, "a floating column would be required; transfer structure not auto-placed"),
         "E_CANTILEVER_SPAN": (Severity.ERROR, "cantilever exceeds the refusal span"),
+        "E_CANTILEVER_BACKING": (
+            Severity.ERROR,
+            "cantilever backing support or anchorage span is not established",
+        ),
         "E_FRAMING_DEPTH": (Severity.ERROR, "required framing depth cannot be accommodated"),
         "E_GRID_COARSE": (Severity.ERROR, "no admissible grid found within the span caps"),
         "E_SPAN_OVER_MAX": (Severity.ERROR, "span exceeds the maximum and cannot be subdivided"),
+        "E_UNSUPPORTED_PANEL_EDGE": (
+            Severity.ERROR,
+            "panel edge lacks the masonry support required by its spanning action",
+        ),
         "E_MERGE_FLOOR": (Severity.ERROR, "footing merge would exceed the plan area available"),
         "E_ANA_CONSERVATION": (Severity.ERROR, "load takedown fails the conservation check"),
         "E_MASONRY_LIMIT": (Severity.ERROR, "masonry storeys or height exceed the code category cap"),
@@ -247,7 +255,19 @@ REGISTRY = MappingProxyType(
         "W_ANA_COEFF_INAPPLICABLE": (Severity.WARNING, "coefficient method not applicable; alternative used"),
         "W_EQ_TORSION_IRREGULAR": (Severity.WARNING, "torsionally irregular; the governing design eccentricity applied"),
         "W_EQ_DRIFT": (Severity.WARNING, "storey drift exceeds the code limit"),
+        "W_LATERAL_PIER_EXCLUDED": (
+            Severity.WARNING,
+            "a wall or wall pier was excluded from lateral stiffness",
+        ),
         "W_INFILL_EXCLUDED": (Severity.WARNING, "non-bearing walls not credited with lateral stiffness"),
+        "W_INFILL_FULL_PIER": (
+            Severity.WARNING,
+            "non-bearing masonry infill credited as full shear piers pending engineer decision",
+        ),
+        "W_MASONRY_SHEAR_MORTAR": (
+            Severity.WARNING,
+            "mortar grade is outside the IS 1905 permissible shear clause",
+        ),
         "W_WIND_STATIC_LIMIT": (Severity.WARNING, "static wind method at the edge of its validity"),
         "W_WIND_UPLIFT": (Severity.WARNING, "net wind uplift governs a roof or footing"),
         # notes: informational simplifications
@@ -258,11 +278,27 @@ REGISTRY = MappingProxyType(
         "N_FORMWORK_EDGES_IGNORED": (Severity.NOTE, "formwork edge strips are not measured"),
         "N_WASTAGE_3PCT": (Severity.NOTE, "3 percent steel wastage included"),
         "N_SLOPE_ALLOWANCE_FLAT": (Severity.NOTE, "no slope allowance; roof measured flat"),
+        "N_EXCAVATION_BATTER_ALLOWANCE": (
+            Severity.NOTE,
+            "excavation includes a flat batter allowance past the stated depth",
+        ),
         "N_PARTITION_M3_CONVENTION": (Severity.NOTE, "partition volume measured by the stated convention"),
         "N_COLUMN_HEIGHT_CONVENTION": (Severity.NOTE, "column height measured floor to floor, slab not deducted"),
         "N_WINDOWS_NOT_ASSUMED": (Severity.NOTE, "no windows assumed; window lintels omitted"),
+        "N_GRID_AXIS_OFFSET": (
+            Severity.NOTE,
+            "a bounded grid merge leaves a wall centreline offset from its axis",
+        ),
+        "N_GAPLESS_RESIDUAL": (
+            Severity.NOTE,
+            "a nonzero room-envelope residual was accepted below both void floors",
+        ),
         "N_SHAFT_WALL_UNDESIGNED": (Severity.NOTE, "shaft walls carry a prescription, not a design"),
         "N_ELEMENT_UNDESIGNED": (Severity.NOTE, "placed and quantified, but no designer reached it"),
+        "N_CHECK_FOOTINGS_AS_GIVEN": (
+            Severity.NOTE,
+            "run_check used the posted footing geometry without running foundation placement",
+        ),
         "N_PLAIN_CONCRETE_FOOTING": (
             Severity.NOTE,
             "footing adequate as plain concrete; no reinforcement is required",
@@ -633,6 +669,15 @@ class SlabPanel:
     kind: SlabKind = SlabKind.FLOOR
     support_ids: List[str] = field(default_factory=list)
     placed_by: str = ""
+    # `kind` remains the floor/roof/landing load-use class.  These additive
+    # fields carry the independent structural span mode and the resolved root
+    # handoff needed to detail a cantilever without inferring fixity from a
+    # free-edge mask.
+    span_kind: str = "regular"
+    cantilever_backing_edge: Optional[str] = None
+    cantilever_backing_support_ids: List[str] = field(default_factory=list)
+    cantilever_backing_panel_id: Optional[str] = None
+    cantilever_backspan_m: Optional[float] = None
 
 
 @dataclass
@@ -670,6 +715,10 @@ class Footing:
     # survives the model hand-off instead of dying inside the placement plan.
     eccentric: bool = False
     e_m: float = 0.0
+    # Governing service line load emitted by foundation placement for strips.
+    # It includes point loads absorbed into local widenings; None preserves the
+    # legacy contract for footings created outside layout_foundations.
+    w_service_kn_per_m: Optional[float] = None
 
 
 # ---------------------------------------------------------------------------
@@ -951,7 +1000,7 @@ def _beam_from_wire(d: Dict[str, Any]) -> Beam:
 
 
 def _slab_to_wire(s: SlabPanel) -> Dict[str, Any]:
-    return {
+    out = {
         "id": s.id,
         "storey": int(s.storey),
         "polygon_ft": _poly_ft(s.polygon),
@@ -964,6 +1013,19 @@ def _slab_to_wire(s: SlabPanel) -> Dict[str, Any]:
         "support_ids": list(s.support_ids),
         "placed_by": s.placed_by,
     }
+    # Keep the ordinary slab payload byte-for-byte compatible.  Cantilever
+    # metadata is emitted only when the structural mode uses it.
+    if str(s.span_kind) != "regular":
+        out["span_kind"] = str(s.span_kind)
+    if s.cantilever_backing_edge is not None:
+        out["cantilever_backing_edge"] = str(s.cantilever_backing_edge)
+    if s.cantilever_backing_support_ids:
+        out["cantilever_backing_support_ids"] = list(s.cantilever_backing_support_ids)
+    if s.cantilever_backing_panel_id is not None:
+        out["cantilever_backing_panel_id"] = str(s.cantilever_backing_panel_id)
+    if s.cantilever_backspan_m is not None:
+        out["cantilever_backspan_ft"] = _ft(s.cantilever_backspan_m)
+    return out
 
 
 def _slab_from_wire(d: Dict[str, Any]) -> SlabPanel:
@@ -979,6 +1041,15 @@ def _slab_from_wire(d: Dict[str, Any]) -> SlabPanel:
         kind=SlabKind(d.get("kind", "floor")),
         support_ids=list(d.get("support_ids") or []),
         placed_by=d.get("placed_by", ""),
+        span_kind=str(d.get("span_kind", "regular")),
+        cantilever_backing_edge=d.get("cantilever_backing_edge"),
+        cantilever_backing_support_ids=list(d.get("cantilever_backing_support_ids") or []),
+        cantilever_backing_panel_id=d.get("cantilever_backing_panel_id"),
+        cantilever_backspan_m=(
+            None
+            if d.get("cantilever_backspan_ft") is None
+            else ft_to_m(d.get("cantilever_backspan_ft"))
+        ),
     )
 
 
@@ -1037,6 +1108,9 @@ def _footing_to_wire(f: Footing) -> Dict[str, Any]:
         "placed_by": f.placed_by,
         "eccentric": bool(f.eccentric),
         "e_ft": _ft(f.e_m),
+        "w_service_kn_per_m": None
+        if f.w_service_kn_per_m is None
+        else round(float(f.w_service_kn_per_m), 6),
     }
 
 
@@ -1053,6 +1127,9 @@ def _footing_from_wire(d: Dict[str, Any]) -> Footing:
         placed_by=d.get("placed_by", ""),
         eccentric=bool(d.get("eccentric", False)),
         e_m=ft_to_m(d.get("e_ft", 0.0) or 0.0),
+        w_service_kn_per_m=None
+        if d.get("w_service_kn_per_m") is None
+        else float(d.get("w_service_kn_per_m")),
     )
 
 
@@ -1445,9 +1522,13 @@ class StructuralModel:
                 if ref and ref not in known:
                     dangling.setdefault(ref, set()).add(band.id)
         for slab in self.slabs:
-            for ref in slab.support_ids:
+            for ref in list(slab.support_ids) + list(slab.cantilever_backing_support_ids):
                 if ref and ref not in known:
                     dangling.setdefault(ref, set()).add(slab.id)
+            if slab.cantilever_backing_panel_id and slab.cantilever_backing_panel_id not in known:
+                dangling.setdefault(slab.cantilever_backing_panel_id, set()).add(slab.id)
+            if str(slab.span_kind) not in ("regular", "cantilever"):
+                dangling.setdefault("span_kind=" + str(slab.span_kind), set()).add(slab.id)
         for footing in self.footings:
             for ref in footing.supports:
                 if ref and ref not in known:

@@ -1,4 +1,4 @@
-"""Slab design: two-way restrained panels, one-way strips and stair flights.
+"""Slab design: two-way panels, one-way strips, cantilevers and stair flights.
 
 Spec 05 section 5 plus the stair mode critic finding 40 assigns here. Two public
 entry points, both returning the one `design/common.py` DesignResult:
@@ -532,6 +532,146 @@ def panel_geometry(panel: Any) -> PanelGeometry:
     )
 
 
+class _SpanRoute(NamedTuple):
+    """Physical one-way span selected from the opposed supported edge pair."""
+
+    axis: str
+    span_mm: float
+    across_mm: float
+    support_tags: Tuple[str, str]
+    continuity: Tuple[bool, bool]
+
+
+class _CantileverRoute(NamedTuple):
+    """Resolved root, projection and backing slab supplied by placement."""
+
+    axis: str
+    projection_mm: float
+    across_mm: float
+    backing_edge: str
+    backing_support_ids: Tuple[str, ...]
+    backing_panel_id: str
+    backspan_mm: float
+
+
+def _physical_extents(geo: PanelGeometry) -> Tuple[float, float]:
+    """(x extent, y extent) of the measured design rectangle."""
+    if geo.short_axis == "x":
+        return (geo.lx_mm, geo.ly_mm)
+    return (geo.ly_mm, geo.lx_mm)
+
+
+def _ordinary_span_route(geo: PanelGeometry) -> Optional[_SpanRoute]:
+    """One-way route from an actual opposed supported pair, never bbox lx alone."""
+    x_extent, y_extent = _physical_extents(geo)
+    # For an irregular outline, the support tally belongs to the outer bbox
+    # while lx/ly belong to the largest inscribed rectangle.  Mixing those two
+    # frames produced fictitious 20 m spans.  Keep the placer's measured short
+    # rectangle route until an irregular-panel analysis can map every edge.
+    if any("outline is not a rectangle" in note for note in geo.notes):
+        return _SpanRoute(
+            axis=geo.short_axis,
+            span_mm=geo.lx_mm,
+            across_mm=geo.ly_mm,
+            support_tags=geo.long_side_tags,
+            continuity=geo.long_cont,
+        )
+    candidates = {}  # type: Dict[str, _SpanRoute]
+    x_tags = ("x_min", "x_max")
+    y_tags = ("y_min", "y_max")
+    if all(geo.sides[tag].supported for tag in x_tags):
+        candidates["x"] = _SpanRoute(
+            axis="x",
+            span_mm=x_extent,
+            across_mm=y_extent,
+            support_tags=x_tags,
+            continuity=tuple(geo.sides[tag].continuous for tag in x_tags),
+        )
+    if all(geo.sides[tag].supported for tag in y_tags):
+        candidates["y"] = _SpanRoute(
+            axis="y",
+            span_mm=y_extent,
+            across_mm=x_extent,
+            support_tags=y_tags,
+            continuity=tuple(geo.sides[tag].continuous for tag in y_tags),
+        )
+    if geo.short_axis in candidates:
+        return candidates[geo.short_axis]
+    if len(candidates) == 1:
+        return candidates[sorted(candidates)[0]]
+    return None
+
+
+def _is_cantilever_panel(panel: Any) -> bool:
+    """Explicit structural mode, with old placement provenance as a safe fallback."""
+    span_kind = str(_lookup(panel, ("span_kind",)) or "regular").strip().lower()
+    kind = _lookup(panel, ("kind",))
+    kind_word = str(getattr(kind, "value", kind) or "").strip().lower()
+    placed_by = str(_lookup(panel, ("placed_by",)) or "").strip().lower()
+    return (
+        span_kind == "cantilever"
+        or kind_word == "cantilever"
+        or placed_by.endswith(".cantilever")
+    )
+
+
+def _cantilever_route(panel: Any, geo: PanelGeometry) -> Tuple[Optional[_CantileverRoute], str]:
+    """Validate placement's explicit backing handoff and derive the projection."""
+    edge = str(_lookup(panel, ("cantilever_backing_edge",)) or "")
+    raw_supports = _lookup(panel, ("cantilever_backing_support_ids",))
+    support_values = (raw_supports,) if isinstance(raw_supports, str) else (raw_supports or ())
+    support_ids = tuple(sorted(str(item) for item in support_values if str(item)))
+    backing_panel_id = str(_lookup(panel, ("cantilever_backing_panel_id",)) or "")
+    backspan_m = _lookup(panel, ("cantilever_backspan_m",))
+    try:
+        backspan_value = 0.0 if backspan_m is None else float(backspan_m)
+    except (TypeError, ValueError):
+        backspan_value = 0.0
+
+    missing = []  # type: List[str]
+    if edge not in SIDE_TAGS:
+        missing.append("a canonical backing edge")
+    if not support_ids:
+        missing.append("backing beam or wall ids")
+    if not backing_panel_id:
+        missing.append("an adjacent backing panel id")
+    if backspan_value <= 0.0:
+        missing.append("a positive backing span")
+    if missing:
+        return (
+            None,
+            "cantilever backing handoff is incomplete: " + ", ".join(missing),
+        )
+
+    side = geo.sides[edge]
+    if not side.supported or not side.continuous:
+        return (
+            None,
+            "cantilever backing edge "
+            + edge
+            + " is not both supported and continuous into the identified backing panel",
+        )
+
+    x_extent, y_extent = _physical_extents(geo)
+    axis = "x" if edge in ("x_min", "x_max") else "y"
+    projection = x_extent if axis == "x" else y_extent
+    across = y_extent if axis == "x" else x_extent
+    if projection <= 0.0 or across <= 0.0:
+        return (None, "cantilever projection or root width is zero")
+    return (
+        _CantileverRoute(
+            axis=axis,
+            projection_mm=projection,
+            across_mm=across,
+            backing_edge=edge,
+            backing_support_ids=support_ids,
+            backing_panel_id=backing_panel_id,
+            backspan_mm=backspan_value * 1000.0,
+        ),
+        "",
+    )
+
+
 # ---------------------------------------------------------------------------
 # one strip of mesh: area from the moment, pitch from the area
 # ---------------------------------------------------------------------------
@@ -862,17 +1002,17 @@ def _two_way_moments(geo: PanelGeometry, w_line_n_per_mm: float, ctx: SlabContex
     )
 
 
-def _one_way_moments(geo: PanelGeometry, w_line_n_per_mm: float, ctx: SlabContext) -> _MomentPlan:
-    """One-way moments across the short span: w l^2 / 8, or Table 12 with its guard.
+def _one_way_moments(route: _SpanRoute, w_line_n_per_mm: float, ctx: SlabContext) -> _MomentPlan:
+    """One-way moments across the supported span: w l^2 / 8 or Table 12.
 
     The Table 12 rows are printed for the dead case and the imposed case
     separately and the combined factored pressure cannot be split, so BOTH rows
     are read and the heavier coefficient is taken at every position. That is an
     envelope, never an under-read, and both reads land in the trace.
     """
-    span = geo.lx_mm
+    span = route.span_mm
     scale = w_line_n_per_mm * span * span
-    continuous = [tag for index, tag in enumerate(geo.long_side_tags) if geo.long_cont[index]]
+    continuous = [tag for index, tag in enumerate(route.support_tags) if route.continuity[index]]
     stations = []  # type: List[_Station]
     notes = []  # type: List[str]
     disclosures = []  # type: List[Tuple[str, str]]
@@ -902,7 +1042,8 @@ def _one_way_moments(geo: PanelGeometry, w_line_n_per_mm: float, ctx: SlabContex
         "Table 12 "
         + ("interior span" if interior else "end span")
         + ": the combined factored pressure is taken on the heavier of the dead and the imposed "
-        + "coefficient row at every position, since the slab load contract carries no split"
+        + "coefficient row at every position; the context split checks applicability but the "
+        + "frozen factored slab envelope remains combined"
     )
 
     guard = _coefficient_guard(ctx, len(continuous))
@@ -994,9 +1135,14 @@ def _panel_attempt(
     w_line_n_per_mm: float,
     ll_kpa: float,
     two_way: bool,
+    route: _SpanRoute,
 ) -> _Attempt:
     """Design the strip at one thickness. Pure: the ladder calls it repeatedly."""
-    plan = _two_way_moments(geo, w_line_n_per_mm, ctx) if two_way else _one_way_moments(geo, w_line_n_per_mm, ctx)
+    plan = (
+        _two_way_moments(geo, w_line_n_per_mm, ctx)
+        if two_way
+        else _one_way_moments(route, w_line_n_per_mm, ctx)
+    )
 
     x_stations = [s for s in plan.stations if s.axis == "x"]
     y_stations = [s for s in plan.stations if s.axis == "y"]
@@ -1008,7 +1154,9 @@ def _panel_attempt(
     def depth_x(dia_mm: int, cover_mm: float) -> float:
         return depth_mm - cover_mm - 0.5 * float(dia_mm)
 
-    x_dir = _size_direction("x", x_stations, depth_mm, depth_x, ctx, "slab_main")
+    main_axis = "x" if two_way else route.axis
+    distribution_axis = "y" if two_way else ("y" if route.axis == "x" else "x")
+    x_dir = _size_direction(main_axis, x_stations, depth_mm, depth_x, ctx, "slab_main")
 
     def depth_y(dia_mm: int, _cover_mm: float) -> float:
         # The short-span bars are outermost, so the long-span mesh sits one bar
@@ -1017,7 +1165,12 @@ def _panel_attempt(
         return x_dir.d_mm - 0.5 * float(x_dir.dia_mm) - 0.5 * float(dia_mm)
 
     y_dir = _size_direction(
-        "y", y_stations, depth_mm, depth_y, ctx, "slab_main" if two_way else "slab_distribution"
+        distribution_axis,
+        y_stations,
+        depth_mm,
+        depth_y,
+        ctx,
+        "slab_main" if two_way else "slab_distribution",
     )
 
     attempt = _Attempt(depth_mm=depth_mm, two_way=two_way, plan=plan, x=x_dir, y=y_dir)
@@ -1054,7 +1207,8 @@ def _panel_attempt(
     # -- shear at d from the support face ---------------------------------
     mid_x = x_dir.mesh("mid", "bottom")
     ast_mid_x = mid_x.ast_prov_mm2 if mid_x is not None else 0.0
-    vu_n = max(w_line_n_per_mm * (0.5 * geo.lx_mm - x_dir.d_mm), 0.0)
+    design_span_mm = geo.lx_mm if two_way else route.span_mm
+    vu_n = max(w_line_n_per_mm * (0.5 * design_span_mm - x_dir.d_mm), 0.0)
     tau_v = is456.cl_40_1__tau_v(vu_n, STRIP_MM, x_dir.d_mm)
     pt = 100.0 * ast_mid_x / (STRIP_MM * x_dir.d_mm)
     tau_c = is456.table_19__tau_c(pt, ctx.fck_mpa)
@@ -1063,17 +1217,18 @@ def _panel_attempt(
     tau_c_max = is456.table_20__tau_c_max(ctx.fck_mpa)
     attempt.rows.append(_Row("shear cap", "IS456:2000 40.2.3.1", tau_v, 0.5 * tau_c_max, "MPa"))
     attempt.notes.append(
-        "shear taken at d from the support face on w (lx/2 - d); tau_c reads the midspan bottom "
+        "shear taken at d from the support face on w (design span/2 - d); tau_c reads the midspan bottom "
         "steel, which v1 runs the full span so it is present at the support"
     )
 
     # -- deflection --------------------------------------------------------
-    support_word = "continuous" if all(geo.long_cont) else "simply_supported"
-    short_span_m = geo.lx_mm / 1000.0
+    support_continuity = geo.long_cont if two_way else route.continuity
+    support_word = "continuous" if all(support_continuity) else "simply_supported"
+    design_span_m = design_span_mm / 1000.0
     allowed = 0.0
     clause = ""
     if two_way:
-        two_way_ld = is456.cl_24_1__two_way_ld(support_word, ctx.fy_mpa, short_span_m, ll_kpa)
+        two_way_ld = is456.cl_24_1__two_way_ld(support_word, ctx.fy_mpa, design_span_m, ll_kpa)
         if two_way_ld.applicable:
             allowed = two_way_ld.ratio
             clause = "IS456:2000 24.1"
@@ -1082,7 +1237,7 @@ def _panel_attempt(
             attempt.notes.append(
                 "Cl 24.1 Note is limited to a shorter span up to 3.5 m and an imposed load up to "
                 "3 kN/m2; this panel spans "
-                + ("%.2f" % short_span_m)
+                + ("%.2f" % design_span_m)
                 + " m under "
                 + _kpa(ll_kpa)
                 + ", so the Cl 23.2.1 modification factor route is used instead"
@@ -1093,11 +1248,11 @@ def _panel_attempt(
         prov = ast_mid_x if ast_mid_x > 0.0 else 1.0
         fs = is456.cl_23_2_1__fs(ctx.fy_mpa, req, prov)
         mf = is456.fig_4__mf_tension(fs, 100.0 * prov / (STRIP_MM * x_dir.d_mm))
-        long_span = is456.cl_23_2_1_c__long_span_factor(short_span_m)
+        long_span = is456.cl_23_2_1_c__long_span_factor(design_span_m)
         allowed = basic * mf * long_span
         clause = "IS456:2000 23.2.1"
         attempt.deflection_route = "cl_23_2_1"
-    attempt.rows.append(_Row("deflection", clause, geo.lx_mm / x_dir.d_mm, allowed, "span/d"))
+    attempt.rows.append(_Row("deflection", clause, design_span_mm / x_dir.d_mm, allowed, "span/d"))
 
     # -- Annex D-1.8 corner torsion mesh -----------------------------------
     if two_way and plan.method == "table26":
@@ -1131,6 +1286,145 @@ def _panel_attempt(
                 "discontinuous edge; three quarters of the maximum mid-span steel where both edges "
                 "at the corner are discontinuous and half of that per D-1.9 where one is continuous"
             )
+    return attempt
+
+
+def _cantilever_attempt(
+    route: _CantileverRoute,
+    ctx: SlabContext,
+    depth_mm: float,
+    w_line_n_per_mm: float,
+) -> _Attempt:
+    """Design one thickness of the root-fixed one metre cantilever strip."""
+    root_mu = w_line_n_per_mm * route.projection_mm * route.projection_mm / 2.0
+    plan = _MomentPlan(
+        stations=(_Station(tag="root", axis="main", face="top", mu_nmm=root_mu),),
+        method="cantilever",
+        clause="IS456:2000 22.2",
+        notes=(
+            "cantilever root hogging moment is w a^2 / 2 on the full projection normal to "
+            + route.backing_edge,
+        ),
+        disclosures=(),
+    )
+
+    def depth_main(dia_mm: int, cover_mm: float) -> float:
+        return depth_mm - cover_mm - 0.5 * float(dia_mm)
+
+    main = _size_direction(
+        "main",
+        plan.stations,
+        depth_mm,
+        depth_main,
+        ctx,
+        "slab_main",
+    )
+
+    def depth_distribution(dia_mm: int, _cover_mm: float) -> float:
+        return main.d_mm - 0.5 * float(main.dia_mm) - 0.5 * float(dia_mm)
+
+    distribution = _size_direction(
+        "distribution",
+        (_Station(tag="full", axis="distribution", face="top", mu_nmm=0.0),),
+        depth_mm,
+        depth_distribution,
+        ctx,
+        "slab_distribution",
+    )
+    attempt = _Attempt(
+        depth_mm=depth_mm,
+        two_way=False,
+        plan=plan,
+        x=main,
+        y=distribution,
+    )
+    attempt.notes.extend(plan.notes)
+
+    for direction in (main, distribution):
+        label = " " + direction.axis
+        mu_max = max([mesh.mu_nmm for mesh in direction.meshes] or [0.0])
+        mu_lim = direction.meshes[0].mu_lim_nmm if direction.meshes else 0.0
+        attempt.rows.append(
+            _Row("flexure" + label, "IS456:2000 G-1.1(b)", mu_max, mu_lim, "N.mm")
+        )
+        demand, capacity = _worst_by_ratio(
+            direction.meshes,
+            lambda mesh: mesh.ast_des_mm2,
+            lambda mesh: mesh.ast_prov_mm2,
+        )
+        attempt.rows.append(
+            _Row("steel" + label, "IS456:2000 G-1.1(a)", demand, capacity, "mm2/m")
+        )
+        pitch, allowed = direction.worst_ratio_spacing()
+        attempt.rows.append(
+            _Row("bar spacing" + label, "IS456:2000 26.3.3", pitch, allowed, "mm")
+        )
+        if not direction.spacing_floor_ok:
+            attempt.notes.append(
+                "the "
+                + direction.axis
+                + " cantilever mesh pitch is below the "
+                + _mm_text(MIN_MESH_SPACING_MM)
+                + " placing floor even on the largest catalogue bar"
+            )
+
+    root_mesh = main.mesh("root", "top")
+    ast_min = root_mesh.ast_min_mm2 if root_mesh is not None else 0.0
+    provided_min = min(
+        [mesh.ast_prov_mm2 for mesh in list(main.meshes) + list(distribution.meshes)] or [0.0]
+    )
+    attempt.rows.append(
+        _Row("min steel", "IS456:2000 26.5.2.1", ast_min, provided_min, "mm2/m")
+    )
+
+    ast_root = root_mesh.ast_prov_mm2 if root_mesh is not None else 0.0
+    vu_n = max(w_line_n_per_mm * (route.projection_mm - main.d_mm), 0.0)
+    tau_v = is456.cl_40_1__tau_v(vu_n, STRIP_MM, main.d_mm)
+    pt = 100.0 * ast_root / (STRIP_MM * main.d_mm)
+    tau_c = is456.table_19__tau_c(pt, ctx.fck_mpa)
+    k_depth = is456.cl_40_2_1_1__k_solid_slab(depth_mm)
+    attempt.rows.append(
+        _Row("shear", "IS456:2000 40.2.1.1", tau_v, k_depth * tau_c, "MPa")
+    )
+    tau_c_max = is456.table_20__tau_c_max(ctx.fck_mpa)
+    attempt.rows.append(
+        _Row("shear cap", "IS456:2000 40.2.3.1", tau_v, 0.5 * tau_c_max, "MPa")
+    )
+    attempt.notes.append(
+        "cantilever shear is checked at d from the root on w (a - d), using the provided "
+        "top root steel for the Table 19 percentage"
+    )
+
+    required = root_mesh.ast_des_mm2 if root_mesh is not None else 0.0
+    provided = ast_root if ast_root > 0.0 else 1.0
+    fs = is456.cl_23_2_1__fs(ctx.fy_mpa, required, provided)
+    mf = is456.fig_4__mf_tension(fs, 100.0 * provided / (STRIP_MM * main.d_mm))
+    basic = is456.cl_23_2_1__basic_ld("cantilever")
+    attempt.rows.append(
+        _Row(
+            "deflection",
+            "IS456:2000 23.2.1",
+            route.projection_mm / main.d_mm,
+            basic * mf,
+            "span/d",
+        )
+    )
+    attempt.deflection_route = "cl_23_2_1_cantilever"
+    attempt.notes.append(
+        "Cl 23.2.1 cantilever basic span/effective-depth ratio 7 is modified by Fig 4; "
+        "the two-way Cl 24.1 Note does not apply"
+    )
+
+    ld_mm = is456.cl_26_2_1__ld(main.dia_mm, ctx.fy_mpa, ctx.fck_mpa)
+    attempt.rows.append(
+        _Row(
+            "cantilever development length",
+            "IS456:2000 26.2.1",
+            ld_mm,
+            route.backspan_mm,
+            "mm",
+        )
+    )
     return attempt
 
 
@@ -1191,6 +1485,67 @@ def _emit_mesh(
         )
 
 
+def _emit_cantilever_mesh(
+    result: DesignResult,
+    attempt: _Attempt,
+    route: _CantileverRoute,
+    ctx: SlabContext,
+) -> None:
+    """Full-projection top main bars with one Ld into the backing slab."""
+    main_mesh = attempt.x.mesh("root", "top")
+    distribution_mesh = attempt.y.mesh("full", "top")
+    if main_mesh is None or distribution_mesh is None:
+        return
+
+    main_ld = is456.cl_26_2_1__ld(attempt.x.dia_mm, ctx.fy_mpa, ctx.fck_mpa)
+    if route.backing_edge in ("x_min", "y_min"):
+        root_mm = 0.0
+        anchor_zone = [-main_ld, 0.0]
+    else:
+        root_mm = route.projection_mm
+        anchor_zone = [route.projection_mm, route.projection_mm + main_ld]
+    result.add_bar(
+        role="mesh_cantilever_main_top",
+        count=_bar_count(route.across_mm, main_mesh.spacing_mm),
+        dia_mm=float(attempt.x.dia_mm),
+        ld_mm=main_ld,
+        zone_mm=[0.0, route.projection_mm],
+        layer=1,
+        spacing_mm=main_mesh.spacing_mm,
+        ast_prov_mm2_per_m=main_mesh.ast_prov_mm2,
+        ast_req_mm2_per_m=main_mesh.ast_des_mm2,
+        direction=route.axis,
+        face="top",
+        station="root",
+        backing_edge=route.backing_edge,
+        backing_support_ids=list(route.backing_support_ids),
+        backing_panel_id=route.backing_panel_id,
+        root_mm=root_mm,
+        anchor_zone_mm=anchor_zone,
+        anchorage_ends=1,
+    )
+
+    distribution_axis = "y" if route.axis == "x" else "x"
+    distribution_ld = is456.cl_26_2_1__ld(
+        attempt.y.dia_mm, ctx.fy_mpa, ctx.fck_mpa
+    )
+    result.add_bar(
+        role="mesh_cantilever_distribution_top",
+        count=_bar_count(route.projection_mm, distribution_mesh.spacing_mm),
+        dia_mm=float(attempt.y.dia_mm),
+        ld_mm=distribution_ld,
+        zone_mm=[0.0, route.across_mm],
+        layer=2,
+        spacing_mm=distribution_mesh.spacing_mm,
+        ast_prov_mm2_per_m=distribution_mesh.ast_prov_mm2,
+        ast_req_mm2_per_m=distribution_mesh.ast_des_mm2,
+        direction=distribution_axis,
+        face="top",
+        station="full",
+        anchorage_ends=0,
+    )
+
+
 def _emit_corners(result: DesignResult, corners: Sequence[_CornerPlan], ctx: SlabContext) -> None:
     """Four layers of torsion mesh at each corner that needs one, D-1.8/D-1.9."""
     for corner in corners:
@@ -1244,8 +1599,8 @@ def _two_way_decision(panel: Any, geo: PanelGeometry) -> Tuple[bool, List[str], 
         warnings.append(
             "sides "
             + ", ".join(unsupported)
-            + " carry no beam or wall over at least half their length; the panel is designed as a "
-            + "one-way strip across the short span and the missing support is not made good here"
+            + " carry no beam or wall over at least half their length; the panel can be one-way "
+            + "only where an actual opposed supported pair establishes its design span"
         )
     elif not by_ratio:
         notes.append(
@@ -1276,21 +1631,24 @@ def _imposed_for_guard(ctx: SlabContext, pressures: SlabLoad) -> Tuple[float, Op
         "the imposed pressure is not separated from the service combination, so the whole service "
         "pressure "
         + _kpa(pressures.w_service_kpa)
-        + " enters the Cl 24.1 Note guard; that is the conservative reading and it can only push "
-        "the design onto the Cl 23.2.1 route",
+        + " enters the Cl 24.1 Note guard. This is a routing fallback, not a conservative claim: "
+        "when it takes a panel outside the Note, Cl 23.2.1 can allow a larger span/depth ratio "
+        "and a thinner slab; supply the imposed-load split to evaluate Cl 24.1 correctly",
     )
 
 
-def _initial_thickness(panel: Any, geo: PanelGeometry, policy: ResizePolicy) -> Tuple[float, Optional[str]]:
+def _initial_thickness(
+    panel: Any, design_span_mm: float, policy: ResizePolicy
+) -> Tuple[float, Optional[str]]:
     """Thickness to start the ladder at, in mm, and a note when it was derived."""
     thickness_m = _lookup(panel, ("thickness_m",))
     if thickness_m:
         return float(thickness_m) * 1000.0, None
-    derived = round_up_mm(geo.lx_mm / 30.0, policy.slab_step_mm)
+    derived = round_up_mm(design_span_mm / 30.0, policy.slab_step_mm)
     derived = min(max(derived, 100.0), policy.slab_cap_mm)
     return (
         derived,
-        "the panel carried no thickness, so the ladder starts at lx/30 rounded up to the "
+        "the panel carried no thickness, so the ladder starts at design span/30 rounded up to the "
         + _mm_text(policy.slab_step_mm)
         + " module and clamped to the "
         + _mm_text(100.0)
@@ -1298,6 +1656,154 @@ def _initial_thickness(panel: Any, geo: PanelGeometry, policy: ResizePolicy) -> 
         + _mm_text(policy.slab_cap_mm)
         + " band",
     )
+
+
+def _initial_cantilever_thickness(
+    panel: Any, projection_mm: float, policy: ResizePolicy
+) -> Tuple[float, Optional[str]]:
+    """Placed depth, or the Cl 23.2.1 basic a/7 start for a bare cantilever."""
+    thickness_m = _lookup(panel, ("thickness_m",))
+    if thickness_m:
+        return float(thickness_m) * 1000.0, None
+    derived = max(100.0, round_up_mm(projection_mm / 7.0, policy.slab_step_mm))
+    return (
+        derived,
+        "the cantilever carried no thickness, so the ladder starts at projection/7 rounded "
+        "up to the "
+        + _mm_text(policy.slab_step_mm)
+        + " module",
+    )
+
+
+def _design_cantilever(
+    panel: Any,
+    pressures: SlabLoad,
+    context: SlabContext,
+    geo: PanelGeometry,
+    result: DesignResult,
+    route: _CantileverRoute,
+) -> DesignResult:
+    """Run the dedicated root-hogging cantilever ladder and detailing."""
+    policy = context.policy
+    depth, depth_note = _initial_cantilever_thickness(
+        panel, route.projection_mm, policy
+    )
+    if depth_note:
+        result.add_note(depth_note)
+    cap_mm = max(policy.slab_cap_mm, depth)
+    w_line = _line_load_n_per_mm(pressures.w_u_kpa)
+
+    attempt = _cantilever_attempt(route, context, depth, w_line)
+    steps = 0
+    while steps < policy.max_iters:
+        outstanding = attempt.failing_thickness()
+        if not outstanding or depth >= cap_mm - _EPS:
+            break
+        nxt = min(depth + policy.slab_step_mm, cap_mm)
+        if nxt <= depth + _EPS:
+            break
+        result.add_resize(depth, nxt, outstanding[0].name + " at D " + _mm_text(depth))
+        depth = nxt
+        attempt = _cantilever_attempt(route, context, depth, w_line)
+        steps += 1
+
+    entries = []  # type: List[TraceEntry]
+    with trace_into(entries):
+        attempt = _cantilever_attempt(route, context, depth, w_line)
+    result.trace = entries
+
+    d_x = attempt.x.d_mm if route.axis == "x" else attempt.y.d_mm
+    d_y = attempt.x.d_mm if route.axis == "y" else attempt.y.d_mm
+    result.section = {
+        "b_mm": STRIP_MM,
+        "D_mm": depth,
+        "d_mm": attempt.x.d_mm,
+        "d_main_mm": attempt.x.d_mm,
+        "d_distribution_mm": attempt.y.d_mm,
+        "d_x_mm": d_x,
+        "d_y_mm": d_y,
+        "cover_mm": attempt.x.cover_mm,
+        "thickness_mm": depth,
+        "lx_mm": geo.lx_mm,
+        "ly_mm": geo.ly_mm,
+        "ly_over_lx": geo.ratio,
+        "short_axis": geo.short_axis,
+        "two_way": False,
+        "table_26_case": 0,
+        "cantilever_axis": route.axis,
+        "projection_mm": route.projection_mm,
+        "root_width_mm": route.across_mm,
+        "backspan_mm": route.backspan_mm,
+    }
+    root_moment = w_line * route.projection_mm * route.projection_mm / 2.0
+    root_shear = w_line * route.projection_mm
+    shear_at_d = max(w_line * (route.projection_mm - attempt.x.d_mm), 0.0)
+    result.extras.update(
+        {
+            "method": "cantilever",
+            "deflection_route": attempt.deflection_route,
+            "deflection_basic_ld": is456.cl_23_2_1__basic_ld("cantilever"),
+            "backing_edge": route.backing_edge,
+            "backing_support_ids": list(route.backing_support_ids),
+            "backing_panel_id": route.backing_panel_id,
+            "backspan_mm": route.backspan_mm,
+            "projection_mm": route.projection_mm,
+            "cantilever_axis": route.axis,
+            "root_moment_nmm": root_moment,
+            "root_shear_n": root_shear,
+            "shear_at_d_n": shear_at_d,
+            "edges": {
+                tag: {
+                    "continuous": geo.sides[tag].continuous,
+                    "supported": geo.sides[tag].supported,
+                    "role": "backing" if tag == route.backing_edge else "free_or_edge",
+                }
+                for tag in SIDE_TAGS
+            },
+        }
+    )
+
+    for note in attempt.notes:
+        result.add_note(note)
+    for code, message in attempt.disclosures:
+        _disclose(result, code, message, clause=attempt.plan.clause)
+    for row in attempt.rows:
+        result.add_check(row.name, row.clause, row.demand, row.capacity, units=row.units)
+
+    development = next(
+        row for row in result.checks if row.name == "cantilever development length"
+    )
+    if development.status == CHECK_FAIL:
+        reason = (
+            "cantilever top bars require "
+            + _mm_text(development.demand)
+            + " development beyond "
+            + route.backing_edge
+            + ", but identified backing panel "
+            + route.backing_panel_id
+            + " provides only "
+            + _mm_text(development.capacity)
+        )
+        _disclose(
+            result,
+            "E_CANTILEVER_BACKING",
+            reason,
+            clause="IS456:2000 26.2.1",
+        )
+        return result.fail_with(
+            "cantilever backing support",
+            reason=reason,
+            clause="IS456:2000 26.2.1",
+        )
+
+    _emit_cantilever_mesh(result, attempt, route, context)
+    result.finalize()
+    if any(row.status == CHECK_FAIL for row in result.checks):
+        result.add_note(
+            "a failed cantilever check is not referred to the ordinary secondary-beam re-place "
+            "route; the root/projection framing requires engineering revision"
+        )
+    return result
 
 
 def design_slab(panel: Any, load: Any, ctx: Any = None) -> DesignResult:
@@ -1335,24 +1841,66 @@ def design_slab(panel: Any, load: Any, ctx: Any = None) -> DesignResult:
             clause="IS456:2000 22.2",
         )
 
+    if _is_cantilever_panel(panel):
+        result.extras["slab_mode"] = "cantilever"
+        route, refusal = _cantilever_route(panel, geo)
+        if route is None:
+            result.extras["method"] = "refused_cantilever"
+            _disclose(
+                result,
+                "E_CANTILEVER_BACKING",
+                refusal,
+                clause="IS456:2000 26.2.1",
+            )
+            return result.fail_with(
+                "cantilever backing support",
+                reason=refusal + "; the panel is not designed as an ordinary spanning slab",
+                clause="IS456:2000 26.2.1",
+            )
+        return _design_cantilever(panel, pressures, context, geo, result, route)
+
     two_way, decision_notes, decision_warnings = _two_way_decision(panel, geo)
     for note in decision_notes:
         result.add_note(note)
     for text in decision_warnings:
         result.add_warning(text)
 
+    route = _ordinary_span_route(geo)
+    if route is None:
+        reason = (
+            "no pair of opposite supported edges establishes an ordinary slab span, and the "
+            "panel carries no resolved cantilever backing handoff"
+        )
+        return result.fail_with(
+            "slab support topology",
+            reason=reason,
+            clause="IS456:2000 22.2",
+        )
+    if not two_way and route.axis != geo.short_axis:
+        result.add_note(
+            "the geometric short-span support pair is incomplete; the opposed "
+            + "/".join(route.support_tags)
+            + " supports make the physical "
+            + route.axis
+            + " direction the one-way design span at "
+            + _mm_text(route.span_mm)
+            + ", rather than bbox lx "
+            + _mm_text(geo.lx_mm)
+        )
+
     ll_kpa, ll_note = _imposed_for_guard(context, pressures)
     if ll_note:
         result.add_note(ll_note)
 
     policy = context.policy
-    depth, depth_note = _initial_thickness(panel, geo, policy)
+    design_span_mm = geo.lx_mm if two_way else route.span_mm
+    depth, depth_note = _initial_thickness(panel, design_span_mm, policy)
     if depth_note:
         result.add_note(depth_note)
     cap_mm = max(policy.slab_cap_mm, depth)
     w_line = _line_load_n_per_mm(pressures.w_u_kpa)
 
-    attempt = _panel_attempt(geo, context, depth, w_line, ll_kpa, two_way)
+    attempt = _panel_attempt(geo, context, depth, w_line, ll_kpa, two_way, route)
     steps = 0
     while steps < policy.max_iters:
         outstanding = attempt.failing_thickness()
@@ -1363,22 +1911,23 @@ def design_slab(panel: Any, load: Any, ctx: Any = None) -> DesignResult:
             break
         result.add_resize(depth, nxt, outstanding[0].name + " at D " + _mm_text(depth))
         depth = nxt
-        attempt = _panel_attempt(geo, context, depth, w_line, ll_kpa, two_way)
+        attempt = _panel_attempt(geo, context, depth, w_line, ll_kpa, two_way, route)
         steps += 1
 
     # The winning thickness is re-run inside a sink so the trace carries the
     # design that is reported, not every abandoned rung of the ladder.
     entries = []  # type: List[TraceEntry]
     with trace_into(entries):
-        attempt = _panel_attempt(geo, context, depth, w_line, ll_kpa, two_way)
+        attempt = _panel_attempt(geo, context, depth, w_line, ll_kpa, two_way, route)
     result.trace = entries
 
+    physical_d = {attempt.x.axis: attempt.x.d_mm, attempt.y.axis: attempt.y.d_mm}
     result.section = {
         "b_mm": STRIP_MM,
         "D_mm": depth,
         "d_mm": attempt.x.d_mm,
-        "d_x_mm": attempt.x.d_mm,
-        "d_y_mm": attempt.y.d_mm,
+        "d_x_mm": physical_d["x"],
+        "d_y_mm": physical_d["y"],
         "cover_mm": attempt.x.cover_mm,
         "thickness_mm": depth,
         "lx_mm": geo.lx_mm,
@@ -1388,6 +1937,9 @@ def design_slab(panel: Any, load: Any, ctx: Any = None) -> DesignResult:
         "two_way": two_way,
         "table_26_case": geo.case if two_way else 0,
     }
+    if not two_way:
+        result.section["design_span_mm"] = design_span_mm
+        result.section["one_way_axis"] = route.axis
     result.extras["method"] = attempt.plan.method
     result.extras["deflection_route"] = attempt.deflection_route
     result.extras["edges"] = {
@@ -1404,8 +1956,10 @@ def design_slab(panel: Any, load: Any, ctx: Any = None) -> DesignResult:
     for code, message in attempt.disclosures:
         _disclose(result, code, message, clause=attempt.plan.clause)
 
-    _emit_mesh(result, attempt.x, geo.lx_mm, geo.ly_mm, context)
-    _emit_mesh(result, attempt.y, geo.ly_mm, geo.lx_mm, context)
+    main_span_mm = geo.lx_mm if two_way else route.span_mm
+    main_across_mm = geo.ly_mm if two_way else route.across_mm
+    _emit_mesh(result, attempt.x, main_span_mm, main_across_mm, context)
+    _emit_mesh(result, attempt.y, main_across_mm, main_span_mm, context)
     _emit_corners(result, attempt.corners, context)
 
     for row in attempt.rows:

@@ -100,43 +100,75 @@ factors:
     values: [1.0, 0.9, 0.8]
 
 # Table 5: external pressure coefficients for the walls of a rectangular clad
-# building, wind normal to the long face. Faces: A windward, B leeward, C and D
-# the two sides (equal in this column of the table). Bands, not interpolation.
+# building. Here l is always the greater plan dimension and w is always the
+# lesser plan dimension. At theta = 0, A is windward and B is leeward; at
+# theta = 90, C is windward and D is leeward. Bands, not interpolation.
+#
+# Printed values checked 2026-08-31 against IITK-GSDMA Wind02 V5.0, Table 5,
+# printed pages 41-42:
+# https://www.iitk.ac.in/nicee/IITK-GSDMA/W02.pdf
+# Independently corroborated by the BIS-hosted March 2025 NBC draft, Table 8:
+# https://www.services.bis.gov.in/tmp/WCCED21426932_12032025_1.pdf
 cpe_walls:
-  source: "IS 875 (Part 3) : 2015, Table 5, external pressure coefficients Cpe for walls of rectangular clad buildings, wind angle 0 deg"
+  source: "IS 875 (Part 3) : 2015, Table 5, external pressure coefficients Cpe for walls of rectangular clad buildings, wind angles 0 and 90 deg"
   verify: "print"
-  note: "the loads spec vets no numbers here; every row is a transcription to check against the print"
+  verification: "print-verified 2026-08-31 against IITK-GSDMA Wind02 V5.0 Table 5; independently corroborated by BIS draft CED 46 (26932) WC Table 8"
+  dimensions: "l is the greater plan dimension; w is the lesser plan dimension"
   rows:
     - h_over_w_max: 0.5
       l_over_w_max: 1.5
       windward: 0.7
       leeward: -0.2
       side: -0.5
+      theta_90:
+        windward: 0.7
+        leeward: -0.2
+        side: -0.5
     - h_over_w_max: 0.5
       l_over_w_max: 4.0
       windward: 0.7
       leeward: -0.25
       side: -0.6
+      theta_90:
+        windward: 0.7
+        leeward: -0.1
+        side: -0.5
     - h_over_w_max: 1.5
       l_over_w_max: 1.5
       windward: 0.7
       leeward: -0.25
       side: -0.6
+      theta_90:
+        windward: 0.7
+        leeward: -0.25
+        side: -0.6
     - h_over_w_max: 1.5
       l_over_w_max: 4.0
       windward: 0.7
       leeward: -0.3
       side: -0.7
+      theta_90:
+        windward: 0.7
+        leeward: -0.1
+        side: -0.5
     - h_over_w_max: 6.0
       l_over_w_max: 1.5
       windward: 0.8
       leeward: -0.25
       side: -0.8
+      theta_90:
+        windward: 0.8
+        leeward: -0.25
+        side: -0.8
     - h_over_w_max: 6.0
       l_over_w_max: 4.0
       windward: 0.7
       leeward: -0.4
       side: -0.7
+      theta_90:
+        windward: 0.8
+        leeward: -0.1
+        side: -0.5
 
 # Table 6: external pressure coefficients for pitched roofs, wind angle 0 deg,
 # windward slope EF and leeward slope GH. Band on h/w, linear on roof angle.
@@ -176,5 +208,8 @@ cpi:
 static_method_limits:
   max_height_m: 20.0
   max_height_over_least_width: 5.0
+  max_depth_over_breadth_or_height_for_no_friction: 4.0
+  # Compatibility key for codes.is875.part3_static_limits(). wind.py uses the
+  # complete d/b-or-d/h name above.
   max_plan_aspect_for_no_friction: 4.0
   source: "IS 875 (Part 3) : 2015, Cl 10.1 dynamic effects gate and Cl 7.4.1 frictional drag gate; the engine warns rather than refuses"

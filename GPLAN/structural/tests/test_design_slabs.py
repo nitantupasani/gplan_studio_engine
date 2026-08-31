@@ -63,7 +63,7 @@ def panel(
 
 
 def options(**overrides):
-    """An options mapping in the shape api-backend sends."""
+    """Designer options; API dispatch adds the actual per-panel DL/LL split."""
     base = {"fck": 25, "fy": 500, "exposure": "moderate", "imposed_kpa": 2.0}
     base.update(overrides)
     return base
@@ -78,6 +78,107 @@ def by_name(result, name):
 
 def bars_with(result, prefix):
     return [bar for bar in result.bars if str(bar["role"]).startswith(prefix)]
+
+
+def cantilever_panel(backspan_m=2.0, complete=True):
+    """The C7 balcony: 1.2 m projection from the x_min backing edge."""
+    subject = panel(
+        1.2,
+        3.0,
+        continuity=(False, False, False, True),
+        thickness_m=0.15,
+        support=("free", "free", "free", "beam"),
+        two_way=False,
+        element_id="sl-balcony",
+    )
+    subject.span_kind = "cantilever"
+    if complete:
+        subject.cantilever_backing_edge = "x_min"
+        subject.cantilever_backing_support_ids = ["beam-root"]
+        subject.cantilever_backing_panel_id = "sl-backspan"
+        subject.cantilever_backspan_m = backspan_m
+        subject.support_ids = ["beam-root"]
+    return subject
+
+
+def c7_building_payload():
+    """The verifier's partial-width balcony request, without test shortcuts."""
+    return {
+        "id": "c7",
+        "name": "C7",
+        "type": "Low-Rise Residential",
+        "boundary": {"kind": "rect", "width": 20, "height": 20},
+        "far": 1.5,
+        "totalFloors": 1,
+        "fixedElements": [],
+        "floors": [
+            {
+                "id": "fl-1",
+                "floorNumber": 1,
+                "label": "Floor 1",
+                "kind": "units",
+                "corridors": [],
+                "parking": [],
+                "units": [
+                    {
+                        "id": "u1",
+                        "name": "U1",
+                        "type": "2BHK",
+                        "x": 0,
+                        "y": 0,
+                        "width": 20,
+                        "height": 20,
+                        "rotation": 0,
+                        "isFixed": False,
+                        "spaces": [],
+                        "activeFloorplanIndex": 0,
+                        "floorplans": [
+                            {
+                                "id": "p-c7",
+                                "label": "C7",
+                                "taskId": "t",
+                                "floorWidth": 20,
+                                "floorHeight": 20,
+                                "createdAt": "2026-01-01",
+                                "placements": [
+                                    {
+                                        "name": "Living Room",
+                                        "x": 0,
+                                        "y": 0,
+                                        "width": 20,
+                                        "height": 10,
+                                        "color": "#ccc",
+                                    },
+                                    {
+                                        "name": "Balcony",
+                                        "x": 5,
+                                        "y": 10,
+                                        "width": 10,
+                                        "height": 4,
+                                        "color": "#ccc",
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def _element_dicts(value, element_id):
+    """All public response records for one element id."""
+    found = []
+    if isinstance(value, dict):
+        if value.get("element_id") == element_id:
+            found.append(value)
+        for child in value.values():
+            found.extend(_element_dicts(child, element_id))
+    elif isinstance(value, list):
+        for child in value:
+            found.extend(_element_dicts(child, element_id))
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -416,6 +517,196 @@ def test_an_unsupported_side_demotes_a_square_panel_to_one_way_with_a_warning():
 
 
 # ---------------------------------------------------------------------------
+# C7: explicit cantilever and support-topology routes
+# ---------------------------------------------------------------------------
+
+
+def test_balcony_cantilever_matches_root_hogging_vector_and_top_anchorage():
+    """C7 hand vector: 1.2 m projection x 3.0 m width, D=150 mm.
+
+    On the one metre strip, w_u=11.45 kPa is 11.45 N/mm.  With the
+    identified x_min root and projection a=1200 mm:
+
+        Mu(root) = w a^2 / 2 = 11.45 x 1200^2 / 2
+                 = 8,244,000 N.mm/m, hogging
+        Vu(root) = w a = 13,740 N/m
+
+    Moderate exposure and an 8 mm outer top bar give d=150-30-4=116 mm:
+
+        Vu(d) = 11.45 x (1200-116) = 12,411.8 N
+        tau_v = 12,411.8 / (1000 x 116) = 0.106998276 MPa
+
+    Ast,min=0.0012 x 1000 x 150=180 mm2/m, so 8 at 270 provides
+    186.185185 mm2/m.  Ld=388.392857 mm and the 3 m root takes 12 bars.
+    Fig 4 gives MF=1.599368619, hence the cantilever deflection capacity is
+    7 x MF=11.195580336 against a/d=10.344827586.
+
+    The old route used the Table 12 end-support value w a^2/9=1,832,000
+    N.mm/m, exactly 4.5 times low, emitted a full bottom main mesh and only a
+    0.3a top band, and never reached the basic cantilever ratio 7.
+    """
+    result = slabs.design_slab(
+        cantilever_panel(),
+        SlabLoad(w_u_kpa=11.45, w_service_kpa=7.5),
+        options(),
+    )
+
+    assert result.status == C.STATUS_PASS
+    assert result.extras["slab_mode"] == "cantilever"
+    assert result.extras["method"] == "cantilever"
+    assert result.extras["backing_edge"] == "x_min"
+    assert result.section["cantilever_axis"] == "x"
+    assert result.section["projection_mm"] == pytest.approx(1200.0)
+    assert by_name(result, "flexure main").demand == pytest.approx(8244000.0)
+    assert result.extras["root_shear_n"] == pytest.approx(13740.0)
+    assert result.extras["shear_at_d_n"] == pytest.approx(12411.8)
+    assert by_name(result, "shear").demand == pytest.approx(0.10699827586206896)
+
+    main = [bar for bar in result.bars if bar["role"] == "mesh_cantilever_main_top"][0]
+    assert main["face"] == "top"
+    assert main["zone_mm"] == pytest.approx([0.0, 1200.0])
+    assert main["count"] == 12
+    assert main["dia_mm"] == 8.0
+    assert main["spacing_mm"] == pytest.approx(270.0)
+    assert main["ld_mm"] == pytest.approx(388.39285714285717)
+    assert main["anchor_zone_mm"] == pytest.approx([-main["ld_mm"], 0.0])
+    assert main["anchorage_ends"] == 1
+    assert main["ast_prov_mm2_per_m"] == pytest.approx(186.1851851851852)
+
+    distribution = [
+        bar for bar in result.bars if bar["role"] == "mesh_cantilever_distribution_top"
+    ][0]
+    assert distribution["face"] == "top"
+    assert distribution["anchorage_ends"] == 0
+    assert not [bar for bar in result.bars if bar.get("face") == "bottom"]
+    assert result.extras["deflection_route"] == "cl_23_2_1_cantilever"
+    assert result.extras["deflection_basic_ld"] == pytest.approx(7.0)
+    assert by_name(result, "deflection").demand == pytest.approx(10.344827586206897)
+    assert by_name(result, "deflection").capacity == pytest.approx(11.195580335917844)
+    assert "W_ANA_COEFF_INAPPLICABLE" not in [
+        entry["code"] for entry in result.extras.get("disclosures", [])
+    ]
+
+
+def test_public_building_api_preserves_partial_width_balcony_cantilever_intent():
+    """C7 public seam: generated perimeter beams do not erase slab intent.
+
+    The exact 20 x 20 ft request creates a 10 x 4 ft balcony panel with a
+    quantized 1219 mm projection. Its y_min root is backed by the Living Room
+    panel over 3048 mm. With public w_u=9.5625 kPa:
+
+        Mu(root) = 9.5625 x 1219^2 / 2 = 7,104,751.03125 N.mm/m
+
+    Old behavior counted four generated edge beams, silently made this an
+    ordinary panel, and emitted bottom x/y meshes with no hogging-root check.
+    """
+    from .. import api as structural_api
+
+    envelope = structural_api.run_design(
+        {
+            "source": "building",
+            "building": c7_building_payload(),
+            "output": {"detail": "full"},
+        }
+    )
+
+    assert envelope["status"] == "SUCCESS"
+    matches = _element_dicts(envelope, "slab-s0-2")
+    design = [row for row in matches if row.get("slab_mode") == "cantilever"][0]
+    assert design["method"] == "cantilever"
+    assert design["status"] == C.STATUS_PASS
+    assert design["backing_edge"] == "y_min"
+    assert design["backing_panel_id"] == "slab-s0-0"
+    assert design["backing_support_ids"] == ["beam-s0-yB-1"]
+    assert design["backspan_mm"] == pytest.approx(3048.0)
+    assert design["projection_mm"] == pytest.approx(1219.0)
+    assert design["root_moment_nmm"] == pytest.approx(7104751.03125)
+    assert any("root hogging" in note for note in design["notes"])
+
+    main = [bar for bar in design["bars"] if bar["role"] == "mesh_cantilever_main_top"][0]
+    assert main["face"] == "top"
+    assert main["zone_mm"] == pytest.approx([0.0, 1219.0])
+    assert main["anchor_zone_mm"] == pytest.approx([-main["ld_mm"], 0.0])
+    assert not [bar for bar in design["bars"] if bar.get("face") == "bottom"]
+    assert not [
+        bar
+        for bar in design["bars"]
+        if bar.get("role") in ("mesh_x_bottom", "mesh_y_bottom")
+    ]
+
+
+def test_cantilever_without_identified_backing_is_refused_not_spanned():
+    result = slabs.design_slab(
+        cantilever_panel(complete=False),
+        SlabLoad(w_u_kpa=11.45, w_service_kpa=7.5),
+        options(),
+    )
+
+    assert result.status == C.STATUS_FAIL
+    assert result.governing_check == "cantilever backing support"
+    assert result.bars == []
+    assert result.checks == []
+    disclosures = result.extras["disclosures"]
+    assert [entry["code"] for entry in disclosures] == ["E_CANTILEVER_BACKING"]
+    assert disclosures[0]["severity"] == "error"
+    assert disclosures[0]["code"] in REGISTRY
+    assert result.extras["method"] == "refused_cantilever"
+    assert not any("simply supported" in note.lower() for note in result.notes)
+
+
+def test_cantilever_refuses_when_backspan_cannot_develop_the_top_bars():
+    result = slabs.design_slab(
+        cantilever_panel(backspan_m=0.2),
+        SlabLoad(w_u_kpa=11.45, w_service_kpa=7.5),
+        options(),
+    )
+
+    assert result.status == C.STATUS_FAIL
+    assert result.governing_check == "cantilever backing support"
+    assert result.bars == []
+    row = by_name(result, "cantilever development length")
+    assert row.demand == pytest.approx(388.39285714285717)
+    assert row.capacity == pytest.approx(200.0)
+    assert row.status == C.CHECK_FAIL
+    assert [entry["code"] for entry in result.extras["disclosures"]] == [
+        "E_CANTILEVER_BACKING"
+    ]
+
+
+def test_one_way_panel_uses_the_only_opposed_supported_pair_even_when_long():
+    """C7's second vector spans 6 m between its two 3 m supported edges.
+
+    With w_u=12 N/mm, simple-span Mu=12 x 6000^2 / 8=54,000,000
+    N.mm/m.  The old unconditional geo.lx route used 3000 mm and returned
+    13,500,000 N.mm/m, four times low, with the main layer in the wrong plan
+    direction.
+    """
+    subject = panel(
+        3.0,
+        6.0,
+        continuity=(False, False, False, False),
+        support=("beam", "free", "beam", "free"),
+        thickness_m=0.4,
+    )
+    result = slabs.design_slab(
+        subject,
+        SlabLoad(w_u_kpa=12.0, w_service_kpa=8.0),
+        options(),
+    )
+
+    assert result.extras["method"] == "ss"
+    assert result.section["design_span_mm"] == pytest.approx(6000.0)
+    assert result.section["one_way_axis"] == "y"
+    assert by_name(result, "flexure y").demand == pytest.approx(54000000.0)
+    main = [bar for bar in result.bars if bar["role"] == "mesh_y_bottom"][0]
+    distribution = [bar for bar in result.bars if bar["role"] == "mesh_x_bottom"][0]
+    assert main["zone_mm"] == pytest.approx([0.0, 6000.0])
+    assert result.section["d_y_mm"] > result.section["d_x_mm"]
+    assert main["layer"] == 1
+    assert distribution["layer"] == 1
+
+
+# ---------------------------------------------------------------------------
 # spacing, shear and the deflection ladder
 # ---------------------------------------------------------------------------
 
@@ -481,6 +772,34 @@ def test_outside_the_guard_deflection_falls_back_to_the_beam_rule():
     assert result.extras["deflection_route"] == "cl_23_2_1"
     assert any("Cl 24.1 Note is limited" in note for note in result.notes)
     assert by_name(result, "deflection").capacity > 26.0  # continuous basic 26 x MF
+
+
+def test_missing_imposed_split_warns_that_fallback_can_leave_a_thinner_slab():
+    """B19: the fallback is routing, not a conservative slab-depth claim.
+
+    For this 3.4 x 4.0 m interior panel starting at 120 mm, using the whole
+    7.5 kPa service pressure misses the Cl 24.1 imposed-load guard and the
+    Cl 23.2.1 route passes at 120 mm.  Supplying the actual 2.0 kPa imposed
+    pressure takes Cl 24.1 and its 32 ratio, so the ladder reaches 150 mm.
+    """
+    subject = panel(3.4, 4.0, thickness_m=0.12)
+    load = SlabLoad(w_u_kpa=11.25, w_service_kpa=7.5)
+    no_split = slabs.design_slab(
+        subject,
+        load,
+        {"fck": 25, "fy": 500, "exposure": "moderate"},
+    )
+    split = slabs.design_slab(subject, load, options(imposed_kpa=2.0))
+
+    assert no_split.extras["deflection_route"] == "cl_23_2_1"
+    assert no_split.section["D_mm"] == pytest.approx(120.0)
+    assert split.extras["deflection_route"] == "cl_24_1"
+    assert split.section["D_mm"] == pytest.approx(150.0)
+    fallback = " ".join(no_split.notes).lower()
+    assert "routing fallback" in fallback
+    assert "larger span/depth ratio" in fallback
+    assert "thinner slab" in fallback
+    assert "conservative reading" not in fallback
 
 
 def test_the_ladder_thickens_ten_millimetres_at_a_time():
@@ -662,6 +981,179 @@ def test_a_flight_with_no_span_fails_without_raising():
 # ---------------------------------------------------------------------------
 # contract: determinism, the result shape, the trace, the registry
 # ---------------------------------------------------------------------------
+
+
+def test_cantilever_handoff_wire_is_additive_and_regular_wire_is_unchanged():
+    from .. import model as M
+
+    added = {
+        "span_kind",
+        "cantilever_backing_edge",
+        "cantilever_backing_support_ids",
+        "cantilever_backing_panel_id",
+        "cantilever_backspan_ft",
+    }
+    regular_wire = M._slab_to_wire(panel(3.0, 4.0))
+    assert added.isdisjoint(regular_wire)
+
+    subject = cantilever_panel()
+    wire = M._slab_to_wire(subject)
+    assert added <= set(wire)
+    rebuilt = M._slab_from_wire(wire)
+    assert rebuilt.kind == subject.kind
+    assert rebuilt.span_kind == "cantilever"
+    assert rebuilt.cantilever_backing_edge == "x_min"
+    assert rebuilt.cantilever_backing_support_ids == ["beam-root"]
+    assert rebuilt.cantilever_backing_panel_id == "sl-backspan"
+    assert rebuilt.cantilever_backspan_m == pytest.approx(2.0, abs=1.0e-5)
+
+
+def test_placement_handoff_resolves_root_support_panel_and_backspan():
+    from .. import model as M
+    from ..placement import frame
+
+    cant_outline = [(0, 0), (1200, 0), (1200, 3000), (0, 3000)]
+    back_outline = [(-2000, 0), (0, 0), (0, 3000), (-2000, 3000)]
+    cantilever = frame._Panel(
+        level=0,
+        outline_mm=cant_outline,
+        region=frame._Footprint.from_polygons([cant_outline]),
+        kind="cantilever",
+        rect_mm=(0, 0, 1200, 3000),
+        edge_support=["free", "free", "free", "beam"],
+        edge_cont=[False, False, False, True],
+        id="sl-balcony",
+    )
+    backing = frame._Panel(
+        level=0,
+        outline_mm=back_outline,
+        region=frame._Footprint.from_polygons([back_outline]),
+        kind="slab",
+        rect_mm=(-2000, 0, 0, 3000),
+        id="sl-backspan",
+    )
+    root = frame._PBeam(
+        level_key="0",
+        level_rank=2,
+        storey=0,
+        kind=M.BeamKind.PRIMARY,
+        orient="v",
+        pos_mm=0,
+        lo_mm=0,
+        hi_mm=3000,
+        id="beam-root",
+    )
+
+    handoff = frame._cantilever_handoff(
+        cantilever, [cantilever, backing], [root], []
+    )
+    assert handoff == {
+        "backing_edge": "x_min",
+        "backing_support_ids": ["beam-root"],
+        "backing_panel_id": "sl-backspan",
+        "backspan_m": 2.0,
+    }
+
+
+def test_api_dispatch_supplies_each_panel_actual_dead_and_imposed_area_loads(monkeypatch):
+    from types import SimpleNamespace
+
+    from .. import api as structural_api
+    from .. import model as M
+    from ..analysis import ForceEnvelope
+    from ..loads import AreaLoad, CaseKind, LoadCase, LoadModel
+
+    subject = panel(3.4, 4.0, element_id="sl-api-split")
+    model = M.StructuralModel(id="slab-split-dispatch")
+    model.slabs = [subject]
+    analysis = SimpleNamespace(
+        envelopes={
+            subject.id: ForceEnvelope(
+                element_id=subject.id,
+                element_type="slab",
+                w_u_kpa=11.25,
+                w_service_kpa=7.5,
+            )
+        },
+        footing_loads={"columns": {}, "walls": {}},
+    )
+    loadmodel = LoadModel(
+        cases={
+            "DL": LoadCase(
+                name="DL",
+                kind=CaseKind.DEAD,
+                area=[
+                    AreaLoad(subject.id, 3.75, CaseKind.DEAD, "self_weight"),
+                    AreaLoad(subject.id, 1.0, CaseKind.DEAD, "finishes"),
+                    AreaLoad("other-panel", 99.0, CaseKind.DEAD, "not_this_panel"),
+                ],
+            ),
+            "LL": LoadCase(
+                name="LL",
+                kind=CaseKind.LIVE,
+                area=[AreaLoad(subject.id, 2.0, CaseKind.LIVE, "occupancy")],
+            ),
+            "LLR": LoadCase(name="LLR", kind=CaseKind.ROOF_LIVE),
+        }
+    )
+    captured = []
+
+    def fake_design(_panel, _load, ctx):
+        captured.append(dict(ctx))
+        return C.DesignResult(element_id=subject.id, element_type="slab")
+
+    monkeypatch.setattr(slabs, "design_slab", fake_design)
+    results = structural_api._design_members(
+        model,
+        analysis,
+        None,
+        structural_api._Resolved({"params": {}}, {}),
+        "rc_frame",
+        M.DisclosureLog(),
+        loadmodel=loadmodel,
+    )
+
+    assert len(results) == 1
+    assert captured[0]["dead_kpa"] == pytest.approx(4.75)
+    assert captured[0]["imposed_kpa"] == pytest.approx(2.0)
+
+
+def test_api_promotes_cantilever_backing_error_to_the_blocking_ladder():
+    from types import SimpleNamespace
+
+    from .. import api as structural_api
+    from .. import model as M
+    from ..analysis import ForceEnvelope
+
+    subject = cantilever_panel(complete=False)
+    model = M.StructuralModel(id="cantilever-refusal-dispatch")
+    model.slabs = [subject]
+    analysis = SimpleNamespace(
+        envelopes={
+            subject.id: ForceEnvelope(
+                element_id=subject.id,
+                element_type="slab",
+                w_u_kpa=11.45,
+                w_service_kpa=7.5,
+            )
+        },
+        footing_loads={"columns": {}, "walls": {}},
+    )
+    log = M.DisclosureLog()
+    results = structural_api._design_members(
+        model,
+        analysis,
+        None,
+        structural_api._Resolved({"params": {}}, {}),
+        "rc_frame",
+        log,
+    )
+
+    assert results[0].status == C.STATUS_FAIL
+    errors = [entry for entry in log.entries if entry.severity == M.Severity.ERROR]
+    assert [(entry.code, entry.element_ids) for entry in errors] == [
+        ("E_CANTILEVER_BACKING", [subject.id])
+    ]
 
 
 def test_design_is_deterministic():

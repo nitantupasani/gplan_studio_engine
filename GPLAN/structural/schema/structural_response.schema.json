@@ -700,7 +700,7 @@
         "demand": {"type": ["number", "null"]},
         "capacity": {"type": ["number", "null"]},
         "ratio": {"type": ["number", "null"]},
-        "status": {"enum": ["pass", "fail"]},
+        "status": {"enum": ["pass", "fail", "warn"]},
         "units": {"type": "string"}
       }
     },

@@ -20,11 +20,12 @@ What this module does, and just as importantly what it does not:
 
 Units. Dimensions are millimetres inside this module and every public field
 carries its suffix, so a wall is `thickness_mm`, `length_mm`, `height_mm`.
-Stresses are MPa, which is N/mm2, so a per-metre service load in kN/m over a
-thickness in mm is a stress in MPa with no conversion factor at all:
-`fa_mpa = n_kn_per_m / thickness_mm`. The IS 1905 callables are native in
-metres (they were shipped that way and they are the source of truth), so the
-conversion to metres happens at that one call boundary, through `mm_to_m`.
+Stresses are MPa, which is N/mm2. The takedown's service load is in kN per
+gross metre of wall; the bed-joint stress first multiplies it by gross length
+over net bearing length, then divides by thickness in mm. The IS 1905
+callables are native in metres (they were shipped that way and they are the
+source of truth), so the conversion to metres happens at that one call
+boundary, through `mm_to_m`.
 
 Determinism. Segments are resolved in a sorted order, the candidate grid is a
 sorted tuple walked in a fixed cost order, the escalation ladder is bounded at
@@ -1050,7 +1051,11 @@ def _sweep(
             check = evaluate_segment(segment, material, options, thickness_mm=thickness_mm)
         except CodeInputError:
             continue
-        if best is None or check.utilization_max < best[1].utilization_max - 1.0e-9:
+        # On a failed zero-capacity check several candidates can all report the
+        # finite 999 sentinel. Keep the later (stronger) pair on an exact tie,
+        # so a failed prescription really does publish the strongest material
+        # it tried instead of the cheapest one that failed in the same way.
+        if best is None or check.utilization_max <= best[1].utilization_max + 1.0e-9:
             best = (material, check)
         if check.ok and passing is None:
             passing = (material, check)
@@ -1205,7 +1210,12 @@ def _prescribe(segment: WallSegment, options: MasonryOptions) -> _Adopted:
             break
         thickness_mm = thicker
         passing, thicker_best = _sweep(segment, options, thickness_mm)
-        if thicker_best is not None and (best is None or thicker_best[1].utilization_max < best[1].utilization_max):
+        # Every rung is a thicker standard wall and is therefore the stronger
+        # section tried. Keep its best check even when both rungs collapse to
+        # the same 999 sentinel (for example, ks=None beyond Table 9). The
+        # confined-referral cap must be evaluated on the final thickness, not
+        # on the placed wall that the ladder has already exhausted.
+        if thicker_best is not None:
             best = thicker_best
         if passing is not None:
             steps.append(
@@ -1619,8 +1629,8 @@ BUILDING_ELEMENT_ID = "masonry-building"
 
 _CLAUSE_SLENDERNESS = is1905.CODE + " Table 7"
 _CLAUSE_COMPRESSION = is1905.CODE + " Cl 5.4.1"
-_CLAUSE_SHEAR = is1905.CODE + " Cl 5.4.2"
-_CLAUSE_TENSION = is1905.CODE + " Cl 5.4.3"
+_CLAUSE_SHEAR = is1905.CODE + " Cl 5.4.3"
+_CLAUSE_TENSION = is1905.CODE + " Cl 5.4.2"
 
 
 def _wall_result(segment: WallSegment, options: MasonryOptions, adopted: _Adopted) -> DesignResult:
@@ -1736,13 +1746,19 @@ def _wall_result(segment: WallSegment, options: MasonryOptions, adopted: _Adopte
             + " mm"
         )
     if not segment.openings_known:
-        result.add_warning(
-            "no dressed openings on this storey: the bearing length is the gross wall length and the opening "
-            "checks of IS 4326 Table 4 had assumed geometry to work on"
-        )
+        if float(segment.net_length_mm) < float(segment.length_mm) - _ETA:
+            result.add_warning(
+                "no dressed openings on this storey: the net bearing length deducts the assumed opening geometry "
+                "used by the IS 4326 Table 4 opening checks"
+            )
+        else:
+            result.add_warning(
+                "no dressed or assumed opening geometry on this storey: the net bearing length equals the gross "
+                "wall length"
+            )
     if options.tension_policy == "allow_flexural_tension":
         result.add_warning(
-            "flexural tension is allowed by option: IS 1905 Cl 5.4.3 values are for a laterally loaded panel, "
+            "flexural tension is allowed by option: IS 1905 Cl 5.4.2 values are for a laterally loaded panel, "
             "never for a primary gravity wall"
         )
 
@@ -1809,7 +1825,28 @@ def _building_result(
     thickest_mm = max(float(item.thickness_mm) for item in adopted)
     failed = [row for row in results if row.status == STATUS_FAIL]
     resized = [row for row in results if row.status == STATUS_RESIZED]
-    worst = max((float(row.utilization_max) for row in results), default=0.0)
+    family_rollups = (
+        (
+            "wall_slenderness",
+            _CLAUSE_SLENDERNESS,
+            max(_ratio(item.check.slenderness_ratio, item.check.slenderness_limit) for item in adopted),
+        ),
+        (
+            "wall_compression",
+            _CLAUSE_COMPRESSION,
+            max(float(item.check.utilization_compression) for item in adopted),
+        ),
+        (
+            "wall_shear",
+            _CLAUSE_SHEAR,
+            max(float(item.check.utilization_shear) for item in adopted),
+        ),
+        (
+            "wall_tension",
+            _CLAUSE_TENSION,
+            max(float(item.check.utilization_tension) for item in adopted),
+        ),
+    )
 
     result.section = {
         "thickness_mm": _r(thickest_mm),
@@ -1824,7 +1861,8 @@ def _building_result(
         "mortar_grade": governing.material.mortar_grade,
         "code": is1905.CODE,
     }
-    result.add_check("wall_utilization", _CLAUSE_COMPRESSION, worst, 1.0)
+    for name, clause, utilization in family_rollups:
+        result.add_check(name, clause, utilization, 1.0)
 
     result.extras["prescription"] = {
         "unit_strength_mpa": _r(governing.material.unit_strength_mpa),
@@ -1858,8 +1896,9 @@ def _building_result(
         result.add_note("no vertical steel is required at category " + category)
 
     if failed:
+        governing_rollup = max(result.checks, key=lambda row: row.ratio).name
         result.fail_with(
-            "wall_utilization",
+            governing_rollup,
             reason=str(len(failed))
             + " masonry wall segment(s) cannot be built in unreinforced masonry; see their referrals",
         )
@@ -2006,15 +2045,59 @@ def _disclose(
             stage=STAGE,
         )
 
-    unknown = sorted({segment.wall_id for segment in segments if not segment.openings_known})
-    if unknown:
+    assumed_opening_geometry = sorted(
+        {
+            segment.wall_id
+            for segment in segments
+            if not segment.openings_known and float(segment.net_length_mm) < float(segment.length_mm) - _ETA
+        }
+    )
+    if assumed_opening_geometry:
         model.add_warning(
             "W_ASSUMED_OPENINGS",
             "no dressed openings on "
-            + str(len(unknown))
-            + " masonry wall segment(s): the bearing length was taken as the gross wall length",
-            element_ids=unknown,
+            + str(len(assumed_opening_geometry))
+            + " masonry wall segment(s): the net bearing length deducts the assumed opening geometry",
+            element_ids=assumed_opening_geometry,
             clause=is1905.CODE + " Cl 5.4.1",
+            stage=STAGE,
+        )
+    no_opening_geometry = sorted(
+        {
+            segment.wall_id
+            for segment in segments
+            if not segment.openings_known and abs(float(segment.net_length_mm) - float(segment.length_mm)) <= _ETA
+        }
+    )
+    if no_opening_geometry:
+        model.add_warning(
+            "W_ASSUMED_OPENINGS",
+            "no dressed or assumed opening geometry on "
+            + str(len(no_opening_geometry))
+            + " masonry wall segment(s): the net bearing length equals the gross wall length",
+            element_ids=no_opening_geometry,
+            clause=is1905.CODE + " Cl 5.4.1",
+            stage=STAGE,
+        )
+
+    lean_mortar = [
+        (segment, plan)
+        for segment, plan in zip(segments, adopted)
+        if not is1905.shear_mortar_permitted(plan.material.mortar_grade)
+    ]
+    if lean_mortar:
+        grades = sorted({plan.material.mortar_grade for _segment, plan in lean_mortar})
+        model.add_warning(
+            "W_MASONRY_SHEAR_MORTAR",
+            "IS 1905 Cl 5.4.3 gives permissible in-plane shear only for mortar not leaner than "
+            + is1905.SHEAR_MORTAR_FLOOR
+            + "; "
+            + str(len(lean_mortar))
+            + " adopted wall segment(s) use "
+            + ", ".join(grades)
+            + " and therefore require zero in-plane shear demand",
+            element_ids=sorted({segment.wall_id for segment, _plan in lean_mortar}),
+            clause=is1905.CODE + " Cl 5.4.3",
             stage=STAGE,
         )
 
@@ -2035,9 +2118,9 @@ def _disclose(
     if options.tension_policy == "allow_flexural_tension":
         model.add_warning(
             "W_RELEASED_CAP",
-            "flexural tension was allowed by option; IS 1905 Cl 5.4.3 values apply to laterally loaded panels, "
+            "flexural tension was allowed by option; IS 1905 Cl 5.4.2 values apply to laterally loaded panels, "
             "not to primary gravity walls",
-            clause=is1905.CODE + " Cl 5.4.3",
+            clause=is1905.CODE + " Cl 5.4.2",
             stage=STAGE,
         )
 

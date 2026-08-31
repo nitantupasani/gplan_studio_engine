@@ -77,11 +77,10 @@ DEFAULT_RAILING_WALL_FT = 0.35
 # Finding 10: one door width for every adapter, 0.9 m, mid-wall.
 ASSUMED_DOOR_WIDTH_M = 0.9
 ASSUMED_WINDOW_WIDTH_M = 1.2
-# A shared run shorter than this cannot hold a door (plan_json step 5b). It is
-# the assumed door width itself, so the floor and the width agree by
-# construction: a shorter floor admitted runs the 0.9 m leaf overhangs at both
-# ends. Runs below it fall to W_ADJACENCY_SHORTFALL, as they always have.
-MIN_DOOR_SHARE_FT = 2.8
+# A shared run shorter than the assumed 0.9 m door cannot receive that door.
+# Such runs remain adjacency shortfalls instead of producing an opening that
+# overhangs both ends of its wall.
+MIN_DOOR_SHARE_FT = m_to_ft(ASSUMED_DOOR_WIDTH_M)
 # openingsOnWallLoose precedent: a dressed door maps to a wall within this.
 DOOR_LINE_TOL_FT = 0.45
 # PLOT_FIT_EPS class (housing.py STALE_EPS_M): below this the declared unit
@@ -424,6 +423,8 @@ def _merge_walls(segments: List[_Seg], storey: int) -> List[WallLine]:
                 pos, s0, s1 = attrs["pos"], run["s0"], run["s1"]
                 a, b = ((s0, pos), (s1, pos)) if orient == "h" else ((pos, s0), (pos, s1))
                 sides = (attrs["room_lo"], attrs["room_hi"])
+                if orient == "v":
+                    sides = (attrs["room_hi"], attrs["room_lo"])
                 walls.append(
                     WallLine(
                         id=wall_id(storey, orient, pos, s0),
@@ -707,12 +708,39 @@ def _build_unit(
     build.has_plan = bool(records)
     origin_x, origin_y = _num(unit.get("x")), _num(unit.get("y"))
     scale = 1.0
-    mapper = _point_mapper(rotation, origin_x, origin_y, plan_w, plan_h)
     if build.has_plan:
-        extent = [mapper(p) for p in _rect_polygon(0.0, 0.0, plan_w, plan_h)]
+        mapped_w, mapped_h = (plan_h, plan_w) if rotation in (90, 270) else (plan_w, plan_h)
+        if mapped_w <= 0.0 or mapped_h <= 0.0 or unit_w <= 0.0 or unit_h <= 0.0:
+            return build
+        scale = min(unit_w / mapped_w, unit_h / mapped_h)
+        placed_w, placed_h = mapped_w * scale, mapped_h * scale
+        placed_x = origin_x + 0.5 * (unit_w - placed_w)
+        placed_y = origin_y + 0.5 * (unit_h - placed_h)
+        mapper = _scaled_mapper(rotation, placed_x, placed_y, plan_w, plan_h, scale)
+        # The unit rect is the declared envelope even when its interior plan
+        # was authored for another extent. This is the same fit-and-centre rule
+        # the frontend uses to draw the plan inside its unit.
+        ex, ey, ew, eh = origin_x, origin_y, unit_w, unit_h
+        if abs(mapped_w - unit_w) > PLAN_FIT_EPS_FT or abs(mapped_h - unit_h) > PLAN_FIT_EPS_FT:
+            build.rescale_note = (
+                label
+                + " plan "
+                + _dim(plan_w)
+                + " x "
+                + _dim(plan_h)
+                + " ft was fitted to "
+                + _dim(unit_w)
+                + " x "
+                + _dim(unit_h)
+                + " ft unit rect at scale "
+                + format(scale, ".3f")
+            )
+        if rotation:
+            build.rotation_note = label + " rotated " + str(rotation) + " deg"
     else:
+        mapper = _point_mapper(rotation, origin_x, origin_y, plan_w, plan_h)
         extent = _rect_polygon(origin_x, origin_y, unit_w, unit_h)
-    ex, ey, ew, eh = _bbox(extent)
+        ex, ey, ew, eh = _bbox(extent)
     build.footprint = (ex, ey, ew, eh)
 
     if ew <= 0.0 or eh <= 0.0:
@@ -1077,25 +1105,23 @@ def _pick_floors(payload: Dict[str, Any], count: int) -> List[Tuple[Optional[Dic
     lower storey already consumed is flagged repeated too, so no storey can
     duplicate another in silence.
     """
-    floors = [f for f in (payload.get("floors") or []) if isinstance(f, dict)]
-    by_number = {}
-    for _i, _f in enumerate(floors):
-        try:
-            _k = int(_f.get("floorNumber"))
-        except (TypeError, ValueError):
-            _k = _i
-        by_number.setdefault(_k, _f)
-
-    typical = None  # type: Optional[Dict[str, Any]]
+    floors = _ordered_floors([f for f in (payload.get("floors") or []) if isinstance(f, dict)])
+    typical = next(
+        (floor for floor in reversed(floors) if _text(floor.get("kind"), "units") != "stilt"),
+        None,
+    )  # type: Optional[Dict[str, Any]]
     picked = []  # type: List[Tuple[Optional[Dict[str, Any]], bool]]
+    used_objects = set()  # type: set
+    used_ids = set()  # type: set
     for index in range(count):
-        floor = by_number.get(index)
-        if floor is None and index < len(floors):
+        if index < len(floors):
             floor = floors[index]
-        if floor is not None:
-            picked.append((floor, False))
-            if _text(floor.get("kind"), "units") != "stilt":
-                typical = floor
+            source_id = _text(floor.get("id"))
+            repeated = id(floor) in used_objects or (bool(source_id) and source_id in used_ids)
+            picked.append((floor, repeated))
+            used_objects.add(id(floor))
+            if source_id:
+                used_ids.add(source_id)
         elif typical is not None:
             picked.append((typical, True))
         else:

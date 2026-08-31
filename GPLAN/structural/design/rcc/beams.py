@@ -18,8 +18,9 @@ The sequence is the one the spec fixes, per trial section:
    recomputed from the chosen layout and the flexure re-checked once;
 6. development length per bar zone and the Cl 26.2.3.3 anchorage check at a
    simple support;
-7. shear at both ends from the PROVIDED tension steel, with the Table 20 cap
-   read as a section failure rather than a stirrup problem;
+7. shear at both ends and at supplied stations outside the 2d end zones from
+   the PROVIDED tension steel, with the Table 20 cap read as a section failure
+   rather than a stirrup problem;
 8. span over effective depth with the Fig 4, 5 and 6 modification factors;
 9. the IS 13920 overlay, after the IS 456 design passes.
 
@@ -151,6 +152,7 @@ class _Forces(NamedTuple):
     vu_b_n: float
     tu_nmm: float
     combo_tags: Tuple[Tuple[str, str], ...]
+    shear_stations_n: Tuple[Tuple[float, float], ...]
 
 
 def _as_forces(source: Any) -> _Forces:
@@ -160,14 +162,30 @@ def _as_forces(source: Any) -> _Forces:
     if isinstance(source, BeamForces):
         tags = tuple(source.combo_tags)
         tu = source.tu_knm
+        raw_shear_stations = tuple(source.shear_stations)
     else:
         tags = tuple(D.read_field(source, ("combo_tags",), ()) or ())
         tu = D.read_field(source, ("tu_knm", "tu"))
+        raw_shear_stations = tuple(D.read_field(source, ("shear_stations",), ()) or ())
     hog_a = D.read_field(source, ("mu_hog_end_a_knm", "mu_hog_a_knm"), 0.0)
     hog_b = D.read_field(source, ("mu_hog_end_b_knm", "mu_hog_b_knm"), 0.0)
     sag = D.read_field(source, ("mu_sag_mid_knm", "mu_sag_knm"), 0.0)
     vu_a = D.read_field(source, ("vu_a_kn",), 0.0)
     vu_b = D.read_field(source, ("vu_b_kn",), 0.0)
+    shear_stations = []  # type: List[Tuple[float, float]]
+    for item in raw_shear_stations:
+        if isinstance(item, dict):
+            where = item.get("station", 0.0)
+            shear_kn = item.get("v_max_kn", item.get("vu_kn", 0.0))
+        else:
+            try:
+                where, shear_kn = item[0], item[1]
+            except (TypeError, IndexError):
+                continue
+        shear_stations.append(
+            (min(max(float(where), 0.0), 1.0), abs(C.kn_to_n(float(shear_kn or 0.0))))
+        )
+    shear_stations.sort(key=lambda pair: (pair[0], pair[1]))
     return _Forces(
         mu_hog_a_nmm=abs(C.knm_to_nmm(hog_a or 0.0)),
         mu_hog_b_nmm=abs(C.knm_to_nmm(hog_b or 0.0)),
@@ -176,6 +194,7 @@ def _as_forces(source: Any) -> _Forces:
         vu_b_n=abs(C.kn_to_n(vu_b or 0.0)),
         tu_nmm=abs(C.knm_to_nmm(tu or 0.0)),
         combo_tags=tuple((str(pair[0]), str(pair[1])) for pair in tags),
+        shear_stations_n=tuple(shear_stations),
     )
 
 
@@ -238,9 +257,10 @@ class _Station:
 
 @dataclass
 class _ShearEnd:
-    """One end's shear design, from the tension steel actually provided there."""
+    """One station's shear design, from the tension steel actually there."""
 
     name: str
+    x_mm: float
     vu_n: float
     ve_n: float
     d_mm: float
@@ -252,6 +272,7 @@ class _ShearEnd:
     asv_per_mm_req: float
     choice: D.StirrupChoice
     tension_from: str
+    demand_source: str = "analysis station"
     ok: bool = True
     reason: str = ""
 
@@ -317,12 +338,14 @@ class _Attempt:
     stations: List[_Station] = field(default_factory=list)
     shear: List[_ShearEnd] = field(default_factory=list)
     middle: Optional[D.StirrupChoice] = None
+    middle_shear: Optional[_ShearEnd] = None
     deflection: Optional[_Deflection] = None
     side_face: Optional[Any] = None
     torsion: Optional[Dict[str, Any]] = None
     notes: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     through_layout: Optional[C.BarLayout] = None
+    through_role: str = "top_through"
     ok: bool = True
     reason: str = ""
     detail: str = ""
@@ -507,6 +530,7 @@ def _design_station(
 
 def _design_shear_end(
     name: str,
+    x_mm: float,
     vu_n: float,
     ve_n: float,
     b_mm: float,
@@ -515,8 +539,9 @@ def _design_shear_end(
     tension_from: str,
     ctx: D.DesignContext,
     torsion_per_mm: float = 0.0,
+    demand_source: str = "analysis station",
 ) -> _ShearEnd:
-    """Stirrups at one end from the tension steel that is actually there."""
+    """Stirrups at one station from the tension steel that is actually there."""
     fck = ctx.fck_mpa
     fy_stirrup = ctx.fy_stirrup_mpa
     shear = max(ve_n, 0.0)
@@ -541,6 +566,7 @@ def _design_shear_end(
         ok, reason = False, "shear_stirrups"
     return _ShearEnd(
         name=name,
+        x_mm=float(x_mm),
         vu_n=float(vu_n),
         ve_n=float(shear),
         d_mm=float(d_mm),
@@ -552,9 +578,53 @@ def _design_shear_end(
         asv_per_mm_req=asv_per_mm,
         choice=choice,
         tension_from=tension_from,
+        demand_source=str(demand_source),
         ok=ok,
         reason=reason,
     )
+
+
+def _middle_shear_demand(
+    forces: _Forces,
+    span_mm: float,
+    from_mm: float,
+    to_mm: float,
+) -> Tuple[float, float, str]:
+    """Largest supplied shear outside the two 2d end zones.
+
+    B17 does not authorize inventing a diagram between analysis stations.  If
+    stations were supplied, only their stated shears are compared.  The old
+    five-value BeamForces contract has no interior value; for that legacy path
+    alone the historical UDL-shaped end decay V(x)=Vend(1-2x/L) is used at the
+    two middle-zone boundaries and is named in the result.
+    """
+    span = max(float(span_mm), 0.0)
+    left = min(max(float(from_mm), 0.0), span)
+    right = min(max(float(to_mm), 0.0), span)
+    if right <= left + _TOL:
+        return (0.0, 0.5 * (left + right), "the two 2d end zones overlap")
+
+    supplied = [
+        (float(where) * span, float(shear))
+        for where, shear in forces.shear_stations_n
+        if left - _TOL <= float(where) * span <= right + _TOL
+    ]
+    if supplied:
+        x_mm, shear_n = max(supplied, key=lambda pair: (pair[1], -pair[0]))
+        return (shear_n, x_mm, "supplied analysis shear station")
+    if forces.shear_stations_n:
+        # A producer that supplies only end-zone stations has not supplied an
+        # interior diagram.  Holding the largest stated value through the
+        # unchecked zone is conservative and uses no inferred interpolation.
+        x_param, shear_n = max(forces.shear_stations_n, key=lambda pair: (pair[1], -pair[0]))
+        return (float(shear_n), min(max(float(x_param) * span, left), right), "supplied-station conservative bound")
+
+    left_shear = max(forces.vu_a_n * (1.0 - 2.0 * left / span), 0.0) if span > 0.0 else 0.0
+    right_reach = span - right
+    right_shear = max(forces.vu_b_n * (1.0 - 2.0 * right_reach / span), 0.0) if span > 0.0 else 0.0
+    if left_shear >= right_shear:
+        return (left_shear, left, "legacy end-only UDL fallback at the 2d boundary")
+    return (right_shear, right, "legacy end-only UDL fallback at the 2d boundary")
 
 
 # ---------------------------------------------------------------------------
@@ -609,6 +679,7 @@ def _attempt(
     mu_top_a = forces.mu_hog_a_nmm
     mu_top_b = forces.mu_hog_b_nmm
     mu_bottom = forces.mu_sag_nmm
+    mu_top_mid = 0.0
     torsion_per_mm = 0.0
 
     # -- Cl 41 torsion folded into equivalent shear and moments ------------
@@ -616,9 +687,10 @@ def _attempt(
         equiv_a = is456.cl_41_4_2__equiv_moment(forces.mu_hog_a_nmm, forces.tu_nmm, b_mm, depth_mm)
         equiv_b = is456.cl_41_4_2__equiv_moment(forces.mu_hog_b_nmm, forces.tu_nmm, b_mm, depth_mm)
         equiv_mid = is456.cl_41_4_2__equiv_moment(forces.mu_sag_nmm, forces.tu_nmm, b_mm, depth_mm)
-        mu_top_a = max(equiv_a.me1_nmm, equiv_mid.me2_nmm)
-        mu_top_b = max(equiv_b.me1_nmm, equiv_mid.me2_nmm)
+        mu_top_a = equiv_a.me1_nmm
+        mu_top_b = equiv_b.me1_nmm
         mu_bottom = max(equiv_mid.me1_nmm, equiv_a.me2_nmm, equiv_b.me2_nmm)
+        mu_top_mid = equiv_mid.me2_nmm
         ve_a = is456.cl_41_3_1__equiv_shear(forces.vu_a_n, forces.tu_nmm, b_mm)
         ve_b = is456.cl_41_3_1__equiv_shear(forces.vu_b_n, forces.tu_nmm, b_mm)
         attempt.torsion = {
@@ -676,6 +748,27 @@ def _attempt(
                 asc_credit_depth_mm=bottom_depth_from_face,
             )
         )
+    if mu_top_mid > 0.0:
+        top_mid = _design_station(
+            "top_mid",
+            "top",
+            mu_top_mid,
+            b_mm,
+            depth_mm,
+            cover.cover_mm,
+            stirrup_dia,
+            width_avail,
+            prefs,
+            ctx,
+            doubly_allowed,
+            asc_credit_mm2=bottom.layout.ast_prov_mm2,
+            asc_credit_depth_mm=bottom_depth_from_face,
+        )
+        stations.append(top_mid)
+        # Me2 is a reversed flexural demand at midspan.  Its top layout must
+        # run through midspan, so it becomes the full-length top-through group
+        # rather than either curtailed end group (N25).
+        attempt.through_layout = top_mid.layout
     attempt.stations = stations
 
     # -- Cl 41.4.3 transverse steel for torsion, per mm of beam ------------
@@ -706,10 +799,10 @@ def _attempt(
 
     # -- shear at both ends, from the steel that is actually in tension ----
     ends = (
-        ("a", forces.vu_a_n, ve_a, mu_top_a, attempt.station("top_left")),
-        ("b", forces.vu_b_n, ve_b, mu_top_b, attempt.station("top_right")),
+        ("a", 0.0, forces.vu_a_n, ve_a, mu_top_a, attempt.station("top_left")),
+        ("b", float(geom.span_mm), forces.vu_b_n, ve_b, mu_top_b, attempt.station("top_right")),
     )
-    for name, vu, ve, moment, station in ends:
+    for name, x_mm, vu, ve, moment, station in ends:
         if moment > 0.0 and station is not None and not station.nominal:
             ast_tension = station.layout.ast_prov_mm2
             d_end = station.d_mm
@@ -723,6 +816,7 @@ def _attempt(
         attempt.shear.append(
             _design_shear_end(
                 name,
+                x_mm,
                 vu,
                 ve,
                 b_mm,
@@ -733,14 +827,33 @@ def _attempt(
                 torsion_per_mm=torsion_per_mm,
             )
         )
-    middle_demand = max(
-        is456.cl_26_5_1_6__min_stirrups(b_mm, ctx.fy_stirrup_mpa),
-        torsion_per_mm,
+    left_middle = min(2.0 * attempt.shear[0].d_mm, float(geom.span_mm))
+    right_middle = max(float(geom.span_mm) - 2.0 * attempt.shear[1].d_mm, 0.0)
+    vu_middle, x_middle, middle_source = _middle_shear_demand(
+        forces,
+        float(geom.span_mm),
+        left_middle,
+        right_middle,
     )
-    attempt.middle = D.choose_stirrups(
-        middle_demand,
-        is456.cl_26_5_1_5__max_stirrup_spacing(min(station.d_mm for station in stations)),
+    ve_middle = (
+        is456.cl_41_3_1__equiv_shear(vu_middle, forces.tu_nmm, b_mm)
+        if forces.tu_nmm > 0.0
+        else vu_middle
     )
+    attempt.middle_shear = _design_shear_end(
+        "middle",
+        x_middle,
+        vu_middle,
+        ve_middle,
+        b_mm,
+        bottom.d_mm,
+        bottom.layout.ast_prov_mm2,
+        "bottom_mid",
+        ctx,
+        torsion_per_mm=torsion_per_mm,
+        demand_source=middle_source,
+    )
+    attempt.middle = attempt.middle_shear.choice
 
     # -- Cl 26.5.1.3 side face steel ---------------------------------------
     attempt.side_face = is456.cl_26_5_1_3__side_face(b_mm, depth_mm, torsion=forces.tu_nmm > 0.0)
@@ -763,6 +876,10 @@ def _attempt(
                 attempt.reason = end.reason
                 attempt.detail = "end " + end.name
                 break
+    if attempt.ok and attempt.middle_shear is not None and not attempt.middle_shear.ok:
+        attempt.ok = False
+        attempt.reason = attempt.middle_shear.reason
+        attempt.detail = "middle"
     if attempt.ok and attempt.deflection is not None and not attempt.deflection.ok:
         attempt.ok = False
         attempt.reason = "deflection"
@@ -976,10 +1093,28 @@ def _emit_bars(
         role = "top_mid" if name == "bottom_mid" else ("bottom_left" if name == "top_left" else "bottom_right")
         emit_layout(role, station.comp_layout, [0.0, span], max(station.asc_req_mm2 - station.asc_credit_mm2, 0.0), compression=True)
 
-    # Hangers, where the top steel is curtailed and no compression bar runs through.
+    # Full-length top steel.  A torsional Me2 station owns a strength layout;
+    # otherwise the through group starts as the cage bars and the ductile
+    # overlay may raise it to its rho_min floor.
     mid = attempt.station("bottom_mid")
+    torsion_mid = attempt.station("top_mid")
     has_through_top = mid is not None and mid.comp_layout is not None
-    if not cantilever and not has_through_top:
+    if not cantilever and torsion_mid is not None:
+        if attempt.through_layout is None:
+            attempt.through_layout = torsion_mid.layout
+        emit_layout("top_through", attempt.through_layout, [0.0, span], torsion_mid.ast_req_mm2)
+        result.add_note(
+            "IS 456 Cl 41.4.2 Me2 at midspan is carried by the full-length top-through layout on the "
+            "flexural-compression face"
+        )
+    elif not cantilever and has_through_top:
+        # A doubly reinforced sagging section already owns a full-length top
+        # group under the established `top_mid` role.  It is the through steel
+        # physically present at nominal end faces; retain the public role but
+        # offer the same layout to the ductile capacity rules (B15/N24).
+        attempt.through_layout = mid.comp_layout
+        attempt.through_role = "top_mid"
+    elif not cantilever and not has_through_top:
         if attempt.through_layout is None:
             attempt.through_layout = C.BarLayout(
                 bars=((2, int(_HANGER_DIA_MM)),),
@@ -990,10 +1125,9 @@ def _emit_bars(
             )
         emit_layout("top_through", attempt.through_layout, [0.0, span], 0.0)
         result.add_note(
-            "two "
-            + str(_HANGER_DIA_MM)
-            + " mm bars run the full length at the top to carry the stirrup cage where the hogging steel is "
-            "curtailed; they are not counted in any flexural or shear capacity"
+            "the top-through bars run the full length to carry the stirrup cage where the hogging steel is "
+            "curtailed; in a ductile beam their final provided layout is counted at every nominal hogging "
+            "face for the IS 13920 Cl 6.2 and Cl 6.3 capacity checks"
         )
 
     # Side face steel on a deep web, Cl 26.5.1.3.
@@ -1016,7 +1150,7 @@ def _emit_bars(
 
 
 def _emit_stirrups(result: C.DesignResult, attempt: _Attempt, geom: BeamGeometry) -> List[D.StirrupZone]:
-    """End zones of 2d at the computed spacing, the middle at maximum spacing."""
+    """End zones of 2d and the checked middle zone at their designed spacing."""
     span = float(geom.span_mm)
     zones = []  # type: List[D.StirrupZone]
     for end in attempt.shear:
@@ -1128,22 +1262,27 @@ def _emit_checks(
             capacity=end.choice.asv_per_mm_prov,
             units="mm2/mm",
         )
-        # The Cl 26.5.1.5 maximum spacing is applied inside the stirrup ladder,
-        # which cannot return a spacing above it. It is disclosed as a note
-        # rather than as a check row that can only ever read 1.0 or less and
-        # would otherwise sit at the top of every beam's utilization.
-        result.add_note(
-            "end "
-            + end.name
-            + " stirrups: "
-            + str(end.choice.legs)
-            + " legs of "
-            + ("%.0f" % end.choice.dia_mm)
-            + " mm at "
-            + ("%.0f" % end.choice.spacing_mm)
-            + " mm, against the IS 456 Cl 26.5.1.5 maximum of "
-            + ("%.0f" % end.choice.max_spacing_mm)
-            + " mm (the lesser of 0.75d and 300 mm)"
+
+    middle = attempt.middle_shear
+    if middle is not None:
+        # The mandatory `stirrups_middle` row carries every ordinary middle
+        # design.  Add a separate Table 20 row only when that immutable
+        # section limit fails; passing rows would duplicate the same carried
+        # shear on every full wire result without changing a verdict.
+        if middle.tau_v_mpa > middle.tau_c_max_mpa + 1e-9:
+            result.add_check(
+                "shear_stress_middle",
+                D.clause_of(is456.table_20__tau_c_max),
+                demand=middle.tau_v_mpa,
+                capacity=middle.tau_c_max_mpa,
+                units="MPa",
+            )
+        result.add_check(
+            "stirrups_middle",
+            D.clause_of(is456.cl_40_4__vertical_stirrups),
+            demand=middle.asv_per_mm_req,
+            capacity=middle.choice.asv_per_mm_prov,
+            units="mm2/mm",
         )
 
     if attempt.deflection is not None:
@@ -1180,6 +1319,43 @@ def _emit_checks(
         )
 
     _emit_anchorage(result, attempt, geom, ctx)
+
+
+def _emit_final_stirrup_schedule_notes(result: C.DesignResult, geom: BeamGeometry) -> None:
+    """Describe the final emitted schedule, after any IS 13920 replacement."""
+    schedule = list(result.stirrups)
+    if not schedule:
+        return
+    span = float(geom.span_mm)
+    source = "the IS 13920 overlay" if result.extras.get("ductile", {}).get("applied") else "IS 456 design"
+    end_a = min(schedule, key=lambda row: (float(row["zone_mm"][0]), float(row["zone_mm"][1])))
+    end_b = min(schedule, key=lambda row: (-float(row["zone_mm"][1]), -float(row["zone_mm"][0])))
+    midpoint = 0.5 * span
+    middle = next(
+        (
+            row
+            for row in schedule
+            if float(row["zone_mm"][0]) <= midpoint + _TOL
+            and float(row["zone_mm"][1]) >= midpoint - _TOL
+        ),
+        min(schedule, key=lambda row: abs(0.5 * (float(row["zone_mm"][0]) + float(row["zone_mm"][1])) - midpoint)),
+    )
+    for location, row in (("end a", end_a), ("middle", middle), ("end b", end_b)):
+        result.add_note(
+            "final stirrup schedule at "
+            + location
+            + " after "
+            + source
+            + ": "
+            + str(int(row["legs"]))
+            + " legs of "
+            + ("%.0f" % float(row["dia_mm"]))
+            + " mm at "
+            + ("%.0f" % float(row["spacing_mm"]))
+            + " mm ("
+            + str(row["kind"])
+            + ")"
+        )
 
 
 def _emit_anchorage(
@@ -1257,10 +1433,6 @@ def _emit_notes(
         "the Table 19 concrete shear strength at each end is read from the tension steel actually provided "
         "there, not from the steel the moment asked for"
     )
-    result.add_note(
-        "the middle of the span carries the Cl 26.5.1.6 minimum stirrups at the Cl 26.5.1.5 maximum "
-        "spacing: the envelope supplies shear at the two ends only"
-    )
     for text in attempt.notes:
         result.add_note(text)
     for text in attempt.warnings:
@@ -1284,6 +1456,13 @@ def _emit_notes(
     for end in attempt.shear:
         if not end.choice.ok:
             result.add_warning("shear at end " + end.name + ": " + end.choice.note)
+    if attempt.middle_shear is not None and not attempt.middle_shear.choice.ok:
+        result.add_warning("shear in the middle zone: " + attempt.middle_shear.choice.note)
+    if attempt.middle_shear is not None and attempt.middle_shear.demand_source.startswith("legacy"):
+        result.add_note(
+            "the BeamForces input carried end shears only, so the middle-zone demand uses the explicitly "
+            "disclosed legacy UDL fallback V(x) = Vend (1 - 2x/L) at the 2d boundary"
+        )
 
     if geom.support == D.SUPPORT_CANTILEVER:
         result.add_note(
@@ -1323,7 +1502,6 @@ def _ductile_state(
     top_a = attempt.station("top_left")
     top_b = attempt.station("top_right")
     dias = [float(bar.get("dia_mm", 0.0)) for bar in result.bars if bar.get("role") != "side_face"]
-    top_d = max((station.d_mm for station in attempt.stations if station.face == "top"), default=0.0)
     state = {
         "b_mm": attempt.b_mm,
         "D_mm": attempt.D_mm,
@@ -1338,6 +1516,11 @@ def _ductile_state(
         "vu_b_n": attempt.shear[1].ve_n if len(attempt.shear) > 1 else forces.vu_b_n,
         "tau_c_a_mpa": attempt.shear[0].tau_c_mpa if attempt.shear else 0.0,
         "tau_c_b_mpa": attempt.shear[1].tau_c_mpa if len(attempt.shear) > 1 else 0.0,
+        "vu_middle_n": attempt.middle_shear.ve_n if attempt.middle_shear is not None else 0.0,
+        "tau_c_middle_mpa": attempt.middle_shear.tau_c_mpa if attempt.middle_shear is not None else 0.0,
+        "asv_middle_req": (
+            attempt.middle_shear.asv_per_mm_req if attempt.middle_shear is not None else 0.0
+        ),
         "dia_long_min_mm": min(dias) if dias else float(_HANGER_DIA_MM),
         "dia_long_max_mm": max(dias) if dias else float(_HANGER_DIA_MM),
         "mu_cap_hog_a_nmm": top_a.mu_cap_nmm if top_a is not None and not top_a.nominal else 0.0,
@@ -1352,6 +1535,27 @@ def _ductile_state(
         state["ast_top_a_mm2"] = top_a.ast_prov_mm2
     if top_b is not None and not top_b.nominal:
         state["ast_top_b_mm2"] = top_b.ast_prov_mm2
+    if attempt.through_layout is not None:
+        if attempt.through_role == "top_mid" and bottom is not None:
+            top_d = attempt.D_mm - bottom.dprime_mm
+        else:
+            through_station = attempt.station("top_mid")
+            if through_station is not None and through_station.layout is attempt.through_layout:
+                top_d = through_station.d_mm
+            else:
+                top_d = (
+                    C.effective_depth(
+                        attempt.D_mm,
+                        attempt.cover_mm,
+                        attempt.stirrup_dia_mm,
+                        attempt.through_layout.max_dia_mm,
+                        layers=1,
+                        agg_mm=ctx.agg_mm,
+                    )
+                    - attempt.through_layout.d_adjust_mm
+                )
+    else:
+        top_d = 0.0
     if attempt.through_layout is not None and top_d > 0.0:
         state["ast_top_through_mm2"] = float(attempt.through_layout.ast_prov_mm2)
         state["mu_cap_top_through_nmm"] = D.moment_capacity_nmm(
@@ -1361,6 +1565,8 @@ def _ductile_state(
             ctx.fy_mpa,
             attempt.through_layout.ast_prov_mm2,
         )
+        state["top_through_d_mm"] = top_d
+        state["top_through_bar_role"] = attempt.through_role
     return state
 
 
@@ -1387,11 +1593,67 @@ def _steel_setter(
             if current is None:
                 return {}
             layout = C.pick_bars(max(float(ast_req_mm2), current.ast_prov_mm2), attempt.width_avail_mm, prefs)
-            if layout.ast_prov_mm2 <= current.ast_prov_mm2 + 1e-6:
-                return {"ast_prov_mm2": current.ast_prov_mm2, "label": current.label, "changed": False}
+            changed = layout.ast_prov_mm2 > current.ast_prov_mm2 + 1e-6
+            if not changed:
+                layout = current
             attempt.through_layout = layout
-            _rewrite_bars(result, "top_through", layout, geom, ctx, 0.0)
-            return {"ast_prov_mm2": layout.ast_prov_mm2, "label": layout.label, "changed": True}
+            bottom = attempt.station("bottom_mid")
+            sag_capacity = bottom.mu_cap_nmm if bottom is not None else 0.0
+            if attempt.through_role == "top_mid" and bottom is not None:
+                bottom.comp_layout = layout
+                bottom.dprime_mm = attempt.cover_mm + attempt.stirrup_dia_mm + 0.5 * layout.max_dia_mm
+                through_d = attempt.D_mm - bottom.dprime_mm
+                bottom.mu_cap_nmm = D.moment_capacity_nmm(
+                    attempt.b_mm,
+                    bottom.d_mm,
+                    ctx.fck_mpa,
+                    ctx.fy_mpa,
+                    bottom.layout.ast_prov_mm2,
+                    bottom.asc_prov_mm2 if bottom.asc_req_mm2 > 0.0 else 0.0,
+                    bottom.dprime_mm if bottom.asc_req_mm2 > 0.0 else 0.0,
+                )
+                sag_capacity = bottom.mu_cap_nmm
+            else:
+                through_d = (
+                    C.effective_depth(
+                        attempt.D_mm,
+                        attempt.cover_mm,
+                        attempt.stirrup_dia_mm,
+                        layout.max_dia_mm,
+                        layers=1,
+                        agg_mm=ctx.agg_mm,
+                    )
+                    - layout.d_adjust_mm
+                )
+            mu_cap = D.moment_capacity_nmm(
+                attempt.b_mm,
+                through_d,
+                ctx.fck_mpa,
+                ctx.fy_mpa,
+                layout.ast_prov_mm2,
+            )
+            through_station = attempt.station("top_mid")
+            if through_station is not None:
+                through_station.layout = layout
+                through_station.d_mm = through_d
+                through_station.mu_cap_nmm = mu_cap
+            if changed:
+                _rewrite_bars(
+                    result,
+                    attempt.through_role,
+                    layout,
+                    geom,
+                    ctx,
+                    0.0,
+                    compression=attempt.through_role == "top_mid",
+                )
+            return {
+                "ast_prov_mm2": layout.ast_prov_mm2,
+                "mu_cap_nmm": mu_cap,
+                "mu_cap_sag_nmm": sag_capacity,
+                "label": layout.label,
+                "changed": changed,
+            }
         station = attempt.station(role)
         if station is None:
             return {}
@@ -1443,6 +1705,7 @@ def _rewrite_bars(
     geom: BeamGeometry,
     ctx: D.DesignContext,
     ast_req_mm2: float,
+    compression: bool = False,
 ) -> None:
     """Replace the bar entries of one role with a new layout, zone unchanged."""
     existing = [bar for bar in result.bars if bar.get("role") == role]
@@ -1461,7 +1724,7 @@ def _rewrite_bars(
                 role=role,
                 count=counts[dia],
                 dia_mm=float(dia),
-                ld_mm=D.development_length_mm(dia, ctx),
+                ld_mm=D.development_length_mm(dia, ctx, compression=compression),
                 zone_mm=[float(zone[0]), float(zone[1])],
                 layer=layer_index + 1,
                 ast_req_mm2=ast_req,
@@ -1603,6 +1866,7 @@ def design_beam(forces: Any, geom: Any, ctx: Any = None) -> C.DesignResult:
                 + str(context.frame)
                 + " frame); IS 456 detailing only"
             )
+        _emit_final_stirrup_schedule_notes(result, geometry)
     result.trace = entries
     return result.finalize()
 

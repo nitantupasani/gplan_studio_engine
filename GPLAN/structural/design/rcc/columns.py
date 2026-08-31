@@ -712,7 +712,14 @@ def _ladder_for(
         + " layouts"
     )
     if top.asc_mm2 < limits.asc_max_mm2 - _AREA_TOL_MM2:
-        note += "; the 6 percent ceiling of Cl 26.5.3.1 is not reachable in this section, the cage stops fitting first"
+        if top.count >= MAX_LONG_BARS:
+            note += (
+                "; the 6 percent ceiling of Cl 26.5.3.1 was not reached because the policy cap of "
+                + str(MAX_LONG_BARS)
+                + " longitudinal bars stopped enumeration"
+            )
+        else:
+            note += "; the 6 percent ceiling of Cl 26.5.3.1 was not reached because the cage stopped fitting first"
     return tuple(out), note
 
 
@@ -1080,9 +1087,13 @@ def _resize_reason(best: Optional[Tuple[BarArrangement, _Eval]]) -> str:
         return "no symmetric cage between 0.8 and 6 percent fits this section"
     arrangement, evaluated = best
     cage = str(arrangement.count) + "-" + str(arrangement.dia_mm)
+    if arrangement.count >= MAX_LONG_BARS:
+        limit = "the policy cap of " + str(MAX_LONG_BARS) + " longitudinal bars (" + cage + ")"
+    else:
+        limit = "the largest cage that fits (" + cage + ")"
     if evaluated.ratio >= RATIO_CAP:
-        return "Pu is at or above Puz with the largest cage that fits (" + cage + ")"
-    return "Cl 39.6 interaction " + _num(evaluated.ratio, 3) + " with the largest cage that fits (" + cage + ")"
+        return "Pu is at or above Puz with " + limit
+    return "Cl 39.6 interaction " + _num(evaluated.ratio, 3) + " with " + limit
 
 
 # ---------------------------------------------------------------------------

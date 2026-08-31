@@ -596,6 +596,36 @@ def test_the_ladder_starts_at_the_cheapest_cage_the_section_can_hold():
     assert [rung.asc_mm2 for rung in rungs] == sorted(rung.asc_mm2 for rung in rungs)
 
 
+def test_a_bar_capped_ladder_names_the_policy_cap_not_packing():
+    """N20: the 600 mm ladder reaches its bar-count policy cap before 6 percent."""
+    rungs, note = CO._ladder_for(600.0, 600.0, "moderate", 0.0, 20.0)
+    evaluated = CO._Eval(
+        puz_n=0.0,
+        pb_x_n=0.0,
+        pb_y_n=0.0,
+        k_x=0.0,
+        k_y=0.0,
+        ma_x_nmm=0.0,
+        ma_y_nmm=0.0,
+        e_min_x_mm=0.0,
+        e_min_y_mm=0.0,
+        mux_design_nmm=0.0,
+        muy_design_nmm=0.0,
+        mux1_nmm=0.0,
+        muy1_nmm=0.0,
+        alpha_n=0.0,
+        ratio=CO.RATIO_CAP,
+        pu_axial_n=0.0,
+        axial_only=False,
+        ok=False,
+    )
+
+    assert rungs[-1].count == CO.MAX_LONG_BARS
+    assert "policy cap of 20 longitudinal bars" in note
+    assert "cage stopped fitting first" not in note
+    assert "policy cap of 20 longitudinal bars" in CO._resize_reason((rungs[-1], evaluated))
+
+
 def test_a_lightly_loaded_big_column_takes_the_cheapest_legal_cage():
     """N23 end to end: 600 x 600 at a trivial load is 10-20, not 18-16."""
     result = CO.design_column(forces(200.0), geom(600.0, 600.0), PLAIN)

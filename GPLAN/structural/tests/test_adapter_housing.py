@@ -69,6 +69,20 @@ def _wall_ft(wall):
     return (m_to_ft(wall.a[0]), m_to_ft(wall.a[1]), m_to_ft(wall.b[0]), m_to_ft(wall.b[1]))
 
 
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("Master Bedroom", Occupancy.HABITABLE),
+        ("Master Bath", Occupancy.BATH),
+        ("Guest Toilet", Occupancy.WC),
+    ],
+)
+def test_room_name_matching_uses_complete_tokens_and_wet_rooms_win(name, expected):
+    occupancy, recognized = housing._occupancy_for_name(name)
+    assert recognized is True
+    assert occupancy == expected
+
+
 def _openings(model, kind):
     out = []
     for wall in model.walls:
@@ -291,7 +305,9 @@ def _core_shape(shape_id, core_id, kind, x, y, w, h):
     return {"id": shape_id, "points": _rect(x, y, w, h), "core": {"id": core_id, "kind": kind}}
 
 
-def _generated(gen_w, gen_h, placements, plan_id="pl-1"):
+def _generated(gen_w, gen_h, placements, plan_id="pl-1", plan_w=None, plan_h=None):
+    plan_w = gen_w if plan_w is None else plan_w
+    plan_h = gen_h if plan_h is None else plan_h
     return {
         "generated": {
             "requestedType": "1BHK",
@@ -303,8 +319,8 @@ def _generated(gen_w, gen_h, placements, plan_id="pl-1"):
                 {
                     "id": plan_id,
                     "label": "Plan 1",
-                    "floorWidth": gen_w,
-                    "floorHeight": gen_h,
+                    "floorWidth": plan_w,
+                    "floorHeight": plan_h,
                     "placements": [
                         {"name": p[0], "x": p[1], "y": p[2], "width": p[3], "height": p[4]}
                         for p in placements
@@ -349,6 +365,24 @@ def test_two_built_plots_give_two_models_and_plot_id_filters_to_one():
     assert models[1].meta["options"]["plot_id"] is None
     xs = [m_to_ft(w.a[0]) for w in only[0].walls]
     assert min(xs) >= 40.0 - FT_TOL, "the second model carries only its own plot"
+
+
+def test_fingerprint_changes_for_roof_entry_and_design_name():
+    """Every design field that reaches the model must invalidate its dedup key (N9)."""
+    floor = _floor(0, "Ground", _rect(0, 0, 30, 20), segments=[("split", 0, 10, 30, 10)])
+    baseline = _design([floor])
+    roof_changed = copy.deepcopy(baseline)
+    roof_changed["roof"] = {"type": "gable", "riseRatio": 0.3, "overhangFt": 1.0}
+    entry_changed = copy.deepcopy(baseline)
+    entry_changed["entry"] = [0, 4]
+    name_changed = copy.deepcopy(baseline)
+    name_changed["name"] = "Synthetic renamed"
+
+    fingerprints = {
+        housing.from_housing(payload)[0].fingerprint
+        for payload in (baseline, roof_changed, entry_changed, name_changed)
+    }
+    assert len(fingerprints) == 4
 
 
 def test_a_parking_only_plot_is_reported_unbuilt_and_produces_no_model():
@@ -400,6 +434,33 @@ def test_resolved_regions_carry_their_own_content_and_skip_derivation():
     assert "W_REGION_CONTENT_UNMATCHED" not in _codes(model)
 
 
+def test_resolved_content_is_not_falsely_disclosed_as_dropped():
+    """Content may arrive on resolved faces and regionContent together (N10)."""
+    parking = {"space": {"kind": "parking"}}
+    lobby = {"space": {"kind": "lobby"}}
+    first_key = "0,0;30,0;30,20;0,20"
+    second_key = "0,20;30,20;30,40;0,40"
+    floor = _floor(
+        0,
+        "Ground",
+        _rect(0, 0, 30, 40),
+        segments=[("seg-a", 0, 20, 30, 20)],
+        region_content={first_key: parking, second_key: lobby},
+    )
+    resolved = {
+        "hf-0": [
+            {"points": _rect(0, 0, 30, 20), "content": parking},
+            {"points": _rect(0, 20, 30, 20)},
+        ]
+    }
+    model = housing.from_housing(_design([floor]), resolved_regions=resolved)[0]
+    assert [room.occupancy for room in sorted(model.rooms, key=lambda room: room.id)] == [
+        Occupancy.PARKING,
+        Occupancy.LOBBY,
+    ]
+    assert "W_REGION_CONTENT_UNMATCHED" not in _codes(model)
+
+
 def test_derived_regions_take_content_by_interior_point_containment():
     floor = _floor(
         0,
@@ -418,6 +479,90 @@ def test_derived_regions_take_content_by_interior_point_containment():
     assert by_id["room-s0-region-0"].interior_unknown is True, "the unlabeled half"
     assert "W_REGION_CONTENT_UNMATCHED" in _codes(model), "the opaque key is disclosed"
     assert "W_UNIT_NO_PLAN" in _codes(model)
+
+
+def test_boundary_content_routes_a_whole_plot_generated_plan_into_rooms():
+    """A segment-free floor can store its plan only on boundaryContent (C2)."""
+    floor = _floor(0, "Ground", _rect(0, 0, 30, 20))
+    floor["boundaryContent"] = _generated(
+        30, 20, [("Living Room", 0, 0, 30, 12), ("Bedroom 1", 0, 12, 30, 8)]
+    )
+    model = housing.from_housing(_design([floor]))[0]
+    rooms = sorted((room.name, _rect_ft(room)) for room in model.rooms)
+    assert rooms == [
+        ("Bedroom 1", pytest.approx((0.0, 12.0, 30.0, 8.0), abs=FT_TOL)),
+        ("Living Room", pytest.approx((0.0, 0.0, 30.0, 12.0), abs=FT_TOL)),
+    ]
+    assert "W_UNIT_NO_PLAN" not in _codes(model)
+    assert "W_REGION_CONTENT_UNMATCHED" not in _codes(model)
+
+
+def test_additional_plot_content_routes_a_generated_plan_into_its_stack():
+    """An additional plot's own content is just as structural as regionContent (C2)."""
+    plot = {
+        "id": "plot-b",
+        "boundary": _rect(40, 0, 12, 10),
+        "content": _generated(12, 10, [("Living Room", 0, 0, 12, 10)]),
+    }
+    floor = _floor(0, "Ground", _rect(0, 0, 30, 20), plots=[plot])
+    model = housing.from_housing(_design([floor]))[0]
+    assert model.meta["plot_id"] == "plot-b"
+    room = model.rooms[0]
+    assert room.name == "Living Room"
+    assert _rect_ft(room) == pytest.approx((40.0, 0.0, 12.0, 10.0), abs=FT_TOL)
+    assert "W_REGION_CONTENT_UNMATCHED" not in _codes(model)
+
+
+def test_drawn_shape_content_routes_a_generated_plan_into_its_own_face():
+    """A non-core shape's content is not allowed to disappear after parsing (C2)."""
+    shape = {
+        "id": "shape-unit",
+        "points": _rect(10, 5, 12, 10),
+        "content": _generated(12, 10, [("Living Room", 0, 0, 12, 10)]),
+    }
+    floor = _floor(0, "Ground", _rect(0, 0, 30, 20), shapes=[shape])
+    model = housing.from_housing(_design([floor]))[0]
+    rooms = [room for room in model.rooms if room.unit_id is not None]
+    assert len(rooms) == 1
+    assert rooms[0].name == "Living Room"
+    assert _rect_ft(rooms[0]) == pytest.approx((10.0, 5.0, 12.0, 10.0), abs=FT_TOL)
+    assert "W_REGION_CONTENT_UNMATCHED" not in _codes(model)
+
+
+def test_region_key_prefers_its_equal_host_face_over_a_nested_shape():
+    """The island at the host origin used to steal the host's content (B3)."""
+    outer = housing._normalize_loop(housing._loop_m(_rect(0, 0, 30, 20)))
+    inner = housing._normalize_loop(housing._loop_m(_rect(0, 0, 6, 6)))
+    faces = [
+        {"loop": inner, "interior": housing._interior_point(inner), "content": None, "core": None},
+        {"loop": outer, "interior": housing._interior_point(outer), "content": None, "core": None},
+    ]
+    content = {"space": {"kind": "lobby"}}
+    unmatched = housing._match_region_content(faces, {"0,0;30,0;30,20;0,20": content})
+    assert unmatched == []
+    assert faces[0]["content"] is None
+    assert faces[1]["content"] == content
+
+
+def test_generated_plan_is_carved_around_a_nested_core_face():
+    """The host face is net of the core, so its generated rooms must be net too (N7)."""
+    core = _core_shape("shape-core", "core-stairs", "stairs", 10, 5, 6, 6)
+    floor = _floor(
+        0,
+        "Ground",
+        _rect(0, 0, 30, 20),
+        shapes=[core],
+        region_content={
+            "0,0;30,0;30,20;0,20": _generated(30, 20, [("Living Room", 0, 0, 30, 20)])
+        },
+    )
+    model = housing.from_housing(_design([floor]))[0]
+    placed_area = sum(room.area_m2 for room in model.rooms if room.unit_id is not None)
+    core_area = sum(room.area_m2 for room in model.rooms if room.occupancy == Occupancy.STAIR)
+    assert placed_area == pytest.approx(ft_to_m(1.0) ** 2 * (30.0 * 20.0 - 6.0 * 6.0))
+    assert placed_area + core_area == pytest.approx(ft_to_m(1.0) ** 2 * 30.0 * 20.0)
+    assert "W_CORE_UNIT_OVERLAP" not in _codes(model)
+    assert model.validate() == []
 
 
 def test_a_region_border_with_no_drawn_wall_is_not_a_wall():
@@ -565,6 +710,30 @@ def test_a_stale_generated_plan_is_uniformly_rescaled_and_centred():
     assert aspect == [round(16.0 / 12.0, 6)] * 2, "a uniform scale keeps every proportion"
 
 
+def test_a_fractional_region_uses_the_plan_frame_not_the_generation_request():
+    """The client floors plan dimensions, but genW/genH remain the stale reference (B4)."""
+    plan = _generated(
+        13.12,
+        22.97,
+        [("Living Room", 0, 0, 13, 22)],
+        plan_w=13,
+        plan_h=22,
+    )
+    floor = _floor(
+        0,
+        "Ground",
+        _rect(0, 0, 13.12, 22.97),
+        region_content={"0,0;13.12,0;13.12,22.97;0,22.97": plan},
+    )
+    model = housing.from_housing(_design([floor]))[0]
+    room = next(room for room in model.rooms if room.unit_id is not None)
+    scale = 13.12 / 13.0
+    assert _rect_ft(room) == pytest.approx(
+        (0.0, 0.5 * (22.97 - 22.0 * scale), 13.12, 22.0 * scale), abs=FT_TOL
+    )
+    assert "W_STALE_GENERATED" not in _codes(model)
+
+
 def test_windows_are_only_assumed_when_the_caller_asks(design):
     quiet = housing.from_housing(design)[0]
     assert "N_WINDOWS_NOT_ASSUMED" in _codes(quiet)
@@ -603,6 +772,23 @@ def test_a_parking_only_ground_storey_is_marked_stilt():
     }
     model = housing.from_housing(_design(floors), resolved_regions=resolved)[0]
     assert [s.kind for s in model.storeys] == [StoreyKind.STILT, StoreyKind.UNITS]
+
+
+def test_boundary_parking_with_the_mandatory_stair_core_is_stilt():
+    """A multi-storey parking floor has a core, which must not preempt stilt (N8)."""
+    ground_core = _core_shape("shape-g", "core-stairs", "stairs", 20, 26, 7, 10)
+    first_core = _core_shape("shape-1", "core-stairs", "stairs", 20, 26, 7, 10)
+    ground = _floor(0, "Ground", _rect(0, 0, 30, 40), shapes=[ground_core])
+    ground["boundaryContent"] = {"space": {"kind": "parking"}}
+    first = _floor(
+        1,
+        "First",
+        _rect(0, 0, 30, 40),
+        segments=[("split", 0, 20, 30, 20)],
+        shapes=[first_core],
+    )
+    model = housing.from_housing(_design([ground, first]))[0]
+    assert [storey.kind for storey in model.storeys] == [StoreyKind.STILT, StoreyKind.UNITS]
 
 
 # --------------------------------------------------------------------------

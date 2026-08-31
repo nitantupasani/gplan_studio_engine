@@ -91,6 +91,8 @@ RECT_TOL_FT = 0.05
 
 # sum(room areas) must equal the bbox area within this fraction, else voids.
 GAPLESS_TOL_FRACTION = 0.005
+# A residual above this absolute floor is a real void even in a large plan.
+GAPLESS_ABSOLUTE_FLOOR_SQFT = 1.0
 
 # Rooms sharing more than this on both axes overlap (feet, tiny by design).
 OVERLAP_TOL_FT = 0.01
@@ -211,26 +213,33 @@ NAME_KIND = MappingProxyType(
     }
 )
 
-# Longest prefix wins, so "hallway" reads corridor while "hall" reads habitable.
-_NAME_PREFIXES = tuple(sorted(NAME_KIND, key=lambda k: (-len(k), k)))
-
-
 def normalize_name(name: Any) -> str:
     """Lowercase, whitespace collapsed room name; the key both lookups use."""
     return " ".join(str(name or "").strip().lower().split())
 
 
 def occupancy_for_name(name: Any) -> Optional[Occupancy]:
-    """Occupancy for a room name, prefix tolerant; None when nothing matches."""
+    """Occupancy for a room name, matched on complete whitespace tokens."""
     normalized = normalize_name(name)
     if not normalized:
         return None
     if normalized in NAME_KIND:
         return NAME_KIND[normalized]
-    for prefix in _NAME_PREFIXES:
-        if normalized.startswith(prefix):
-            return NAME_KIND[prefix]
-    return None
+    tokens = normalized.split()
+    matches = []  # type: List[Tuple[int, Occupancy]]
+    for key, occupancy in NAME_KIND.items():
+        key_tokens = key.split()
+        width = len(key_tokens)
+        if any(tokens[index:index + width] == key_tokens for index in range(len(tokens) - width + 1)):
+            matches.append((width, occupancy))
+    if not matches:
+        return None
+    wet = [match for match in matches if match[1] in (Occupancy.BATH, Occupancy.WC)]
+    choices = wet or matches
+    occupancies = {match[1] for match in choices}
+    if len(occupancies) != 1:
+        return None
+    return max(choices, key=lambda match: match[0])[1]
 
 
 def _coerce_occupancy(value: Any, where: str) -> Occupancy:
@@ -563,7 +572,9 @@ def _ft2(value: float) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _check_gapless(records: Sequence[_RoomRec]) -> Tuple[float, float, float, float]:
+def _check_gapless(
+    records: Sequence[_RoomRec], pending: Optional[_Pending] = None
+) -> Tuple[float, float, float, float]:
     """Refuse overlaps and voids; return the plan bbox in metres."""
     for i, a in enumerate(records):
         for b in records[i + 1:]:
@@ -589,13 +600,24 @@ def _check_gapless(records: Sequence[_RoomRec]) -> Tuple[float, float, float, fl
         raise AdapterError("E_EMPTY_PLAN", "the plan bounding box has no area")
 
     total = sum(r.w_m * r.h_m for r in records)
-    if abs(bbox_area - total) > GAPLESS_TOL_FRACTION * bbox_area:
+    residual = abs(bbox_area - total)
+    if (
+        residual > GAPLESS_TOL_FRACTION * bbox_area
+        or _sqft(residual) > GAPLESS_ABSOLUTE_FLOOR_SQFT
+    ):
         raise AdapterError(
             "E_PLAN_NOT_GAPLESS",
             NOT_GAPLESS_MESSAGE
             + " (rooms cover " + _ft2(_sqft(total))
             + " sqft of a " + _ft2(_sqft(bbox_area)) + " sqft envelope)",
             {"rooms_m2": total, "bbox_m2": bbox_area},
+        )
+    if residual > 0.0 and pending is not None:
+        pending.add(
+            "N_GAPLESS_RESIDUAL",
+            "the room envelope retains a %.3f sqft residual below both the %.1f sqft absolute and %.1f pct relative void floors"
+            % (_sqft(residual), GAPLESS_ABSOLUTE_FLOOR_SQFT, 100.0 * GAPLESS_TOL_FRACTION),
+            [("room", record.index) for record in records],
         )
     return (x0, y0, x1 - x0, y1 - y0)
 
@@ -1299,9 +1321,8 @@ def from_plan(
 
     rooms, documents = _unwrap(plan, plan_index)
     records = _room_records(rooms)
-    bbox = _check_gapless(records)
-
     pending = _Pending()
+    bbox = _check_gapless(records, pending)
     _apply_occupancy(records, occupancy_map, pending)
 
     segments = _extract_segments(

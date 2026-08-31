@@ -933,7 +933,7 @@ CONCRETE_BASIS = {
     ),
     "slab": (
         "panel area less the beam plan footprints, less every opening over 0.1 m2 "
-        "(IS 1200 Part 5 Cl 4.4), times the slab thickness"
+        "(IS 1200 Part 2), times the slab thickness"
     ),
     "stair": (
         "inclined waist, plan length / cos(incline) x width x waist, plus the step triangles "
@@ -1058,8 +1058,9 @@ def _net_panel_area_m2(
 
     Beam footprints are unioned before they are cut out, so a crossing at a
     column is not deducted twice. An opening is deducted only where its own area
-    inside the panel exceeds `min_opening_m2` (IS 1200 Part 5 Cl 4.4): exactly
-    at the limit it stays, because the clause reads "exceeding".
+    inside the panel exceeds `min_opening_m2`. Concrete volume is measured
+    under IS 1200 Part 2 and slab soffit formwork under IS 1200 Part 5. Exactly
+    at the configured limit an opening stays in the measured panel area.
     """
     gross = _polygon_area_m2(polygon)
     if gross <= 0.0:
@@ -1223,7 +1224,7 @@ def _head_beam_depth_m(ctx: _Ctx, storey: int, point: Sequence[float]) -> Tuple[
     side. Memoised per point, because a stack of storeys asks the same question
     once per storey.
     """
-    key = (int(storey), round(float(point[0]), 3), round(float(point[1]), 3))
+    key = (int(storey), float(point[0]), float(point[1]))
     cached = ctx.beam_head_m.get(key)
     if cached is not None:
         return cached
@@ -1989,7 +1990,7 @@ def _measure_earthwork(ctx: _Ctx) -> EarthworkQuantity:
 
     if sloped_ids:
         ctx.note(
-            "N_SLOPE_ALLOWANCE_FLAT",
+            "N_EXCAVATION_BATTER_ALLOWANCE",
             "battered pit sides are approximated by a flat "
             + ("%.2f" % options.slope_multiplier)
             + " multiplier on excavation for any pit deeper than "

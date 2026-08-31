@@ -103,7 +103,14 @@ class FrameBackend(Protocol):
 
     name: str
 
-    def build(self, model: StructuralModel, cases: Sequence[Dict[str, Any]]) -> None:
+    def build(
+        self,
+        model: StructuralModel,
+        cases: Sequence[Dict[str, Any]],
+        materials: Optional[Dict[str, Any]] = None,
+        load_model: Any = None,
+        centres_of_mass: Optional[Dict[int, Tuple[float, float]]] = None,
+    ) -> None:
         ...  # pragma: no cover - protocol
 
     def solve(self, combos: Sequence[Dict[str, Any]]) -> FEResult:
@@ -145,7 +152,11 @@ def _node_id(level: int, x_m: float, y_m: float) -> str:
     return "nd-L" + str(int(level)) + "-@" + pos_token(x_m) + "x" + pos_token(y_m)
 
 
-def _levels(model: StructuralModel, storeys: Sequence[int]) -> List[Dict[str, Any]]:
+def _levels(
+    model: StructuralModel,
+    storeys: Sequence[int],
+    centres_of_mass: Optional[Dict[int, Tuple[float, float]]] = None,
+) -> List[Dict[str, Any]]:
     """Level 0 is the base; level k is the top of storey k - 1."""
     base = model.storey(storeys[0])
     levels = [
@@ -154,6 +165,7 @@ def _levels(model: StructuralModel, storeys: Sequence[int]) -> List[Dict[str, An
             "z_m": float(base.bottom_z_m),
             "storey": None,
             "base": True,
+            "cm_m": None,
         }
     ]
     for offset, storey in enumerate(storeys):
@@ -164,6 +176,14 @@ def _levels(model: StructuralModel, storeys: Sequence[int]) -> List[Dict[str, An
                 "z_m": float(record.bottom_z_m) + float(record.height_m),
                 "storey": int(storey),
                 "base": False,
+                "cm_m": (
+                    [
+                        float(centres_of_mass[storey][0]),
+                        float(centres_of_mass[storey][1]),
+                    ]
+                    if centres_of_mass is not None and storey in centres_of_mass
+                    else None
+                ),
             }
         )
     return levels
@@ -204,11 +224,93 @@ def _section(width_m: Optional[float], depth_m: Optional[float]) -> Dict[str, An
     }
 
 
+_DEFAULT_MATERIALS = {
+    "rc": {
+        "fck_mpa": 25.0,
+        "fy_mpa": 500.0,
+        "ec_mpa": 25000.0,
+        "ec_clause": "IS 456:2000 6.2.3.1",
+    }
+}
+_GRAVITY_KINDS = ("dead", "live", "roof_live")
+
+
+def _field(record: Any, key: str, default: Any = None) -> Any:
+    """Read one wire field from either a dataclass or serialized record."""
+    if isinstance(record, dict):
+        return record.get(key, default)
+    return getattr(record, key, default)
+
+
+def _material_block(materials: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Normalize the material table without requiring a backend to know callers."""
+    raw = _DEFAULT_MATERIALS if materials is None else materials
+    out = {}  # type: Dict[str, Dict[str, Any]]
+    for name in sorted(raw):
+        entry = raw[name]
+        if not isinstance(entry, dict):
+            raise ValueError("material " + str(name) + " must be a mapping of properties")
+        out[str(name)] = {str(key): entry[key] for key in sorted(entry)}
+    if "rc" not in out:
+        raise ValueError("materials must define the rc member material")
+    return out
+
+
+def _gravity_cases(load_model: Any, beam_ids: Sequence[str]) -> List[Dict[str, Any]]:
+    """Serialize takedown beam line loads without a backend re-reading the model."""
+    source = load_model
+    if hasattr(source, "to_dict"):
+        source = source.to_dict()
+    cases = _field(source, "cases", {}) or {}
+    if not isinstance(cases, dict):
+        raise ValueError("load_model cases must be keyed by case name")
+    beams = set(beam_ids)
+    out = []  # type: List[Dict[str, Any]]
+    for case_name in sorted(cases):
+        case = cases[case_name]
+        kind = str(getattr(_field(case, "kind", ""), "value", _field(case, "kind", "")))
+        if kind not in _GRAVITY_KINDS:
+            continue
+        line_loads = []  # type: List[Dict[str, Any]]
+        for line in _field(case, "line", []) or []:
+            element_id = str(_field(line, "element_id", ""))
+            if element_id not in beams:
+                continue
+            line_loads.append(
+                {
+                    "element_id": element_id,
+                    "w1_kn_m": float(_field(line, "w1_kn_m", 0.0)),
+                    "w2_kn_m": float(_field(line, "w2_kn_m", 0.0)),
+                    "a": float(_field(line, "a", 0.0)),
+                    "b": float(_field(line, "b", 0.0)),
+                    "kind": str(
+                        getattr(_field(line, "kind", kind), "value", _field(line, "kind", kind))
+                    ),
+                    "source": str(_field(line, "source", "")),
+                    "note": str(_field(line, "note", "")),
+                }
+            )
+        line_loads.sort(
+            key=lambda line: (
+                line["element_id"],
+                line["a"],
+                line["b"],
+                line["source"],
+                line["w1_kn_m"],
+            )
+        )
+        out.append({"name": str(case_name), "kind": kind, "line_loads": line_loads})
+    return out
+
+
 def build_generic_model(
     model: StructuralModel,
     cases: Sequence[Dict[str, Any]] = (),
     params: Optional[GenericModelParams] = None,
     log: Optional[DisclosureLog] = None,
+    materials: Optional[Dict[str, Any]] = None,
+    load_model: Any = None,
+    centres_of_mass: Optional[Dict[int, Tuple[float, float]]] = None,
 ) -> Dict[str, Any]:
     """The backend-agnostic node, member, constraint and load description.
 
@@ -228,15 +330,22 @@ def build_generic_model(
     if not storeys:
         raise ValueError("the model carries no storey, so no frame can be built")
 
-    levels = _levels(model, storeys)
+    levels = _levels(model, storeys, centres_of_mass)
     xs, ys = _positions(model, storeys)
     masters = len(levels) - 1 if settings.rigid_diaphragm else 0
     candidates = len(xs) * len(ys) * len(levels) + masters
 
     description = {
         "schema": GENERIC_SCHEMA,
-        "units": {"length": "m", "force": "kN", "moment": "kN m", "section": "mm"},
+        "units": {
+            "length": "m",
+            "force": "kN",
+            "moment": "kN m",
+            "section": "mm",
+            "line_load": "kN/m",
+        },
         "params": settings.to_dict(),
+        "materials": _material_block(materials),
         "levels": levels,
         "grid": {"x_m": list(xs), "y_m": list(ys)},
         "refused": False,
@@ -245,11 +354,15 @@ def build_generic_model(
         "members": [],
         "constraints": [],
         "loads": [],
+        "gravity_cases": _gravity_cases(
+            model.loads if load_model is None else load_model,
+            [beam.id for beam in model.beams],
+        ),
         "cases": [str(case.get("name", "")) for case in cases],
         "assumptions": [
             "nodes at grid-axis intersections per level, plus the bases",
             "bases " + settings.base_fixity,
-            "slab gravity is pre-distributed to the beams by the takedown; no shells",
+            "gravity cases carry the takedown beam line loads; no slab shells",
             "secondary beam ends are moment released"
             if settings.release_secondary_ends
             else "no member end releases",
@@ -260,6 +373,8 @@ def build_generic_model(
             "linear static, P-delta off in v1",
             "lateral cases are applied at the diaphragm masters; the design eccentricity "
             "belongs to the case and is applied by the backend",
+            "a supplied storey centre of mass locates its diaphragm master; otherwise the "
+            "master uses the arithmetic mean of its used nodes",
         ],
         "diagnostics": {
             "candidate_nodes": candidates,
@@ -269,13 +384,16 @@ def build_generic_model(
         },
     }
 
-    if candidates > settings.node_cap:
+    pre_screen_cap = int(settings.node_cap) * 5
+    if candidates > pre_screen_cap:
         reason = (
             "the grid would need "
             + str(candidates)
-            + " nodes, past the "
+            + " candidate nodes, past the "
+            + str(pre_screen_cap)
+            + " pre-screen limit (5x the "
             + str(settings.node_cap)
-            + " node cap; the FE model is refused and the analysis falls back to "
+            + " emitted-node cap); the FE model is refused and the analysis falls back to "
             + "takedown + diaphragm"
         )
         description["refused"] = True
@@ -374,8 +492,15 @@ def build_generic_model(
             slaves = [node["id"] for node in kept if node["level"] == level["index"]]
             if not slaves:
                 continue
-            centre_x = sum(node["x_m"] for node in kept if node["level"] == level["index"]) / len(slaves)
-            centre_y = sum(node["y_m"] for node in kept if node["level"] == level["index"]) / len(slaves)
+            if level["cm_m"] is None:
+                centre_x = sum(
+                    node["x_m"] for node in kept if node["level"] == level["index"]
+                ) / len(slaves)
+                centre_y = sum(
+                    node["y_m"] for node in kept if node["level"] == level["index"]
+                ) / len(slaves)
+            else:
+                centre_x, centre_y = level["cm_m"]
             master_id = "nd-M" + str(level["index"])
             kept.append(
                 {
@@ -503,12 +628,26 @@ class PyniteBackend:
         self.generic = None  # type: Optional[Dict[str, Any]]
         self._pynite = None  # type: Any
 
-    def build(self, model: StructuralModel, cases: Sequence[Dict[str, Any]] = ()) -> None:
+    def build(
+        self,
+        model: StructuralModel,
+        cases: Sequence[Dict[str, Any]] = (),
+        materials: Optional[Dict[str, Any]] = None,
+        load_model: Any = None,
+        centres_of_mass: Optional[Dict[int, Tuple[float, float]]] = None,
+    ) -> None:
         try:
             self._pynite = _import_pynite()
         except ImportError as exc:
             raise BackendUnavailable(PYNITE_UNAVAILABLE_MESSAGE) from exc
-        self.generic = build_generic_model(model, cases, self.params)
+        self.generic = build_generic_model(
+            model,
+            cases,
+            self.params,
+            materials=materials,
+            load_model=load_model,
+            centres_of_mass=centres_of_mass,
+        )
         raise BackendUnavailable(PYNITE_TRANSLATION_MESSAGE)
 
     def solve(self, combos: Sequence[Dict[str, Any]] = ()) -> FEResult:

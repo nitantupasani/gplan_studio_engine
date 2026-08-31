@@ -395,6 +395,9 @@ def test_occupancy_from_room_names(model):
     [
         ("Bathroom 2", M.Occupancy.BATH),
         ("Master Bedroom", M.Occupancy.HABITABLE),
+        ("Master Bath", M.Occupancy.BATH),
+        ("Master Toilet", M.Occupancy.WC),
+        ("Guest Bathroom", M.Occupancy.BATH),
         ("Hall", M.Occupancy.HABITABLE),
         ("Hallway", M.Occupancy.CORRIDOR),
         ("Washroom", M.Occupancy.BATH),
@@ -405,7 +408,7 @@ def test_occupancy_from_room_names(model):
         ("Zone Q", None),
     ],
 )
-def test_name_kind_is_prefix_tolerant(name, expected):
+def test_name_kind_is_complete_token_tolerant(name, expected):
     assert A.occupancy_for_name(name) == expected
 
 
@@ -515,6 +518,29 @@ def test_void_between_rooms_is_refused():
     assert excinfo.value.code == "E_PLAN_NOT_GAPLESS"
     assert excinfo.value.message.startswith(A.NOT_GAPLESS_MESSAGE)
     assert "door_connectivity" in excinfo.value.message
+
+
+def test_gapless_relative_tolerance_has_an_absolute_void_floor_and_residual_note():
+    """A 1.25 sqft void is tiny relative to 10,000 sqft but must still refuse."""
+    with pytest.raises(AdapterError) as excinfo:
+        A.from_plan(
+            [
+                room("a", "Bedroom", 0, 0, 50, 100),
+                room("b", "Kitchen", 50.0125, 0, 49.9875, 100),
+            ]
+        )
+    assert excinfo.value.code == "E_PLAN_NOT_GAPLESS"
+
+    accepted = A.from_plan(
+        [
+            room("a", "Bedroom", 0, 0, 50, 100),
+            room("b", "Kitchen", 50.0075, 0, 49.9925, 100),
+        ]
+    )
+    note = [entry for entry in accepted.warnings if entry.code == "N_GAPLESS_RESIDUAL"]
+    assert len(note) == 1
+    assert note[0].element_ids == ["room-s0-a", "room-s0-b"]
+    assert "0.750 sqft" in note[0].message
 
 
 def test_non_rectangular_room_is_refused():

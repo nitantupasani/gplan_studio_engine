@@ -29,6 +29,7 @@ import yaml
 
 # Relative: see the note in test_model_roundtrip.py.
 from .. import model as M
+from ..analysis import takedown as TD
 from ..codes import is4326
 from ..design import common as CM
 from ..design import masonry as MD
@@ -348,10 +349,69 @@ def test_a_shear_governed_wall_names_shear_as_its_governing_check():
     assert check["governing_check"] == MD.CHECK_SHEAR
     assert wall["governing_check"] == MD.CHECK_SHEAR
     assert wall["status"] == CM.STATUS_FAIL
+    rows = {row["name"]: row for row in wall["checks"]}
+    assert rows[MD.CHECK_SHEAR]["clause"] == "IS1905:1987 Cl 5.4.3"
 
     # Shear capacity does not move with the brick, so the ladder ends in a refusal.
     assert wall["prescription"]["passes"] is False
     assert wall["prescription"]["steps"][-1]["step"] == MD.STEP_RC_FRAME
+
+
+def test_m2_stays_in_the_grid_but_cannot_win_with_in_plane_shear():
+    segment = MD.WallSegment(
+        wall_id="w-shear-mortar",
+        storey=0,
+        storeys_total=1,
+        thickness_mm=230.0,
+        length_mm=3000.0,
+        net_length_mm=3000.0,
+        height_mm=3000.0,
+        n_kn_per_m=20.0,
+        e_over_t=0.0,
+        dead_kn_per_m=15.0,
+        shear_kn=10.0,
+        end_conditions=("cross_wall", "cross_wall"),
+    )
+    options = MD.MasonryOptions(unit_strengths_mpa=(3.5,))
+    m2 = CM.MasonryMaterial(unit_strength_mpa=3.5, mortar_grade="M2")
+
+    m2_check = MD.evaluate_segment(segment, m2, options)
+    assert m2_check.fs_mpa == 0.0
+    assert m2_check.utilization_shear == 999.0
+    assert m2_check.governing_check == MD.CHECK_SHEAR
+
+    adopted = MD.cheapest_passing(segment, options)
+    assert adopted is not None
+    assert adopted[0].mortar_grade == "M1"
+
+
+def test_a_lean_adopted_mortar_reaches_the_registry_disclosure():
+    model = M.StructuralModel(id="lean-mortar")
+    model.storeys = _storeys(1, height_m=3.0)
+    model.walls.append(_wall("w-lean", 0, (0.0, 0.0), (3.0, 0.0)))
+    options = MD.MasonryOptions(
+        assumed_unit_strength_mpa=3.5,
+        assumed_mortar_grade="M2",
+        unit_strengths_mpa=(3.5,),
+        mortar_grades=("M2",),
+        thickness_ladder_mm=(230.0,),
+        storeys=1,
+    )
+
+    results = MD.design_masonry_walls(
+        model,
+        [_stress("w-lean", 0, 20.0)],
+        {("w-lean", 0): 10.0},
+        options,
+    )
+    check = results[0].to_dict()["masonry"]["check"]
+    warning = next(entry for entry in model.warnings if entry.code == "W_MASONRY_SHEAR_MORTAR")
+
+    assert check["fs_mpa"] == 0.0
+    assert check["governing_check"] == MD.CHECK_SHEAR
+    assert warning.clause == "IS1905:1987 Cl 5.4.3"
+    assert warning.element_ids == ["w-lean"]
+    assert "require zero in-plane shear demand" in warning.message
 
 
 def test_no_lateral_input_means_zero_shear_disclosed_not_guessed():
@@ -452,7 +512,7 @@ def test_the_ladder_bumps_the_thickness_before_it_refers_the_wall():
     assert adopted.thickness_changed is True
 
 
-def test_the_ladder_reaches_the_confined_referral():
+def test_a_compression_governed_ladder_refuses_the_confined_referral():
     model = M.StructuralModel(id="confine")
     model.storeys = _storeys(1, height_m=3.0)
     model.walls.append(_wall("w-heavy", 0, (0.0, 0.0), (3.0, 0.0)))
@@ -468,28 +528,54 @@ def test_the_ladder_reaches_the_confined_referral():
         (MD.STEP_ASSUMED, "insufficient"),
         (MD.STEP_GRID, "insufficient"),
         (MD.STEP_THICKNESS, "insufficient"),
-        (MD.STEP_CONFINED, "referred"),
+        (MD.STEP_CONFINED, "refused"),
         (MD.STEP_RC_FRAME, "refused"),
     ]
     assert wall["status"] == CM.STATUS_FAIL
-    assert wall["referrals"] == [
-        {
-            "action": MD.REFERRAL_CONFINED,
-            "detail": {
-                "governing_check": MD.CHECK_COMPRESSION,
-                "reason": "unreinforced masonry cannot carry this line; confine it with tie columns and bands",
-                "storey": 0,
-                "utilization_max": wall["referrals"][0]["detail"]["utilization_max"],
-                "wall_id": "w-heavy",
-            },
-        }
-    ]
+    assert wall["governing_check"] == MD.CHECK_COMPRESSION
+    assert wall["referrals"] == []
+    assert "permissible stress" in wall["prescription"]["steps"][-2]["detail"]
     assert MD.REFERRAL_CONFINED in CM.REFERRAL_ACTIONS
     # The strongest pair tried is still published: a failing wall is not an empty one.
     assert wall["prescription"]["unit_strength_mpa"] == 12.5
     assert wall["prescription"]["mortar_grade"] == "H1"
     assert wall["prescription"]["thickness_mm"] == 345.0
     assert len(wall["checks"]) == 4
+
+
+def test_a_slenderness_governed_ladder_reaches_the_confined_referral():
+    # At 230 mm this wall is more than twice the Table 7 limit. At the final
+    # 345 mm rung its slenderness shortfall is inside the configured relief cap,
+    # so that final rung, not the stale placed-wall check, controls referral.
+    segment = MD.WallSegment(
+        wall_id="w-slender",
+        storey=0,
+        storeys_total=1,
+        thickness_mm=230.0,
+        length_mm=3000.0,
+        net_length_mm=3000.0,
+        height_mm=18000.0,
+        n_kn_per_m=10.0,
+        e_over_t=0.0,
+        dead_kn_per_m=7.5,
+        shear_kn=0.0,
+        end_conditions=None,
+    )
+
+    adopted = MD._prescribe(segment, MD.MasonryOptions(storeys=1))
+    steps = [(step["step"], step["outcome"]) for step in adopted.steps]
+
+    assert steps == [
+        (MD.STEP_ASSUMED, "insufficient"),
+        (MD.STEP_GRID, "insufficient"),
+        (MD.STEP_THICKNESS, "insufficient"),
+        (MD.STEP_CONFINED, "referred"),
+        (MD.STEP_RC_FRAME, "refused"),
+    ]
+    assert adopted.referral is True
+    assert adopted.check.governing_check == MD.CHECK_SLENDERNESS
+    assert adopted.check.thickness_mm == 345.0
+    assert adopted.check.slenderness_ratio / adopted.check.slenderness_limit <= 2.0
 
 
 def test_a_hopeless_wall_is_refused_outright_rather_than_referred():
@@ -538,6 +624,31 @@ def test_the_building_rollup_prices_one_specification():
     assert per_wall["w-light@s0"]["unit_strength_mpa"] == 7.5
     assert per_wall["w-heavy@s0"]["unit_strength_mpa"] == 10.0
     assert building["status"] == CM.STATUS_RESIZED
+
+    rows = {row["name"]: row for row in building["checks"]}
+    assert set(rows) == {
+        "wall_slenderness",
+        "wall_compression",
+        "wall_shear",
+        "wall_tension",
+    }
+    assert rows["wall_slenderness"]["clause"] == "IS1905:1987 Table 7"
+    assert rows["wall_compression"]["clause"] == "IS1905:1987 Cl 5.4.1"
+    assert rows["wall_shear"]["clause"] == "IS1905:1987 Cl 5.4.3"
+    assert rows["wall_tension"]["clause"] == "IS1905:1987 Cl 5.4.2"
+    checks = [row.to_dict()["masonry"]["check"] for row in results[:-1]]
+    assert rows["wall_slenderness"]["demand"] == pytest.approx(
+        max(row["slenderness_ratio"] / row["slenderness_limit"] for row in checks)
+    )
+    assert rows["wall_compression"]["demand"] == pytest.approx(
+        max(row["utilization_compression"] for row in checks)
+    )
+    assert rows["wall_shear"]["demand"] == pytest.approx(
+        max(row["utilization_shear"] for row in checks)
+    )
+    assert rows["wall_tension"]["demand"] == pytest.approx(
+        max(row["utilization_tension"] for row in checks)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -730,7 +841,7 @@ def test_a_stack_taller_than_the_transcribed_tables_is_disclosed():
 # ---------------------------------------------------------------------------
 
 
-def test_openings_come_off_the_bearing_length_and_the_loaded_area():
+def test_openings_come_off_the_bearing_length_loaded_area_and_compressive_section():
     door = M.Opening(
         id="o-1",
         kind=M.OpeningKind.DOOR,
@@ -750,7 +861,43 @@ def test_openings_come_off_the_bearing_length_and_the_loaded_area():
     assert segments[0].net_length_mm == pytest.approx(2100.0)
     assert segments[0].openings_known is True
     assert segments[0].loaded_area_m2() == pytest.approx(0.230 * 2.1, rel=1e-9)
+    check = MD.evaluate_segment(segments[0], MD.MasonryOptions().assumed_material(), MD.MasonryOptions())
+    # The takedown's 40 kN/m is on the gross 3.0 m line. The whole 120 kN
+    # stands on the 2.1 m net bed joint, so the stress carries 3.0 / 2.1.
+    assert check.fa_mpa == pytest.approx(40.0 * (3000.0 / 2100.0) / 230.0, rel=1e-9)
     assert "W_ASSUMED_OPENINGS" not in [entry.code for entry in model.warnings]
+
+
+def test_serialized_takedown_at_the_kern_matches_the_live_result():
+    def one_wall(model_id):
+        model = M.StructuralModel(id=model_id)
+        model.storeys = _storeys(1, height_m=3.0)
+        model.walls.append(_wall("w-kern", 0, (0.0, 0.0), (3.0, 0.0)))
+        return model
+
+    takedown = TD.TakedownResult(
+        wall_stresses=[
+            TD.WallStress(
+                wall_id="w-kern",
+                storey=0,
+                n_kn_m=40.0,
+                e_m=0.230 / 6.0,
+                e_over_t=1.0 / 6.0,
+            )
+        ]
+    )
+    wire = takedown.to_dict()
+    assert wire["wall_stresses"][0]["e_over_t"] == 0.166667
+
+    options = MD.MasonryOptions(storeys=1)
+    live_wall = MD.design_masonry_walls(one_wall("kern-live"), takedown, None, options)[0].to_dict()
+    wire_wall = MD.design_masonry_walls(one_wall("kern-wire"), wire, None, options)[0].to_dict()
+
+    for wall in (live_wall, wire_wall):
+        check = wall["masonry"]["check"]
+        assert check["tension_demand_mpa"] == 0.0
+        assert check["utilization_tension"] == 0.0
+        assert wall["status"] == CM.STATUS_PASS
 
 
 def test_undressed_openings_are_disclosed_on_the_ladder_and_on_the_wall():
@@ -760,7 +907,30 @@ def test_undressed_openings_are_disclosed_on_the_ladder_and_on_the_wall():
     results = MD.design_masonry_walls(model, [_stress("w-a", 0, 40.0)], None, MD.MasonryOptions(storeys=1))
 
     assert "W_ASSUMED_OPENINGS" in [entry.code for entry in model.warnings]
-    assert any("no dressed openings" in text for text in results[0].warnings)
+    assert any("net bearing length equals the gross wall length" in text for text in results[0].warnings)
+
+
+def test_assumed_opening_geometry_is_named_as_a_net_bearing_length_deduction():
+    """N31: a non-dressed opening is deducted, not falsely reported as gross length."""
+    opening = M.Opening(
+        id="o-assumed",
+        kind=M.OpeningKind.DOOR,
+        offset_m=1.5,
+        width_m=0.9,
+        provenance=M.Provenance.ASSUMED_MID_WALL,
+    )
+    model = M.StructuralModel(id="assumed-opening-length")
+    model.storeys = _storeys(1, height_m=3.0)
+    model.walls.append(_wall("w-assumed", 0, (0.0, 0.0), (3.0, 0.0), openings=[opening]))
+
+    results = MD.design_masonry_walls(model, [_stress("w-assumed", 0, 40.0)], None, MD.MasonryOptions(storeys=1))
+    ladder = [entry for entry in model.warnings if entry.code == "W_ASSUMED_OPENINGS"]
+
+    assert results[0].extras["masonry"]["segment"]["net_length_mm"] == pytest.approx(2100.0)
+    assert any("net bearing length deducts the assumed opening geometry" in text for text in results[0].warnings)
+    assert len(ladder) == 1
+    assert ladder[0].element_ids == ["w-assumed"]
+    assert "net bearing length deducts the assumed opening geometry" in ladder[0].message
 
 
 def test_non_masonry_and_non_bearing_walls_are_not_designed():
@@ -871,6 +1041,45 @@ def test_pilasters_stiffen_the_effective_thickness_through_table_6():
     assert MD.evaluate_segment(stiffened, material, options).teff_m > MD.evaluate_segment(plain, material, options).teff_m
 
 
+def test_confined_tie_columns_reach_the_pier_parameter_handoff():
+    model = M.StructuralModel(id="confined-ties")
+    model.storeys = _storeys(1, height_m=3.0)
+    model.walls.append(_wall("w-long", 0, (0.0, 0.0), (9.0, 0.0)))
+    model.meta["masonry_placement"] = {
+        "tie_columns": [
+            {
+                "id": "tie-1",
+                "wall_id": "w-long",
+                "x_m": 3.0,
+                "y_m": 0.0,
+                "w_mm": 230.0,
+                "d_mm": 230.0,
+                "storeys": [0],
+            },
+            {
+                "id": "tie-2",
+                "wall_id": "w-long",
+                "x_m": 6.0,
+                "y_m": 0.0,
+                "w_mm": 230.0,
+                "d_mm": 230.0,
+                "storeys": [0],
+            },
+        ]
+    }
+
+    segment = MD.resolve_segments(
+        model,
+        [_stress("w-long", 0, 40.0)],
+        None,
+        MD.MasonryOptions(storeys=1),
+    )[0]
+
+    assert segment.pier_spacing_mm == pytest.approx(3000.0)
+    assert segment.pier_width_mm == pytest.approx(230.0)
+    assert segment.pier_depth_mm == pytest.approx(230.0)
+
+
 # ---------------------------------------------------------------------------
 # options, tension policy, dispatch, determinism
 # ---------------------------------------------------------------------------
@@ -941,6 +1150,10 @@ def test_relaxing_the_tension_policy_is_disclosed_on_the_ladder():
 
     assert "W_RELEASED_CAP" in [entry.code for entry in model.warnings]
     assert any("laterally loaded panel" in text for text in results[0].warnings)
+    rows = {row.name: row for row in results[0].checks}
+    assert rows[MD.CHECK_TENSION].clause == "IS1905:1987 Cl 5.4.2"
+    warning = next(entry for entry in model.warnings if "flexural tension was allowed" in entry.message)
+    assert warning.clause == "IS1905:1987 Cl 5.4.2"
 
 
 def test_an_eccentricity_off_table_9_fails_without_a_guessed_stress():

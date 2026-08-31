@@ -19,6 +19,7 @@ still comes back, disclosed.
 **The designers are called by their shipped signatures**, which are not uniform
 and are not made uniform here: `design_beam(forces, geom, ctx)`,
 `design_column(forces, geom, ctx)`, `design_slab(panel, load, ctx)`,
+`design_stair_flight(stair, load, ctx)`,
 `design_footing(pad, loads, soil, ctx)`,
 `design_strip_footing(strip, line_loads, soil, ctx)` and
 `design_combined_footing(rect, [loads], soil, ctx)`. The soil comes from the
@@ -54,11 +55,15 @@ __all__ = [
     "design_beam",
     "design_column",
     "design_slab",
+    "design_stair_flight",
     "design_footing",
     "design_strip_footing",
     "design_combined_footing",
     "run_rcc_design",
     "strip_geometry_from_model",
+    "stair_design_inputs",
+    "stair_flights_from_model",
+    "beam_support_condition",
     "MEMBER_KINDS",
     "UNDESIGNED_FOOTING_KINDS",
 ]
@@ -86,6 +91,10 @@ _STAGE = "design.rcc"
 #: and whose envelope states no unsupported length. Disclosed on the result.
 _FALLBACK_STOREY_HEIGHT_M = 3.0
 
+#: IS 875 gravity combination factor used for the flight's imposed pressure.
+#: The stair designer adds the factored waist and step dead loads itself.
+_STAIR_IMPOSED_ULS_FACTOR = 1.5
+
 
 # ---------------------------------------------------------------------------
 # the member designers, lazily imported, called by their own signatures
@@ -111,6 +120,13 @@ def design_slab(panel: Any, load: Any, ctx: Any = None):
     from .slabs import design_slab as _design_slab
 
     return _design_slab(panel, load, ctx)
+
+
+def design_stair_flight(stair: Any, load: Any, ctx: Any = None):
+    """Design one inclined RC stair flight (design/rcc/slabs.py)."""
+    from .slabs import design_stair_flight as _design_stair
+
+    return _design_stair(stair, load, ctx)
 
 
 def design_footing(footing: Any, loads: Any, soil: Any = None, ctx: Any = None):
@@ -174,6 +190,60 @@ def _skipped_result(element_id: str, element_type: str, reason: str, code: str =
 def _elements(model: Any, name: str) -> List[Any]:
     """`model.<name>` as a list; empty when the model does not carry the slot."""
     return list(getattr(model, name, None) or [])
+
+
+def stair_flights_from_model(model: Any) -> List[Dict[str, Any]]:
+    """Placed stair-flight records from frame placement, unique and id sorted.
+
+    Flights are real placed elements, but they live under frame-placement meta
+    rather than ``model.slabs`` because the latter contains horizontal panels.
+    Keep this one reader shared by the package facade and the API orchestrator
+    so design, coverage and quantities all see the same roster.
+    """
+    meta = getattr(model, "meta", None) or {}
+    if not isinstance(meta, Mapping):
+        return []
+    frame = meta.get("frame_placement") or {}
+    if not isinstance(frame, Mapping):
+        return []
+    flights = {}  # type: Dict[str, Dict[str, Any]]
+    for raw in frame.get("stair_slabs") or []:
+        if not isinstance(raw, Mapping):
+            continue
+        record = dict(raw)
+        element_id = str(record.get("id", ""))
+        if element_id:
+            flights.setdefault(element_id, record)
+    return [flights[element_id] for element_id in sorted(flights)]
+
+
+def stair_design_inputs(ctx: Any = None) -> Tuple[Any, Any]:
+    """The synthetic load and stair-specific context for one placed flight.
+
+    Takedown loads the core floor occupancy but emits no flight envelope. The
+    flight therefore receives the IS 875 corridor/stair imposed pressure here:
+    3.0 kPa service and 1.5 x 3.0 = 4.5 kPa ultimate. Its waist and step dead
+    loads are deliberately absent because ``design_stair_flight`` calculates
+    and factors them after choosing the waist.
+    """
+    from dataclasses import replace
+
+    from ...analysis import SlabLoad
+    from ...codes import is875
+    from .slabs import slab_context
+
+    imposed_kpa = float(is875.part2_imposed("corridor_stair"))
+    load = SlabLoad(
+        w_u_kpa=_STAIR_IMPOSED_ULS_FACTOR * imposed_kpa,
+        w_service_kpa=imposed_kpa,
+    )
+    context = replace(
+        slab_context(ctx),
+        imposed_kpa=imposed_kpa,
+        dead_kpa=None,
+        stair_self_weight_included=False,
+    )
+    return (load, context)
 
 
 def _envelope_index(analysis: Any) -> Dict[Tuple[str, str], Any]:
@@ -332,7 +402,32 @@ def _storey_height_m(model: Any, index: Any) -> Optional[float]:
 # ---------------------------------------------------------------------------
 
 
-def _beam_geometry(beam: Any) -> Optional[Dict[str, Any]]:
+def beam_support_condition(beam: Any, forces: Any = None) -> str:
+    """Beam design support from placement kind and analysed end continuity.
+
+    A placed cantilever is fixed by its kind.  For every other run, zero
+    hogging demand at both analysed ends is the simply supported route; any
+    end continuity makes the run continuous.  With no force record the old
+    continuous default is retained for backward compatibility.
+    """
+    kind = getattr(beam, "kind", "")
+    kind = str(getattr(kind, "value", kind) or "").strip().lower()
+    if kind == "cantilever":
+        return "cantilever"
+    if forces is None:
+        return "continuous"
+    if isinstance(forces, Mapping):
+        hog_a = forces.get("mu_hog_end_a_knm", forces.get("mu_hog_a_knm", 0.0))
+        hog_b = forces.get("mu_hog_end_b_knm", forces.get("mu_hog_b_knm", 0.0))
+    else:
+        hog_a = getattr(forces, "mu_hog_end_a_knm", getattr(forces, "mu_hog_a_knm", 0.0))
+        hog_b = getattr(forces, "mu_hog_end_b_knm", getattr(forces, "mu_hog_b_knm", 0.0))
+    if abs(float(hog_a or 0.0)) <= 1.0e-9 and abs(float(hog_b or 0.0)) <= 1.0e-9:
+        return "ss"
+    return "continuous"
+
+
+def _beam_geometry(beam: Any, forces: Any = None) -> Optional[Dict[str, Any]]:
     """The mapping `beams.as_beam_geometry` documents, or None when unbuildable."""
     from ..common import m_to_mm
 
@@ -347,6 +442,7 @@ def _beam_geometry(beam: Any) -> Optional[Dict[str, Any]]:
         "D_mm": m_to_mm(float(depth)),
         "span_mm": m_to_mm(float(span)),
         "storey": int(getattr(beam, "storey", 0) or 0),
+        "support": beam_support_condition(beam, forces),
     }
 
 
@@ -514,7 +610,8 @@ def _design_one_beam(beam: Any, envelope: Any, ctx: Any):
     from ...analysis import to_beam_forces
 
     element_id = str(getattr(beam, "id", ""))
-    geometry = _beam_geometry(beam)
+    forces = to_beam_forces(envelope)
+    geometry = _beam_geometry(beam, forces)
     if geometry is None:
         return _failed_result(
             element_id,
@@ -522,7 +619,7 @@ def _design_one_beam(beam: Any, envelope: Any, ctx: Any):
             "the placed beam carries no width, depth or span, so there is no section to design",
             check="geometry",
         )
-    return design_beam(to_beam_forces(envelope), geometry, ctx)
+    return design_beam(forces, geometry, ctx)
 
 
 def _design_one_column(model: Any, column: Any, envelope: Any, ctx: Any):
@@ -572,6 +669,12 @@ def _design_one_slab(panel: Any, envelope: Any, ctx: Any):
     return design_slab(panel, to_slab_load(envelope), ctx)
 
 
+def _design_one_stair(stair: Any, ctx: Any):
+    """One placed flight with its synthetic IS 875 stair occupancy load."""
+    load, stair_ctx = stair_design_inputs(ctx)
+    return design_stair_flight(stair, load, stair_ctx)
+
+
 def _design_one_strip(
     footing: Any,
     walls_by_id: Mapping[str, Any],
@@ -612,9 +715,21 @@ def _design_one_strip(
             check="service load",
         )
     worst = max(carried, key=lambda row: (row[1], row[0]))
+    emitted = getattr(footing, "w_service_kn_per_m", None)
+    design_load = worst[1]
+    if emitted is not None:
+        design_load = max(design_load, float(emitted))
     result = design_strip_footing(
-        geometry, StripLoads(n_service_kn_per_m=worst[1], wall_id=worst[0]), soil, ctx
+        geometry, StripLoads(n_service_kn_per_m=design_load, wall_id=worst[0]), soil, ctx
     )
+    if design_load > worst[1] + 1e-9:
+        result.add_note(
+            "the placer increased the governing strip service demand from "
+            + str(round(worst[1], 3))
+            + " to "
+            + str(round(design_load, 3))
+            + " kN/m to carry column point loads absorbed into local widenings"
+        )
     if len(carried) > 1:
         result.add_note(
             "this strip runs under "
@@ -754,6 +869,7 @@ def run_rcc_design(model: Any, analysis: Any, options: Any = None) -> List[Any]:
     columns = dict((str(item.id), item) for item in placed_columns)
     by_stack = _lowest_by_stack(placed_columns)
     slabs = dict((str(item.id), item) for item in _elements(model, "slabs"))
+    stairs = dict((str(item["id"]), item) for item in stair_flights_from_model(model))
     walls = dict((str(item.id), item) for item in _elements(model, "walls"))
     footings = _elements(model, "footings")
     straps = _straps_by_footing(footings)
@@ -811,6 +927,14 @@ def run_rcc_design(model: Any, analysis: Any, options: Any = None) -> List[Any]:
             element_id,
             "slab",
             lambda p=slabs[element_id], v=envelope: _design_one_slab(p, v, ctx),
+        )
+
+    # -- stair flights: geometry driven, with no takedown envelope ----------
+    for element_id in sorted(stairs):
+        run(
+            element_id,
+            "slab",
+            lambda flight=stairs[element_id]: _design_one_stair(flight, ctx),
         )
 
     # -- footings: geometry driven, and the only place a merge is visible ---

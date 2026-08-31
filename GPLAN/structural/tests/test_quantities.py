@@ -552,7 +552,12 @@ def test_a_pit_past_the_threshold_takes_the_flat_slope_allowance():
     pit = takeoff.earthwork.footings[0]
     assert pit.slope_factor == pytest.approx(1.1)
     assert pit.excavation_m3 == pytest.approx(2.1 * 2.1 * 1.8 * 1.1)
-    assert "N_SLOPE_ALLOWANCE_FLAT" in _codes(takeoff.disclosures)
+    codes = _codes(takeoff.disclosures)
+    assert "N_EXCAVATION_BATTER_ALLOWANCE" in codes
+    assert "N_SLOPE_ALLOWANCE_FLAT" not in codes
+    assert "roof" in REGISTRY["N_SLOPE_ALLOWANCE_FLAT"][1]
+    assert "excavation" in REGISTRY["N_EXCAVATION_BATTER_ALLOWANCE"][1]
+    assert "batter" in REGISTRY["N_EXCAVATION_BATTER_ALLOWANCE"][1]
 
 
 def test_a_footing_with_no_founding_depth_takes_the_default_and_warns():
@@ -571,7 +576,7 @@ def test_a_founded_footing_does_not_raise_the_assumed_depth_warning():
     model, designs = golden_frame()
     takeoff = Q.take_off(model, designs)
     assert "W_ASSUMED_FOUNDING_DEPTH" not in _codes(takeoff.disclosures)
-    assert "N_SLOPE_ALLOWANCE_FLAT" not in _codes(takeoff.disclosures)
+    assert "N_EXCAVATION_BATTER_ALLOWANCE" not in _codes(takeoff.disclosures)
 
 
 # ---------------------------------------------------------------------------
@@ -599,10 +604,12 @@ def _bare_slab_model(core_w, core_h):
 
 
 def test_a_slab_opening_of_exactly_a_tenth_of_a_square_metre_is_not_deducted():
-    """IS 1200 Part 5 Cl 4.4 reads "exceeding", so 0.100 m2 exactly stays in."""
+    """The stated threshold is strict, so 0.100 m2 exactly stays in."""
     takeoff = Q.take_off(_bare_slab_model(0.25, 0.40), [])
     assert _volume(takeoff, "slab") == pytest.approx(24.0 * 0.125)
     assert "openings deducted 0 m2" in takeoff.concrete_by_element[0].basis
+    assert "IS 1200 Part 2" in takeoff.concrete_by_element[0].basis
+    assert "IS 1200 Part 5" not in takeoff.concrete_by_element[0].basis
 
 
 def test_a_slab_opening_just_over_the_limit_is_deducted():
@@ -1845,7 +1852,7 @@ def test_the_expected_notes_all_fire_on_a_model_that_earns_them():
         "N_COLUMN_HEIGHT_CONVENTION",
         "N_FORMWORK_EDGES_IGNORED",
         "N_PARTITION_M3_CONVENTION",
-        "N_SLOPE_ALLOWANCE_FLAT",
+        "N_EXCAVATION_BATTER_ALLOWANCE",
         "N_LAP_50D_FLAT",
         "N_BBS_SHAPE_CODES_DEFERRED",
         "N_NO_BEND_DEDUCTION",

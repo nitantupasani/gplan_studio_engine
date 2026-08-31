@@ -20,16 +20,19 @@ Input shape (`model_like`), the bbox envelope of the ground boundary:
 
     {"width_m": 12.0,             # plan dimension along X
      "depth_m": 8.0,              # plan dimension along Y
-     "storey_z_tops": [3.0, 6.0], # level elevations, bottom_z_m + height_m
+     "storey_z_tops": [3.0, 6.0], # fallback when model indices are unavailable
+     "storey_levels": [            # preferred; preserves model storey indices
+         {"storey": 0, "z_top_m": 3.0},
+         {"storey": 1, "z_top_m": 6.0}],
      "base_z_m": 0.0,             # optional, defaults to 0.0
      "roof": {"alpha_deg": 22.0, "dead_kpa": 0.6}}   # optional, uplift check
 
-Table 5 geometry, stated once because the printed table names its dimensions
-and this module maps them: `w` is the width of the windward and leeward faces,
-that is the plan dimension PERPENDICULAR to the wind, and `l` is the along-wind
-plan dimension. So wind along X reads w = depth_m and l = width_m, and the
-storey force spreads over B_perp = w. The transcribed Table 5 rows in
-`data/is875_3_wind.yaml` carry verify: "print" and are not vetted numbers.
+Table 5 geometry, stated once because the printed table fixes its dimensions:
+`l` is the GREATER plan dimension and `w` is the LESSER plan dimension for
+both directions. Wind normal to the long face is theta = 0; wind normal to the
+short face is theta = 90. The projected breadth `B_perp` still changes with
+direction. The Table 5 values and their print-verification sources live beside
+the rows in `data/is875_3_wind.yaml`.
 
 Simplifications, all restated in the report block: bbox facade, no Ka area
 averaging unless asked for, Cpi excluded from the frame shears (it cancels on
@@ -46,7 +49,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..codes import is875
-from ..codes.trace import trace_into
+from ..codes.trace import TraceEntry, current_sink, trace_into
+from ..data._loader import load_yaml
 from ..model import DisclosureLog
 
 STAGE = "loads.wind"
@@ -127,20 +131,28 @@ class _Envelope:
         return min(self.width_m, self.depth_m)
 
     @property
+    def greatest_width_m(self) -> float:
+        return max(self.width_m, self.depth_m)
+
+    @property
     def plan_aspect(self) -> float:
         return max(self.width_m, self.depth_m) / min(self.width_m, self.depth_m)
 
     def across_wind_m(self, direction: str) -> float:
-        """`w`: the width of the windward and leeward faces."""
+        """Projected breadth of the windward and leeward faces."""
         return self.depth_m if direction == "x" else self.width_m
 
     def along_wind_m(self, direction: str) -> float:
-        """`l`: the along-wind plan dimension."""
+        """Plan dimension parallel to the wind."""
         return self.width_m if direction == "x" else self.depth_m
+
+    def theta_deg(self, direction: str) -> int:
+        """Table 5 wind angle: 0 normal to the long face, else 90."""
+        return 0 if self.across_wind_m(direction) >= self.greatest_width_m else 90
 
 
 def _envelope(model_like: Dict[str, Any]) -> _Envelope:
-    for key in ("width_m", "depth_m", "storey_z_tops"):
+    for key in ("width_m", "depth_m"):
         if key not in model_like:
             raise KeyError("wind needs '" + key + "' in the envelope description")
     width = float(model_like["width_m"])
@@ -148,18 +160,145 @@ def _envelope(model_like: Dict[str, Any]) -> _Envelope:
     if width <= 0.0 or depth <= 0.0:
         raise ValueError("plan dimensions must be positive, got " + repr((width, depth)))
     base_z = float(model_like.get("base_z_m", 0.0))
-    tops = sorted(float(z) for z in model_like["storey_z_tops"])
-    tops = [z for z in tops if z > base_z + _TINY]
-    if not tops:
+    indexed_tops = []  # type: List[Tuple[int, float]]
+    if "storey_levels" in model_like:
+        for raw in model_like["storey_levels"]:
+            if "storey" not in raw or "z_top_m" not in raw:
+                raise KeyError(
+                    "every wind storey_levels row needs 'storey' and 'z_top_m'"
+                )
+            indexed_tops.append((int(raw["storey"]), float(raw["z_top_m"])))
+        indices = [storey for storey, _z in indexed_tops]
+        if len(set(indices)) != len(indices):
+            raise ValueError("wind storey_levels carries duplicate storey indices")
+    elif "storey_z_tops" in model_like:
+        tops = sorted(float(z) for z in model_like["storey_z_tops"])
+        indexed_tops = list(enumerate(tops))
+    else:
+        raise KeyError(
+            "wind needs 'storey_levels' (preferred) or 'storey_z_tops' "
+            "in the envelope description"
+        )
+    indexed_tops = sorted(indexed_tops, key=lambda item: (item[1], item[0]))
+    indexed_tops = [item for item in indexed_tops if item[1] > base_z + _TINY]
+    if not indexed_tops:
         raise ValueError(
-            "storey_z_tops carries no level above the base elevation " + repr(base_z)
+            "wind envelope carries no level above the base elevation " + repr(base_z)
         )
     levels = []  # type: List[Tuple[int, float, float, float]]
-    for index, z in enumerate(tops):
-        below = z - (tops[index - 1] if index > 0 else base_z)
-        above = (tops[index + 1] - z) if index + 1 < len(tops) else 0.0
-        levels.append((index, z, below, above))
+    for position, (storey, z) in enumerate(indexed_tops):
+        below = z - (indexed_tops[position - 1][1] if position > 0 else base_z)
+        above = (
+            indexed_tops[position + 1][1] - z
+            if position + 1 < len(indexed_tops)
+            else 0.0
+        )
+        levels.append((storey, z, below, above))
     return _Envelope(width_m=width, depth_m=depth, base_z_m=base_z, levels=tuple(levels))
+
+
+@dataclass(frozen=True)
+class _WallCpe:
+    """One verified Table 5 directional coefficient row."""
+
+    windward: float
+    leeward: float
+    side: float
+    net: float
+    out_of_table: bool
+    theta_deg: int
+    h_over_w: float
+    l_over_w: float
+
+
+def _table5_cpe(envelope: _Envelope, direction: str) -> _WallCpe:
+    """Read fixed l/w geometry and the verified theta column from Table 5."""
+    h_over_w = envelope.height_m / envelope.least_width_m
+    l_over_w = envelope.greatest_width_m / envelope.least_width_m
+    theta = envelope.theta_deg(direction)
+
+    # The public codes helper exposes the theta = 0 fields only. Select both
+    # directions here so the evaluated trace can include theta and the exact
+    # coefficients actually used, rather than recording a discarded column.
+    rows = load_yaml("is875_3_wind")["cpe_walls"]["rows"]
+    h_caps = sorted({float(row["h_over_w_max"]) for row in rows})
+    h_cap = next(
+        (cap for cap in h_caps if h_over_w <= cap + _TINY),
+        h_caps[-1],
+    )
+    band = sorted(
+        (row for row in rows if float(row["h_over_w_max"]) == h_cap),
+        key=lambda row: float(row["l_over_w_max"]),
+    )
+    chosen = next(
+        (
+            row
+            for row in band
+            if l_over_w <= float(row["l_over_w_max"]) + _TINY
+        ),
+        band[-1],
+    )
+    out_of_table = h_over_w > h_caps[-1] + _TINY or l_over_w > max(
+        float(row["l_over_w_max"]) for row in rows
+    ) + _TINY
+
+    values = chosen
+    if theta == 90:
+        values = chosen.get("theta_90")
+        if not isinstance(values, dict):
+            raise ValueError(
+                "wind refuses Table 5 geometry h/w="
+                + repr(h_over_w)
+                + ", l/w="
+                + repr(l_over_w)
+                + ": the theta = 90 coefficients are not print-verified"
+            )
+    missing = [name for name in ("windward", "leeward", "side") if name not in values]
+    if missing:
+        raise ValueError(
+            "wind refuses Table 5 geometry h/w="
+            + repr(h_over_w)
+            + ", l/w="
+            + repr(l_over_w)
+            + ": verified coefficient fields are missing: "
+            + ", ".join(missing)
+        )
+    windward = float(values["windward"])
+    leeward = float(values["leeward"])
+    cpe = _WallCpe(
+        windward=windward,
+        leeward=leeward,
+        side=float(values["side"]),
+        net=windward - leeward,
+        out_of_table=bool(out_of_table),
+        theta_deg=theta,
+        h_over_w=h_over_w,
+        l_over_w=l_over_w,
+    )
+    sink = current_sink()
+    if sink is not None:
+        sink.append(
+            TraceEntry(
+                code=CODE,
+                ref="Table 5",
+                title="External pressure coefficients for walls",
+                symbol="Cpe",
+                inputs={
+                    "h_over_w": h_over_w,
+                    "l_over_w": l_over_w,
+                    "theta_deg": theta,
+                },
+                output={
+                    "windward": cpe.windward,
+                    "leeward": cpe.leeward,
+                    "side": cpe.side,
+                    "net": cpe.net,
+                    "out_of_table": cpe.out_of_table,
+                },
+                units="",
+            )
+        )
+    return cpe
 
 
 # ---------------------------------------------------------------------------
@@ -226,9 +365,17 @@ def _static_limits(
 ) -> Dict[str, Any]:
     """Cl 10.1 and Cl 7.4.1 gates; the engine warns, it does not refuse."""
     limits = is875.part3_static_limits()
+    friction_limit = float(
+        load_yaml("is875_3_wind")["static_method_limits"][
+            "max_depth_over_breadth_or_height_for_no_friction"
+        ]
+    )
     height = envelope.height_m
     slenderness = height / envelope.least_width_m
     aspect = envelope.plan_aspect
+    depth_over_height = envelope.greatest_width_m / height
+    plan_aspect_ok = aspect <= friction_limit
+    depth_over_height_ok = depth_over_height <= friction_limit
     above_table = sorted({row["storey"] for row in levels if row["k2_range"] == "above_table"})
     below_table = sorted({row["storey"] for row in levels if row["k2_range"] == "below_table"})
 
@@ -240,8 +387,13 @@ def _static_limits(
         "max_height_over_least_width": limits["max_height_over_least_width"],
         "slenderness_ok": slenderness <= limits["max_height_over_least_width"],
         "plan_aspect": aspect,
-        "max_plan_aspect_for_no_friction": limits["max_plan_aspect_for_no_friction"],
-        "friction_negligible": aspect <= limits["max_plan_aspect_for_no_friction"],
+        "plan_aspect_ok_for_no_friction": plan_aspect_ok,
+        "depth_over_height": depth_over_height,
+        "depth_over_height_ok_for_no_friction": depth_over_height_ok,
+        "max_depth_over_breadth_or_height_for_no_friction": friction_limit,
+        # Kept for response compatibility. This alone is not the friction gate.
+        "max_plan_aspect_for_no_friction": friction_limit,
+        "friction_negligible": plan_aspect_ok and depth_over_height_ok,
         "k2_above_table_levels": above_table,
         # Heights under 10 m read the 10 m row of Table 2. The table itself
         # calls that the conservative standard reading, so it is reported here
@@ -262,12 +414,20 @@ def _static_limits(
             + " is above "
             + repr(limits["max_height_over_least_width"])
         )
-    if not checks["friction_negligible"]:
+    if not plan_aspect_ok:
         reasons.append(
             "plan aspect "
             + repr(aspect)
             + " is above "
-            + repr(limits["max_plan_aspect_for_no_friction"])
+            + repr(friction_limit)
+            + "; frictional drag is not computed in v1"
+        )
+    if not depth_over_height_ok:
+        reasons.append(
+            "maximum wind depth over building height "
+            + repr(depth_over_height)
+            + " is above "
+            + repr(friction_limit)
             + "; frictional drag is not computed in v1"
         )
     if above_table:
@@ -278,7 +438,7 @@ def _static_limits(
         log.add(
             "W_WIND_STATIC_LIMIT",
             "static wind method outside its comfort zone: " + "; ".join(reasons),
-            clause=CODE + " 10.1",
+            clause=CODE + " 7.4.1 / 10.1",
             stage=STAGE,
         )
     return checks
@@ -324,20 +484,17 @@ def _build(
     out_of_table = []  # type: List[str]
 
     for direction in DIRECTIONS:
-        w_m = envelope.across_wind_m(direction)
-        l_m = envelope.along_wind_m(direction)
-        h_over_w = envelope.height_m / w_m
-        l_over_w = l_m / w_m
-        cpe = is875.part3_cpe_walls(h_over_w, l_over_w)
+        b_perp_m = envelope.across_wind_m(direction)
+        cpe = _table5_cpe(envelope, direction)
         if cpe.out_of_table:
             out_of_table.append(direction)
 
         rows = []  # type: List[Dict[str, Any]]
         total_kn = 0.0
         for level in levels:
-            area = w_m * level["tributary_h_m"]
+            area = b_perp_m * level["tributary_h_m"]
             pd, kd, ka, kc = _design_pressure(level["pz_kpa"], area, ctx)
-            force = pd * cpe.net * w_m * level["tributary_h_m"]
+            force = pd * cpe.net * b_perp_m * level["tributary_h_m"]
             total_kn += force
             rows.append(
                 {
@@ -355,11 +512,12 @@ def _build(
             )
 
         directions[direction] = {
-            "w_m": w_m,
-            "l_m": l_m,
-            "b_perp_m": w_m,
-            "h_over_w": h_over_w,
-            "l_over_w": l_over_w,
+            "w_m": envelope.least_width_m,
+            "l_m": envelope.greatest_width_m,
+            "b_perp_m": b_perp_m,
+            "theta_deg": cpe.theta_deg,
+            "h_over_w": cpe.h_over_w,
+            "l_over_w": cpe.l_over_w,
             "cpe_windward": cpe.windward,
             "cpe_leeward": cpe.leeward,
             "cpe_side": cpe.side,
@@ -480,12 +638,10 @@ def _panels(
             "directions": {},
         }  # type: Dict[str, Any]
         for direction in DIRECTIONS:
-            w_m = envelope.across_wind_m(direction)
-            cpe = is875.part3_cpe_walls(
-                envelope.height_m / w_m, envelope.along_wind_m(direction) / w_m
-            )
+            b_perp_m = envelope.across_wind_m(direction)
+            cpe = _table5_cpe(envelope, direction)
             pd, kd, ka, kc = _design_pressure(
-                level["pz_kpa"], w_m * level["tributary_h_m"], ctx
+                level["pz_kpa"], b_perp_m * level["tributary_h_m"], ctx
             )
             faces = {}  # type: Dict[str, Any]
             for face, coefficient in (
@@ -503,7 +659,17 @@ def _panels(
                     "p_net_cpi_minus_kpa": with_minus,
                     "p_net_governing_kpa": governing,
                 }
-            block["directions"][direction] = {"pd_kpa": pd, "kd": kd, "ka": ka, "kc": kc, "faces": faces}
+            block["directions"][direction] = {
+                "theta_deg": cpe.theta_deg,
+                "h_over_w": cpe.h_over_w,
+                "l_over_w": cpe.l_over_w,
+                "b_perp_m": b_perp_m,
+                "pd_kpa": pd,
+                "kd": kd,
+                "ka": ka,
+                "kc": kc,
+                "faces": faces,
+            }
         out_levels.append(block)
 
     result = {
@@ -581,10 +747,21 @@ def _roof_block(
 ) -> Optional[Dict[str, Any]]:
     """Run the uplift check when the envelope described a pitched roof."""
     roof = model_like.get("roof")
-    if not roof:
+    if roof is None or roof == {}:
         return None
-    alpha = float(roof.get("alpha_deg", 0.0))
-    dead = float(roof.get("dead_kpa", 0.0))
+    if not isinstance(roof, dict):
+        raise ValueError("wind roof description must be a mapping")
+    missing = [name for name in ("alpha_deg", "dead_kpa") if name not in roof]
+    if missing:
+        raise KeyError(
+            "wind roof uplift check needs "
+            + ", ".join("'" + name + "'" for name in missing)
+            + "; no roof dead load or pitch is defaulted"
+        )
+    alpha = float(roof["alpha_deg"])
+    dead = float(roof["dead_kpa"])
+    if dead < 0.0:
+        raise ValueError("wind roof dead_kpa must be non-negative, got " + repr(dead))
     top = levels[-1]
     worst = None  # type: Optional[Dict[str, Any]]
     for direction in DIRECTIONS:

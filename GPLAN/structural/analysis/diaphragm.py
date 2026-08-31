@@ -16,22 +16,14 @@ storey shear.
     strut  k = Em t w_ds cos^2(theta) / L_ds   w_ds = 0.175 alpha_h^-0.4 L_ds,
                                                IS 1893 7.9.2, option flag only
 
-Which walls are credited, stated once: a wall enters the lateral system only
-when it is declared bearing (`wall.bearing is True`) or is RC. Everything else
-is URM infill or an undeclared partition and is EXCLUDED from the lateral
-stiffness by default, with `W_INFILL_EXCLUDED` on the ladder naming the walls.
-The reason for the default: crediting infill panels as full shear piers
-overstates the storey stiffness by an order of magnitude, which understates
-the period and the drift (so the drift check cannot fire), and it places the
-centre of rigidity by the partition layout instead of the frame, so the
-torsion verdicts come out of the wrong geometry. The bare-frame default errs
-soft instead, which is the conservative side for drift, and every credited
-element is a declared structural element. The IS 1893 Cl 7.9.2 equivalent
-diagonal strut idealization is available as
-`LateralContext(infill_stiffness="strut")` and is disclosed as
-`N_INFILL_STRUT` when used; `W_INFILL_EXCLUDED` is an engineer-review trigger
-(report.REVIEW_TRIGGER_CODES), so the excluded-infill idealization always
-reaches a human.
+Which walls are credited is explicit. A wall declared bearing, or an RC wall,
+is always a shear pier. For non-bearing masonry infill the context names one
+of three idealizations: `full_pier` preserves the pre-wave behaviour while the
+engineering decision is open, `exclude` gives the bare frame, and `strut`
+uses the IS 1893 Cl 7.9.2 equivalent diagonal strut. Every mode is disclosed.
+The choice between exclusion and the strut is reserved for the user because it
+moves the drift and centre of rigidity of every RC frame; callers must not
+infer a silent default change from this module.
 
 Wave-3 boundary. This module imports nothing from `loads` or `analysis`; the
 storey shears arrive as a plain documented dict and the seismic or wind report
@@ -93,12 +85,11 @@ _DIRECTIONS = ("x", "y")
 # ---------------------------------------------------------------------------
 
 
-#: The two supported idealizations for walls that are not declared bearing and
-#: are not RC (URM infill and undeclared partitions). "exclude" is the default
-#: and drops them from the lateral stiffness, disclosed; "strut" credits them
-#: as IS 1893 Cl 7.9.2 equivalent diagonal struts, disclosed. There is no
-#: option to credit infill as a full shear pier: that was the defect.
-INFILL_MODES = ("exclude", "strut")
+#: Explicit idealizations for walls that are not declared bearing and are not
+#: RC. `full_pier` is the disclosed pre-wave behaviour retained only while the
+#: user-owned B11 decision is open. `exclude` is the bare-frame option and
+#: `strut` is the IS 1893 Cl 7.9.2 equivalent diagonal-strut option.
+INFILL_MODES = ("full_pier", "exclude", "strut")
 
 
 @dataclass(frozen=True)
@@ -108,9 +99,9 @@ class LateralContext:
     `plan_dims_m` overrides the per-storey plan bbox that supplies `bi` in the
     Cl 7.8.2 design eccentricity and the 5 percent torsion gate.
 
-    `infill_stiffness` picks the idealization for non-bearing, non-RC walls:
-    "exclude" (default, see the module docstring for why) or "strut" (the
-    Cl 7.9.2 equivalent diagonal strut).
+    `infill_stiffness` picks the idealization for non-bearing, non-RC walls.
+    `full_pier` preserves and discloses the pre-wave behaviour until the user
+    selects either `exclude` or the Cl 7.9.2 `strut` option.
     """
 
     fck_mpa: float = 25.0
@@ -120,7 +111,7 @@ class LateralContext:
     min_wall_thickness_m: float = 0.100
     opening_knockdown: float = 0.8
     plan_dims_m: Optional[Tuple[float, float]] = None
-    infill_stiffness: str = "exclude"
+    infill_stiffness: str = "full_pier"
 
     def __post_init__(self) -> None:
         if self.infill_stiffness not in INFILL_MODES:
@@ -358,6 +349,7 @@ class StoreyLateral:
     drift_exceeded: bool
     torsion_irregular: bool
     overturning_moment_knm: float
+    cm_source: str = ""
     elements: List[ElementShare] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -369,6 +361,7 @@ class StoreyLateral:
             "sum_k_kn_m": self.sum_k_kn_m,
             "cr_m": [self.cr_x_m, self.cr_y_m],
             "cm_m": [self.cm_x_m, self.cm_y_m],
+            "cm_source": self.cm_source,
             "esi_m": self.esi_m,
             "bi_m": self.bi_m,
             "ed_amplified_m": self.ed_amplified_m,
@@ -581,7 +574,7 @@ def _wall_openings_state(wall: Any, dressed_storey: bool) -> str:
 
 def _wall_piers(
     wall: Any, length_m: float, storey_height_m: float
-) -> List[Tuple[float, float, float]]:
+) -> Tuple[List[Tuple[float, float, float]], List[float]]:
     """Solid segments between dressed openings as (start, length, height).
 
     A pier takes the height of the tallest opening it flanks, which is the
@@ -607,19 +600,26 @@ def _wall_piers(
             merged.append((low, high, opening_h))
 
     piers = []  # type: List[Tuple[float, float, float]]
+    discarded = []  # type: List[float]
     cursor = 0.0
     for index, (low, high, opening_h) in enumerate(merged):
-        if low - cursor > MIN_PIER_LENGTH_M:
+        pier_length = low - cursor
+        if pier_length > MIN_PIER_LENGTH_M:
             neighbours = [opening_h]
             if index > 0:
                 neighbours.append(merged[index - 1][2])
-            piers.append((cursor, low - cursor, max(neighbours)))
+            piers.append((cursor, pier_length, max(neighbours)))
+        elif pier_length > _TINY:
+            discarded.append(pier_length)
         cursor = max(cursor, high)
-    if length_m - cursor > MIN_PIER_LENGTH_M:
+    pier_length = length_m - cursor
+    if pier_length > MIN_PIER_LENGTH_M:
         piers.append(
-            (cursor, length_m - cursor, merged[-1][2] if merged else storey_height_m)
+            (cursor, pier_length, merged[-1][2] if merged else storey_height_m)
         )
-    return piers
+    elif pier_length > _TINY:
+        discarded.append(pier_length)
+    return (piers, discarded)
 
 
 def _wall_entry(
@@ -635,38 +635,78 @@ def _wall_entry(
 ) -> Optional[Dict[str, Any]]:
     direction = _wall_direction(wall)
     if direction is None:
+        log.add(
+            "W_LATERAL_PIER_EXCLUDED",
+            "wall " + wall.id + " is not parallel to a modeled lateral direction, so it is excluded from lateral stiffness",
+            element_ids=[wall.id],
+            clause=EQ_CODE + " 7.8",
+            stage=STAGE,
+        )
         return None
     if wall.role in (WallRole.PARAPET, WallRole.RAILING):
+        log.add(
+            "W_LATERAL_PIER_EXCLUDED",
+            "wall " + wall.id + " is a " + wall.role.value + " and is excluded from the storey lateral system",
+            element_ids=[wall.id],
+            clause=EQ_CODE + " 7.8",
+            stage=STAGE,
+        )
         return None
     thickness = float(wall.thickness_m)
     if thickness < ctx.min_wall_thickness_m:
+        log.add(
+            "W_LATERAL_PIER_EXCLUDED",
+            "wall " + wall.id + " is " + repr(thickness) + " m thick, below the modeled lateral minimum of "
+            + repr(ctx.min_wall_thickness_m) + " m, so it is excluded from lateral stiffness",
+            element_ids=[wall.id],
+            clause=EQ_CODE + " 7.8",
+            stage=STAGE,
+        )
         return None
     length = wall.length_m()
     if length <= MIN_PIER_LENGTH_M:
+        log.add(
+            "W_LATERAL_PIER_EXCLUDED",
+            "wall " + wall.id + " is " + repr(length) + " m long, at or below the modeled "
+            + repr(MIN_PIER_LENGTH_M) + " m pier minimum, so it is excluded from lateral stiffness",
+            element_ids=[wall.id],
+            clause=EQ_CODE + " 7.8",
+            stage=STAGE,
+        )
         return None
 
     # The infill screen (module docstring, "which walls are credited"): only a
     # declared bearing wall or an RC wall is a shear pier. Anything else is
-    # URM infill or an undeclared partition; by default it is excluded from
-    # the lateral stiffness, disclosed, or credited as the Cl 7.9.2 strut when
-    # the option asks for that.
+    # URM infill or an undeclared partition. The explicit context mode either
+    # retains the pre-wave full-pier treatment, excludes it, or credits the
+    # Cl 7.9.2 strut; every branch is disclosed.
     if not (wall.bearing is True or wall.material == Material.RC):
         if ctx.infill_stiffness == "strut":
             return _strut_entry(
                 wall, direction, length, thickness, height_m, ec_mpa, em_mpa, stack_id, log,
                 frame_ic_m4.get(direction),
             )
+        if ctx.infill_stiffness == "exclude":
+            log.add(
+                "W_INFILL_EXCLUDED",
+                "walls not declared bearing and not rc are not credited with lateral "
+                "stiffness; the storey shear goes to the declared bearing walls and "
+                "columns (URM infill idealization; crediting infill as shear piers "
+                "would overstate the stiffness and misplace the centre of rigidity)",
+                element_ids=[wall.id],
+                clause=EQ_CODE + " 7.9",
+                stage=STAGE,
+            )
+            return None
         log.add(
-            "W_INFILL_EXCLUDED",
-            "walls not declared bearing and not rc are not credited with lateral "
-            "stiffness; the storey shear goes to the declared bearing walls and "
-            "columns (URM infill idealization; crediting infill as shear piers "
-            "would overstate the stiffness and misplace the centre of rigidity)",
+            "W_INFILL_FULL_PIER",
+            "the pre-wave idealization is retained while B11 is undecided: a wall "
+            "not declared bearing is credited as a full fixed-fixed masonry shear "
+            "pier; select exclude or strut only after engineer review",
             element_ids=[wall.id],
             clause=EQ_CODE + " 7.9",
             stage=STAGE,
         )
-        return None
 
     e_mpa = ec_mpa if wall.material == Material.RC else em_mpa
     material = "rc" if wall.material == Material.RC else "masonry"
@@ -674,8 +714,25 @@ def _wall_entry(
     piers = []  # type: List[Dict[str, Any]]
 
     if state == "dressed":
-        segments = _wall_piers(wall, length, height_m)
+        segments, discarded = _wall_piers(wall, length, height_m)
+        if discarded:
+            log.add(
+                "W_LATERAL_PIER_EXCLUDED",
+                "wall " + wall.id + " has " + str(len(discarded)) + " dressed-opening pier segment(s) at or below "
+                + repr(MIN_PIER_LENGTH_M) + " m excluded from lateral stiffness",
+                element_ids=[wall.id],
+                clause=EQ_CODE + " 7.8",
+                stage=STAGE,
+            )
         if not segments:
+            log.add(
+                "W_LATERAL_PIER_EXCLUDED",
+                "wall " + wall.id + " has no solid pier longer than " + repr(MIN_PIER_LENGTH_M)
+                + " m after dressed openings, so it is excluded from lateral stiffness",
+                element_ids=[wall.id],
+                clause=EQ_CODE + " 7.8",
+                stage=STAGE,
+            )
             return None
         total_k = 0.0
         for start, pier_length, pier_height in segments:
@@ -815,6 +872,7 @@ def run(
     centres_of_mass: Optional[Dict[int, Tuple[float, float]]] = None,
     log: Optional[DisclosureLog] = None,
     trace: Optional[List[Any]] = None,
+    cm_source: str = "caller-supplied centre of mass",
 ) -> LateralResult:
     """Distribute storey shears onto the vertical elements of each storey.
 
@@ -822,18 +880,18 @@ def run(
     magnitudes; `storey_shears_from_forces` builds it from the plain storey
     force dicts the loads modules emit.
 
-    `centres_of_mass` is `{storey: (x_m, y_m)}` from the takedown storey
-    ledger. Without it the mass centre falls back to the plan area centroid of
-    the storey, which is recorded in `cm_source`, in `assumptions` and on the
-    ladder.
+    `centres_of_mass` is `{storey: (x_m, y_m)}`. `cm_source` names the
+    provenance the caller actually supplied. A storey missing from the mapping
+    falls back to its plan-area centroid; that outcome is recorded per storey,
+    in `assumptions` and on the ladder.
 
     Pass `trace` to collect the clause records; pass `log` to merge the
     disclosures into a shared ladder as well as into the result.
     """
     if trace is not None:
         with trace_into(trace):
-            return _run(model, storey_shears, ctx, centres_of_mass, log)
-    return _run(model, storey_shears, ctx, centres_of_mass, log)
+            return _run(model, storey_shears, ctx, centres_of_mass, cm_source, log)
+    return _run(model, storey_shears, ctx, centres_of_mass, cm_source, log)
 
 
 def _run(
@@ -841,6 +899,7 @@ def _run(
     storey_shears: Dict[str, Dict[int, float]],
     ctx: Optional[LateralContext],
     centres_of_mass: Optional[Dict[int, Tuple[float, float]]],
+    cm_source: str,
     into: Optional[DisclosureLog],
 ) -> LateralResult:
     context = ctx or LateralContext()
@@ -862,6 +921,7 @@ def _run(
             stack_of[wall_id] = stack["stack_id"]
 
     cm_sources = []  # type: List[str]
+    cm_fallback_storeys = []  # type: List[int]
     result = LateralResult(
         materials={
             "fck_mpa": float(context.fck_mpa),
@@ -891,10 +951,11 @@ def _run(
         cr_x, cr_y = _centre_of_rigidity(entries)
         if centres_of_mass is not None and storey in centres_of_mass:
             cm_x, cm_y = (float(centres_of_mass[storey][0]), float(centres_of_mass[storey][1]))
-            cm_source = "storey ledger mass centroid"
+            storey_cm_source = str(cm_source)
         else:
-            (cm_x, cm_y), cm_source = _area_centroid(model, storey)
-        cm_sources.append(cm_source)
+            (cm_x, cm_y), storey_cm_source = _area_centroid(model, storey)
+            cm_fallback_storeys.append(storey)
+        cm_sources.append(storey_cm_source)
 
         j_knm = sum(
             entry["kx"] * (entry["y_m"] - cr_y) ** 2 + entry["ky"] * (entry["x_m"] - cr_x) ** 2
@@ -914,6 +975,7 @@ def _run(
                 cm=(cm_x, cm_y),
                 plan=(plan_x, plan_y),
                 j_knm=j_knm,
+                cm_source=storey_cm_source,
                 carried=carried,
                 log=log,
             )
@@ -923,15 +985,16 @@ def _run(
     blocks.sort(key=lambda entry: (entry.storey, entry.direction))
     result.storeys = blocks
     result.cm_source = cm_sources[0] if len(set(cm_sources)) == 1 else "mixed, see each storey"
-    if centres_of_mass is None:
+    if cm_fallback_storeys:
         log.add(
             "W_TORSION",
-            "no storey mass ledger was supplied; the centre of mass was taken at the plan area "
-            "centroid of each storey, so the static eccentricity is a geometric estimate",
+            "the centre of mass was taken at the plan area centroid for storey "
+            + ", ".join(str(storey) for storey in cm_fallback_storeys)
+            + "; the static eccentricity on those storeys is a geometric estimate",
             clause=EQ_CODE + " 7.8.2",
             stage=STAGE,
         )
-    result.assumptions = _assumptions(context, centres_of_mass is None)
+    result.assumptions = _assumptions(context, cm_fallback_storeys)
     result.overturning = _overturning(shears, model, storeys)
     result.base_forces = _base_forces(blocks, min(storeys))
     if into is not None:
@@ -998,6 +1061,7 @@ def _distribute(
     cm: Tuple[float, float],
     plan: Tuple[float, float],
     j_knm: float,
+    cm_source: str,
     carried: Dict[Tuple[str, str], float],
     log: DisclosureLog,
 ) -> Optional[StoreyLateral]:
@@ -1138,6 +1202,7 @@ def _distribute(
         drift_exceeded=drift_exceeded,
         torsion_irregular=torsion_irregular,
         overturning_moment_knm=shear_kn * height_m,
+        cm_source=cm_source,
         elements=shares,
     )
 
@@ -1194,7 +1259,7 @@ def _base_forces(blocks: Sequence[StoreyLateral], base_storey: int) -> Dict[str,
     return out
 
 
-def _assumptions(ctx: LateralContext, cm_fallback: bool) -> List[str]:
+def _assumptions(ctx: LateralContext, cm_fallback_storeys: Sequence[int]) -> List[str]:
     if ctx.infill_stiffness == "strut":
         infill_line = (
             "only declared bearing walls and rc walls are credited as shear piers; "
@@ -1202,12 +1267,19 @@ def _assumptions(ctx: LateralContext, cm_fallback: bool) -> List[str]:
             "diagonal struts (w_ds = 0.175 alpha_h^-0.4 L_ds, mean storey column Ic, "
             "opening reductions not modelled)"
         )
-    else:
+    elif ctx.infill_stiffness == "exclude":
         infill_line = (
             "only declared bearing walls and rc walls are credited with lateral "
             "stiffness; non-bearing masonry infill is excluded, because crediting "
             "infill as shear piers overstates the stiffness, understates the period "
             "and the drift, and misplaces the centre of rigidity"
+        )
+    else:
+        infill_line = (
+            "pre-wave behaviour retained pending the B11 user decision: non-bearing "
+            "masonry infill is credited as full fixed-fixed shear piers; this can "
+            "overstate stiffness and move the centre of rigidity, so engineer review "
+            "must select the exclude or Cl 7.9.2 strut option"
         )
     lines = [
         "rigid diaphragm per floor; no in-plane flexibility is modelled",
@@ -1230,8 +1302,10 @@ def _assumptions(ctx: LateralContext, cm_fallback: bool) -> List[str]:
         )
     if ctx.cantilever_piers:
         lines.append("masonry piers taken as cantilevers, 4 (h/L)^3 + 3 (h/L)")
-    if cm_fallback:
+    if cm_fallback_storeys:
         lines.append(
-            "centre of mass taken at the plan area centroid; no storey mass ledger was supplied"
+            "centre of mass taken at the plan area centroid for storey "
+            + ", ".join(str(storey) for storey in cm_fallback_storeys)
+            + "; no caller-supplied centre was available there"
         )
     return lines

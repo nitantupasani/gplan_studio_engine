@@ -484,6 +484,21 @@ def test_a_room_sharing_too_little_wall_gets_no_door():
     assert "W_OCCUPANCY_UNKNOWN" in _codes(model)
 
 
+def test_an_assumed_door_never_overhangs_its_shared_wall():
+    """A 2.9 ft shared run is shorter than the standard 0.9 m door leaf."""
+    plan = _floorplan(
+        width=20.0,
+        height=2.9,
+        placements=(
+            _place("Living Room", 0, 0, 10, 2.9),
+            _place("Bedroom 1", 10, 0, 10, 2.9),
+        ),
+    )
+    model = _undressed_model(plan)
+    assert _walls_with_openings(model) == []
+    assert "W_ADJACENCY_SHORTFALL" in _codes(model)
+
+
 def test_windows_are_only_assumed_when_asked_for():
     plain = _undressed_model()
     assert [o for w in plain.walls for o in w.openings if o.kind == M.OpeningKind.WINDOW] == []

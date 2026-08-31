@@ -90,9 +90,10 @@ EAVES_HEIGHT_M = ft_to_m(9.5)
 
 PLINTH_DEPTH_M = ft_to_m(0.5)
 
-#: Documented hook: the orchestrator applies this AFTER the takedown, because a
-#: point load is a load and placement never reads loads. See
-#: `tie_columns_for_point_loads()` at the end of this module.
+#: Reusable threshold for the point-load helper. The shipped masonry path
+#: already supplies the stronger outcome with unconditional ties at injected
+#: beam-line ends and core corners; `tie_columns_for_point_loads()` is not wired
+#: into that path.
 POINT_LOAD_LIMIT_KN = 25.0
 
 #: Tie column and jamb column plan width along the wall (spec 8), mm.
@@ -805,6 +806,7 @@ class _Eligibility:
     wall_id: str
     storey: int
     t_mm: float
+    never_bearing: bool
     thickness_ok: bool
     confined_only: bool
     stacked: bool
@@ -816,6 +818,8 @@ class _Eligibility:
 
     def eligible(self, system: str) -> bool:
         """True when this wall may carry slab load under `system`."""
+        if self.never_bearing:
+            return False
         if not self.thickness_ok:
             return False
         if self.confined_only and system != System.CONFINED_MASONRY.value:
@@ -845,9 +849,10 @@ def _eligibility(
     for wall in sorted(walls, key=lambda w: w.id):
         t_mm = _t_mm(wall)
         reasons = []  # type: List[str]
+        never_bearing = t_mm <= float(params.never_bearing_t_mm) + _ETA
         thickness_ok = t_mm >= float(params.confined_min_t_mm) - _ETA
         confined_only = thickness_ok and t_mm < float(params.min_bearing_t_mm) - _ETA
-        if t_mm <= float(params.never_bearing_t_mm) + _ETA:
+        if never_bearing:
             reasons.append(
                 "t %d mm is at or below the %d mm never-bearing floor; no override"
                 % (int(round(t_mm)), int(round(params.never_bearing_t_mm)))
@@ -901,7 +906,7 @@ def _eligibility(
         sr_ok = is1905.check_max_slenderness(sr, total, params.mortar_grade)
         if not sr_ok:
             reasons.append(
-                "slenderness %.1f is past the IS 1905 Cl 5.2 cap of %.0f"
+                "slenderness %.1f is past the IS 1905 Cl 4.6.1 cap of %.0f"
                 % (sr, is1905.max_slenderness(params.mortar_grade))
             )
         party = wall.role == WallRole.PARTY
@@ -911,6 +916,7 @@ def _eligibility(
             wall_id=wall.id,
             storey=int(wall.storey),
             t_mm=t_mm,
+            never_bearing=never_bearing,
             thickness_ok=thickness_ok,
             confined_only=confined_only,
             stacked=stacked,
@@ -1239,7 +1245,12 @@ def _cover_storey(
         if record is None:
             return False
         if wall.id in lifted:
-            return record.stacked and record.grounded and record.sr_ok
+            return (
+                not record.never_bearing
+                and record.stacked
+                and record.grounded
+                and record.sr_ok
+            )
         return record.eligible(system)
 
     seed = sorted(wall.id for wall in walls if _is_perimeter(wall, grid) and usable(wall))
@@ -1796,10 +1807,11 @@ class MasonryPlacer:
             gap = gaps[0]
             # the governing reason is that no wall of an admissible load bearing
             # thickness exists on the line the panel needs supported
+            code = "E_UNSUPPORTED_PANEL_EDGE" if gap.need == "edge" else "E_SPAN_OVER_MAX"
             return (
                 "IS1905:1987 Cl 4.1",
                 gap.message,
-                "E_SPAN_OVER_MAX",
+                code,
                 [gap.panel_id],
             )
         for storey in self._storeys:
@@ -2062,7 +2074,8 @@ class MasonryPlacer:
         # from gap resolution for good. Such a wall falls through to the beam
         # line rules below, which is spec 7's ordering.
         if (
-            record.thickness_ok
+            not record.never_bearing
+            and record.thickness_ok
             and record.confined_only
             and record.stacked
             and record.grounded
@@ -2881,7 +2894,7 @@ class MasonryPlacer:
         if record is not None:
             checks.append(
                 {
-                    "clause_id": "IS1905:1987 Cl 5.2",
+                    "clause_id": "IS1905:1987 Cl 4.6.1",
                     "check": "SR",
                     "ok": bool(record.sr_ok),
                     "value": round(float(record.sr), 4),
@@ -3192,14 +3205,16 @@ def tie_columns_for_point_loads(
     point_loads: Sequence[Dict[str, Any]],
     params: Optional[MasonryParams] = None,
 ) -> List[TieColumn]:
-    """Spec 8's point-load rule, as a hook the ORCHESTRATOR calls after takedown.
+    """Optional point-load helper, currently unreached by the design pipeline.
 
-    Placement never reads a load, so the rule cannot run inside `place()`. Once
-    the takedown has reactions, `run_design` calls this with
+    Placement never reads a load, so this helper cannot run inside `place()`.
+    The shipped masonry path instead places unconditional ties at injected
+    beam-line ends and core corners, which already covers its beam reactions.
+    If a future caller supplies post-takedown reactions, it must pass
 
         point_loads = [{"x_m": .., "y_m": .., "p_kn": .., "wall_id": .., "t_mm": ..}, ...]
 
-    and any reaction above `params.point_load_limit_kn` (25 kN by default) gets a
+    Any reaction above `params.point_load_limit_kn` (25 kN by default) gets a
     tie column under it. The returned columns are merged into
     `placement.tie_columns` in place and also handed back, sorted by id.
     """

@@ -38,6 +38,7 @@ import time
 
 import pytest
 
+from .. import api
 from .. import model as M
 from ..adapters.plan_json import from_plan
 from ..analysis import (
@@ -330,11 +331,13 @@ SHIPPED_SIGNATURES = (
     (BM.design_beam, ("forces", "geom", "ctx")),
     (CO.design_column, ("forces", "geom", "ctx")),
     (SL.design_slab, ("panel", "load", "ctx")),
+    (SL.design_stair_flight, ("stair", "load", "ctx")),
     (FT.design_footing, ("footing", "loads", "soil", "ctx")),
     (FT.design_combined_footing, ("footing", "loads", "soil", "ctx")),
     (rcc.design_beam, ("forces", "geom", "ctx")),
     (rcc.design_column, ("forces", "geom", "ctx")),
     (rcc.design_slab, ("panel", "load", "ctx")),
+    (rcc.design_stair_flight, ("stair", "load", "ctx")),
     (rcc.design_footing, ("footing", "loads", "soil", "ctx")),
     (rcc.design_combined_footing, ("footing", "loads", "soil", "ctx")),
 )
@@ -362,7 +365,7 @@ def _one_column(storey=0, x=0.0, y=0.0, width=0.23, depth=0.30):
 
 
 def test_every_designer_takes_the_positional_call_the_dispatch_makes():
-    """Call all five designers exactly as `run_rcc_design` does, positionally.
+    """Call every designer exactly as `run_rcc_design` does, positionally.
 
     No keywords anywhere: a silent reorder of two same-typed parameters would
     survive a keyword call and is precisely the drift this pins.
@@ -398,6 +401,22 @@ def test_every_designer_takes_the_positional_call_the_dispatch_makes():
     assert slab_result.element_type == "slab" and slab_result.element_id == "slab-x"
     assert slab_result.status != C.STATUS_FAIL
     assert slab_result.section["lx_mm"] == pytest.approx(4000.0)
+
+    stair = {
+        "id": "stair-x",
+        "core_id": "core-x",
+        "storey": 0,
+        "flight": 1,
+        "span_m": 1.1576,
+        "width_m": 1.524,
+        "rise_m": 1.524,
+        "incline_deg": 52.79,
+    }
+    stair_load, stair_ctx = rcc.stair_design_inputs(ctx)
+    stair_result = rcc.design_stair_flight(stair, stair_load, stair_ctx)
+    assert stair_result.element_type == "slab" and stair_result.element_id == "stair-x"
+    assert stair_result.section["waist_mm"] == pytest.approx(100.0)
+    assert stair_result.extras["design_pressure_kpa"]["applied_u_kpa"] == pytest.approx(4.5)
 
     pad = FT.PadGeometry(
         element_id="ftg-x",
@@ -692,3 +711,206 @@ def test_the_converters_are_the_only_designer_inputs(run):
             to_beam_forces(wrong)
     with pytest.raises(ValueError):
         to_slab_load(beam)
+
+
+# ---------------------------------------------------------------------------
+# final orchestrator wiring: stair flights, adapter height and edited footings
+# ---------------------------------------------------------------------------
+
+
+def _structural_entry(envelope):
+    return envelope["response"]["Documents"]["structural"][0]
+
+
+def test_meta_stair_flight_reaches_the_package_dispatch_with_its_own_identity():
+    """A flight has no envelope; its meta id and 3.0/4.5 kPa load still design."""
+    flight = {
+        "id": "stair-core-a-s0-f1",
+        "core_id": "core-a",
+        "storey": 0,
+        "flight": 1,
+        "span_m": 1.1576,
+        "width_m": 1.524,
+        "rise_m": 1.524,
+        "incline_deg": 52.79,
+    }
+    model = M.StructuralModel(id="stair-dispatch", source=M.ModelSource.BUILDING)
+    model.meta["frame_placement"] = {"stair_slabs": [dict(flight)]}
+    before = json.dumps(model.meta, sort_keys=True)
+
+    results = rcc.run_rcc_design(model, _Analysis(), OPTIONS)
+
+    assert [item.element_id for item in results] == [flight["id"]]
+    result = results[0]
+    assert result.element_type == "slab"
+    assert result.extras["slab_mode"] == "stair_flight"
+    assert result.section["waist_mm"] == pytest.approx(100.0)
+    assert result.section["risers"] == 10
+    assert result.extras["design_pressure_kpa"]["applied_u_kpa"] == pytest.approx(4.5)
+    assert result.extras["design_pressure_kpa"]["total_u_kpa"] > 4.5
+    assert len(result.bars) == 2
+    assert len(result.checks) == 10
+    assert json.dumps(model.meta, sort_keys=True) == before, "design must not rewrite placement meta"
+
+
+def test_an_unrouted_meta_stair_is_explicitly_undesigned_in_api_accounting():
+    """Coverage and the ladder name a missed meta flight instead of hiding it."""
+    flight = {
+        "id": "stair-core-missed-s0-f1",
+        "core_id": "core-missed",
+        "storey": 0,
+        "flight": 1,
+        "span_m": 1.2,
+        "width_m": 1.0,
+        "rise_m": 1.5,
+        "incline_deg": 51.34,
+    }
+    model = M.StructuralModel(id="stair-accounting", source=M.ModelSource.BUILDING)
+    model.meta["frame_placement"] = {"stair_slabs": [flight]}
+    log = M.DisclosureLog()
+
+    missing = api._disclose_undesigned(model, [], M.System.RC_FRAME.value, log)
+    coverage = api._design_coverage(model, [], M.System.RC_FRAME.value)
+
+    assert missing == [flight["id"]]
+    assert coverage["stair"] == {
+        "placed": 1,
+        "designed": 0,
+        "undesigned": [flight["id"]],
+        "undesigned_count": 1,
+        "reason": "no analysis demand reached these elements",
+    }
+    entries = [entry for entry in log.entries if entry.code == "N_ELEMENT_UNDESIGNED"]
+    assert len(entries) == 1
+    assert entries[0].element_ids == [flight["id"]]
+
+
+@pytest.fixture(scope="module")
+def building_stair_design():
+    with open(os.path.join(FIXTURES, "building_3storey.json"), "r") as handle:
+        building = json.load(handle)
+    envelope = api.run_design(
+        {"source": "building", "building": building, "output": {"detail": "full"}}
+    )
+    return _structural_entry(envelope)
+
+
+def test_building_stair_results_reach_coverage_and_nonzero_quantities(building_stair_design):
+    """The six real flights produce sections, coverage, concrete and formwork."""
+    entry = building_stair_design
+    model = entry["structural_model"]
+    flights = model["meta"]["frame_placement"]["stair_slabs"]
+    placed_ids = sorted(flight["id"] for flight in flights)
+    results = [
+        row
+        for row in model["design"]
+        if row.get("section", {}).get("waist_mm") is not None
+    ]
+
+    assert len(placed_ids) == 6
+    assert sorted(row["element_id"] for row in results) == placed_ids
+    for row in results:
+        assert row["status"] == C.STATUS_PASS
+        assert row["section"]["waist_mm"] == pytest.approx(100.0)
+        assert row["section"]["risers"] == 10
+        assert row["design_pressure_kpa"]["applied_u_kpa"] == pytest.approx(4.5)
+        assert len(row["bars"]) == 2
+        assert len(row["checks"]) == 10
+
+    coverage = entry["design"]["coverage"]["stair"]
+    assert coverage == {
+        "placed": 6,
+        "designed": 6,
+        "undesigned": [],
+        "undesigned_count": 0,
+    }
+    undisclosed = [
+        row
+        for row in entry["warnings"]
+        if row["code"] == "N_ELEMENT_UNDESIGNED"
+        and set(row["element_ids"]) & set(placed_ids)
+    ]
+    assert undisclosed == []
+
+    takeoff = model["quantities"]["takeoff"]
+    concrete = next(row for row in takeoff["concrete"] if row["class"] == "stair")
+    formwork = next(row for row in takeoff["formwork"] if row["class"] == "stair")
+    assert concrete["count"] == 6
+    assert concrete["volume_exact_m3"] == pytest.approx(2.557023, abs=1e-6)
+    assert formwork["count"] == 6
+    assert formwork["area_exact_m2"] == pytest.approx(17.501604, abs=1e-6)
+
+
+def test_housing_omission_uses_the_adapter_10_4_ft_default(monkeypatch):
+    """Only an explicit request may send storey_height_ft into from_housing."""
+    from ..adapters import housing as housing_adapter
+
+    with open(os.path.join(FIXTURES, "housing_2storey.json"), "r") as handle:
+        housing = json.load(handle)
+
+    actual = housing_adapter.from_housing
+    calls = []
+
+    def recording_adapter(*args, **kwargs):
+        calls.append(dict(kwargs))
+        return actual(*args, **kwargs)
+
+    monkeypatch.setattr(housing_adapter, "from_housing", recording_adapter)
+
+    request = {"source": "housing", "housing": housing}
+    opts = api._Resolved(request, {})
+    models = api._adapt(request, "housing", opts)
+    assert "storey_height_ft" not in calls[0]
+    assert models
+    assert all(M.m_to_ft(storey.height_m) == pytest.approx(10.4) for model in models for storey in model.storeys)
+    assert opts.echo()["values"]["storey_height_ft"] == pytest.approx(10.4)
+    assert opts.echo()["origins"]["storey_height_ft"] == "adapters.housing.from_housing default"
+
+    explicit = {
+        "source": "housing",
+        "housing": housing,
+        "params": {"storey_height_ft": 9.25},
+    }
+    explicit_opts = api._Resolved(explicit, {})
+    explicit_models = api._adapt(explicit, "housing", explicit_opts)
+    assert calls[1]["storey_height_ft"] == pytest.approx(9.25)
+    assert all(
+        M.m_to_ft(storey.height_m) == pytest.approx(9.25)
+        for model in explicit_models
+        for storey in model.storeys
+    )
+    assert explicit_opts.echo()["origins"]["storey_height_ft"] == "request"
+
+
+def test_full_check_keeps_edited_footing_and_reports_resize_as_failure(run, monkeypatch):
+    """A posted 0.5 ft pad stays 152.4 mm at design entry and cannot pass true."""
+    wire = run["model"].to_dict()
+    edited = next(row for row in wire["footings"] if row["kind"] == "isolated")
+    edited_id = edited["id"]
+    edited["w_ft"] = 0.5
+    edited["h_ft"] = 0.5
+    edited["depth_ft"] = 0.5
+
+    def foundation_relayout_is_forbidden(*args, **kwargs):
+        raise AssertionError("run_check must not call layout_foundations")
+
+    monkeypatch.setattr(api._foundations, "layout_foundations", foundation_relayout_is_forbidden)
+    entry = _structural_entry(api.run_check({"source": "model", "model": wire, "scope": "full"}))
+    row = next(item for item in entry["element_checks"] if item["element_id"] == edited_id)
+
+    assert row["status"] == C.STATUS_RESIZED
+    assert row["pass"] is False
+    assert row["geometry_changed"] is True
+    assert row["resize_history"]
+    plan_step = row["resize_history"][0]
+    assert plan_step["from"] == "152.4 mm x 152.4 mm"
+    assert plan_step["to"] == "900 mm x 1200 mm"
+    assert edited_id in entry["changed_hint"]
+    assert entry["element_checks_failed"] >= 1
+
+    disclosures = [
+        item for item in entry["warnings"] if item["code"] == "N_CHECK_FOOTINGS_AS_GIVEN"
+    ]
+    assert len(disclosures) == 1
+    assert disclosures[0]["stage"] == "api.check.foundation"
+    assert edited_id in disclosures[0]["element_ids"]

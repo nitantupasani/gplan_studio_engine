@@ -203,14 +203,16 @@ _BLOCKED_DESIGN_MARK = "design_status:fail"
 #: (spec 2.2). The spec names the conditions; these are their registry codes.
 #: `E_MASONRY_LIMIT` stands in for the spec's `zone_v_masonry`: the registry
 #: ships no separate zone V warning, and the masonry seismic-category refusal
-#: is the closest registered condition. `W_INFILL_EXCLUDED` triggers because
-#: excluding infill from the lateral stiffness moves the drift, the centre of
-#: rigidity and the torsion verdicts of every frame with masonry walls, and
-#: that idealization must reach a human (analysis/diaphragm.py docstring).
+#: is the closest registered condition. Every explicit B11 infill posture is a
+#: trigger while the user-owned idealization decision remains open: exclusion,
+#: the Cl 7.9.2 strut, and the disclosed pre-wave full-pier default all move the
+#: drift, centre of rigidity and torsion verdicts of frames with masonry walls.
 REVIEW_TRIGGER_CODES = (
     "E_MASONRY_LIMIT",
     "E_TRANSFER_REQUIRED",
+    "N_INFILL_STRUT",
     "W_INFILL_EXCLUDED",
+    "W_INFILL_FULL_PIER",
     "W_RELEASED_CAP",
     "W_TALL",
     "W_TORSION",
@@ -252,6 +254,9 @@ SUMMARY_KEYS = (
 TOTALS_KEYS = (
     "concrete_m3",
     "steel_kg",
+    "steel_kg_blocked",
+    "steel_kg_net",
+    "steel_cost_basis",
     "masonry_m3",
     "formwork_m2",
     "excavation_m3",
@@ -990,24 +995,41 @@ def _storey_block(model: Any) -> Tuple[int, float]:
     return len(storeys), _r3(top)
 
 
-def _totals_block(takeoff: Mapping[str, Any], bbs: Mapping[str, Any], boq: Mapping[str, Any]) -> Dict[str, Any]:
-    """Headline totals, read from the quantity blocks and never reinvented.
+def _steel_total(bbs: Mapping[str, Any]) -> float:
+    """One schedule's reinforcement mass including its stated wastage."""
+    value = bbs.get("total_with_wastage_kg")
+    if value is None:
+        value = bbs.get("total_kg")
+    return _num(value)
 
-    `steel_kg` comes from the schedule AFTER blocked rows were zeroed, so it
-    agrees with the embedded BBS. The class-aggregated take-off rows and the
-    priced BOQ totals are passed through as their producers stated them: a row
-    covering a whole class cannot be unpicked here, so an ERROR has to reach
-    quantities.py for those to drop, and `blocked_elements` says which elements
-    are in question.
+
+def _totals_block(
+    takeoff: Mapping[str, Any],
+    gross_bbs: Mapping[str, Any],
+    net_bbs: Mapping[str, Any],
+    boq: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Headline totals, with gross and blocked reinforcement reconciled.
+
+    Finding B32: quantities and the BOQ are produced from the gross schedule,
+    while this report can additionally identify design-failed rows and show a
+    net schedule. The headline therefore stays on the producer-stated, costed
+    gross mass. Explicit siblings show what the report blocked and the resulting
+    net mass, and `steel_cost_basis` names which figure the BOQ used. This keeps
+    one meaning per field without pretending the class-aggregated concrete or
+    the already-priced bill was also corrected here.
     """
     earthwork = takeoff.get("earthwork")
     earthwork = earthwork if isinstance(earthwork, Mapping) else {}
-    steel_kg = bbs.get("total_with_wastage_kg")
-    if steel_kg is None:
-        steel_kg = bbs.get("total_kg")
+    steel_kg = _steel_total(gross_bbs)
+    steel_kg_net = _steel_total(net_bbs)
+    steel_kg_blocked = max(0.0, steel_kg - steel_kg_net)
     return {
         "concrete_m3": _total_or_sum(takeoff, "concrete_m3", "concrete", "volume_m3"),
-        "steel_kg": _r3(_num(steel_kg)),
+        "steel_kg": _r3(steel_kg),
+        "steel_kg_blocked": _r3(steel_kg_blocked),
+        "steel_kg_net": _r3(steel_kg_net),
+        "steel_cost_basis": "steel_kg",
         "masonry_m3": _total_or_sum(takeoff, "masonry_m3", "masonry", "volume_m3"),
         "formwork_m2": _total_or_sum(takeoff, "formwork_m2", "formwork", "area_m2"),
         "excavation_m3": _r3(_num(earthwork.get("excavation_m3"))),
@@ -1089,13 +1111,13 @@ def _refusal_items(extra: Any) -> List[Dict[str, Any]]:
 
 
 def _cap_rows(block: Mapping[str, Any], key: str, cap: int) -> Dict[str, Any]:
-    """Row cap with the aggregates kept intact and the eliding declared."""
+    """Row cap with producer-declared upstream elision preserved (B31)."""
     out = dict(block)
     rows = _rows(block, key)
     out[key] = [dict(row) if isinstance(row, Mapping) else row for row in rows[:cap]]
-    out["items_total"] = len(rows)
+    out["items_total"] = _int(block.get("items_total"), len(rows))
     out["items_shown"] = len(out[key])
-    out["items_elided"] = len(rows) > cap
+    out["items_elided"] = bool(block.get("items_elided")) or len(rows) > cap
     return out
 
 
@@ -1311,7 +1333,7 @@ def build_report(
         "storeys": storeys,
         "height_m": height_m,
         "seismic": _seismic_block(model, analysis),
-        "totals": _totals_block(takeoff_block, bbs_corrected, boq_block),
+        "totals": _totals_block(takeoff_block, bbs_block, bbs_corrected, boq_block),
         "element_counts": _element_counts(model),
         "layout_score": {
             "score": layout_metrics.get("score"),

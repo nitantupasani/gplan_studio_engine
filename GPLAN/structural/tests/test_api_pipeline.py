@@ -272,6 +272,8 @@ def test_design_reports_the_seismic_case_roster_it_actually_built(designs):
         "zone III with a storey ledger must produce the four equivalent static cases"
     )
     assert analysis["seismic"]["zone"] == "III"
+    assert analysis["seismic"]["system"] == "omrf", "the delivered RC frame uses its ductility row"
+    assert entry["options_echo"]["values"]["seismic_system"] == "omrf"
     assert analysis["storey_shears"]["x"], "a seismic case implies a storey shear"
 
 

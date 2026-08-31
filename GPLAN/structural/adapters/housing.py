@@ -125,9 +125,8 @@ SPACE_OCCUPANCY = {
 #: Space kinds that are not a building: a stack carrying only these is unbuilt.
 UNBUILT_SPACE_KINDS = ("parking", "green")
 
-#: Room-name prefixes -> Occupancy. plan_json.py owns the canonical NAME_KIND
-#: table; this is the same mapping, kept private so a housing model can be built
-#: without importing a sibling adapter. Longest prefix wins, case-insensitive.
+#: Room-name tokens -> Occupancy. plan_json.py owns the canonical NAME_KIND
+#: table; this compact private copy keeps housing independent of sibling imports.
 NAME_OCCUPANCY = (
     ("living", Occupancy.HABITABLE),
     ("dining", Occupancy.HABITABLE),
@@ -139,6 +138,7 @@ NAME_OCCUPANCY = (
     ("hall", Occupancy.HABITABLE),
     ("kitchen", Occupancy.KITCHEN),
     ("bath", Occupancy.BATH),
+    ("bathroom", Occupancy.BATH),
     ("toilet", Occupancy.WC),
     ("wc", Occupancy.WC),
     ("powder", Occupancy.WC),
@@ -373,18 +373,25 @@ def _parse_region_key(key):
 
 def _occupancy_for_name(name):
     # type: (Any) -> Tuple[Occupancy, bool]
-    """(occupancy, recognized). Prefix-tolerant: 'Bathroom 2' -> bath."""
-    text = str(name or "").strip().lower()
+    """(occupancy, recognized), with wet-room tokens outranking master/guest."""
+    text = " ".join(str(name or "").strip().lower().split())
     if not text:
         return (Occupancy.OTHER, False)
-    best = None  # type: Optional[Tuple[int, Occupancy]]
-    for prefix, occupancy in NAME_OCCUPANCY:
-        if text.startswith(prefix):
-            if best is None or len(prefix) > best[0]:
-                best = (len(prefix), occupancy)
-    if best is None:
+    tokens = text.split()
+    matches = []  # type: List[Tuple[int, Occupancy]]
+    for phrase, occupancy in NAME_OCCUPANCY:
+        phrase_tokens = phrase.split()
+        width = len(phrase_tokens)
+        if any(tokens[index:index + width] == phrase_tokens for index in range(len(tokens) - width + 1)):
+            matches.append((width, occupancy))
+    if not matches:
         return (Occupancy.OTHER, False)
-    return (best[1], True)
+    wet = [match for match in matches if match[1] in (Occupancy.BATH, Occupancy.WC)]
+    choices = wet or matches
+    occupancies = {match[1] for match in choices}
+    if len(occupancies) != 1:
+        return (Occupancy.OTHER, False)
+    return (max(choices, key=lambda match: match[0])[1], True)
 
 
 def _content_of(holder):
@@ -1178,8 +1185,81 @@ def _select_plan(generated):
     return plans[0]
 
 
-def _place_generated(region, generated, storey, interior_t):
-    # type: (Dict[str, Any], Dict[str, Any], int, float) -> Dict[str, Any]
+def _unblocked_rectangles(x, y, width, height, exclusions):
+    # type: (float, float, float, float, Sequence[Tuple[float, float, float, float]]) -> List[Tuple[float, float, float, float]]
+    """Tile one generated-plan rectangle around nested faces.
+
+    `polygonize` emits a nested face separately and subtracts it from its host
+    face's area. A generated plan is authored as rectangles over the host's
+    exterior loop, so those rectangles must be carved around the nested faces
+    as well or the room table describes the same floor area twice. The model's
+    downstream consumers use rectangular room bounds, so return a deterministic
+    rectilinear tiling instead of an L-shaped polygon with a misleading bbox.
+    """
+    x1 = x + width
+    y1 = y + height
+    xs = {x, x1}
+    ys = {y, y1}
+    blockers = []  # type: List[Tuple[float, float, float, float]]
+    for bx, by, bw, bh in exclusions:
+        left = max(x, bx)
+        right = min(x1, bx + bw)
+        top = max(y, by)
+        bottom = min(y1, by + bh)
+        if right - left <= JOIN_TOL_M or bottom - top <= JOIN_TOL_M:
+            continue
+        blockers.append((left, top, right, bottom))
+        xs.update([left, right])
+        ys.update([top, bottom])
+    if not blockers:
+        return [(x, y, width, height)]
+
+    columns = sorted(xs)
+    rows = sorted(ys)
+    strips = []  # type: List[Tuple[float, float, float, float]]
+    for row in range(len(rows) - 1):
+        top = rows[row]
+        bottom = rows[row + 1]
+        run_start = None  # type: Optional[float]
+        for column in range(len(columns) - 1):
+            left = columns[column]
+            right = columns[column + 1]
+            blocked = any(
+                left < bx1 - JOIN_TOL_M
+                and right > bx0 + JOIN_TOL_M
+                and top < by1 - JOIN_TOL_M
+                and bottom > by0 + JOIN_TOL_M
+                for bx0, by0, bx1, by1 in blockers
+            )
+            if not blocked and run_start is None:
+                run_start = left
+            if (blocked or column == len(columns) - 2) and run_start is not None:
+                run_end = left if blocked else right
+                if run_end - run_start > JOIN_TOL_M:
+                    strips.append((run_start, top, run_end, bottom))
+                run_start = None
+
+    merged = []  # type: List[Tuple[float, float, float, float]]
+    for left, top, right, bottom in strips:
+        previous = next(
+            (
+                index for index, item in enumerate(merged)
+                if abs(item[0] - left) <= JOIN_TOL_M
+                and abs(item[2] - right) <= JOIN_TOL_M
+                and abs(item[3] - top) <= JOIN_TOL_M
+            ),
+            None,
+        )
+        if previous is None:
+            merged.append((left, top, right, bottom))
+        else:
+            old = merged[previous]
+            merged[previous] = (old[0], old[1], old[2], bottom)
+    return [(left, top, right - left, bottom - top) for left, top, right, bottom in merged]
+
+
+def _place_generated(region, generated, storey, interior_t, exclusions=()):
+    # type: (Dict[str, Any], Dict[str, Any], int, float, Sequence[Tuple[float, float, float, float]]) -> Dict[str, Any]
     """Translate a selected UnitFloorplan into floor coordinates.
 
     The plan is authored in its OWN `floorWidth` x `floorHeight` frame (feet,
@@ -1231,23 +1311,26 @@ def _place_generated(region, generated, storey, interior_t):
         name = str(placement.get("name") or "Room %d" % (index + 1))
         occupancy, known = _occupancy_for_name(name)
         source = "%s-r%d" % (region["id"], index)
-        element = room_id(storey, source)
-        if not known:
-            out["unknown_names"].append(element)
-        out["rooms"].append(
-            RoomPoly(
-                id=element,
-                storey=storey,
-                name=name,
-                occupancy=occupancy,
-                polygon=[(x, y), (x + width, y), (x + width, y + height), (x, y + height)],
-                area_m2=width * height,
-                unit_id=region["id"],
-                interior_unknown=False,
-                source=source,
+        pieces = _unblocked_rectangles(x, y, width, height, exclusions)
+        for piece_index, (px, py, pw, ph) in enumerate(pieces):
+            piece_source = source if len(pieces) == 1 else "%s-p%d" % (source, piece_index)
+            element = room_id(storey, piece_source)
+            if not known:
+                out["unknown_names"].append(element)
+            out["rooms"].append(
+                RoomPoly(
+                    id=element,
+                    storey=storey,
+                    name=name,
+                    occupancy=occupancy,
+                    polygon=[(px, py), (px + pw, py), (px + pw, py + ph), (px, py + ph)],
+                    area_m2=pw * ph,
+                    unit_id=region["id"],
+                    interior_unknown=False,
+                    source=piece_source,
+                )
             )
-        )
-        rects.append((element, x, y, width, height))
+            rects.append((element, px, py, pw, ph))
 
     shared = _shared_edges(rects)
     for edge in shared:
@@ -1754,7 +1837,6 @@ def _build_stack_model(design, stack, options, resolved_regions, all_stacks):
     unmatched = []  # type: List[str]
     unknown_rooms = []  # type: List[str]
     unknown_regions = []  # type: List[str]
-    core_overlaps = []  # type: List[str]
     assumed_doors = 0
     dropped_doors = 0
     assumed_windows = 0
@@ -1810,14 +1892,19 @@ def _build_stack_model(design, stack, options, resolved_regions, all_stacks):
             generated = _generated_of(content)
             placed = None
             if generated is not None:
-                placed = _place_generated(region, generated, storey, interior_t)
+                placed = _place_generated(
+                    region,
+                    generated,
+                    storey,
+                    interior_t,
+                    _nested_face_boxes(region, regions),
+                )
             if placed is not None and placed["rooms"]:
                 rooms += placed["rooms"]
                 candidates += placed["candidates"]
                 pending += placed["doors"]
                 assumed_doors += len(placed["doors"])
                 unknown_rooms += placed["unknown_names"]
-                core_overlaps += _core_overlaps(region, regions, placed["rooms"])
                 if placed["stale"]:
                     stale.append("%s/%s" % (region["id"], placed["plan_id"] or "plan"))
                 continue
@@ -1870,7 +1957,6 @@ def _build_stack_model(design, stack, options, resolved_regions, all_stacks):
         unknown_rooms=unknown_rooms,
         unknown_regions=unknown_regions,
         unknown_cores=unknown_cores,
-        core_overlaps=core_overlaps,
         assumed_doors=assumed_doors,
         dropped_doors=dropped_doors,
         assumed_windows=assumed_windows,
@@ -1879,34 +1965,22 @@ def _build_stack_model(design, stack, options, resolved_regions, all_stacks):
     return model
 
 
-def _core_overlaps(region, regions, rooms):
-    # type: (Dict[str, Any], List[Dict[str, Any]], List[RoomPoly]) -> List[str]
-    """Ids of placed unit rooms lying across a core nested in their own region.
+def _nested_face_boxes(region, regions):
+    # type: (Dict[str, Any], List[Dict[str, Any]]) -> List[Tuple[float, float, float, float]]
+    """Rectangular bounds of faces cut from this region by the arrangement.
 
-    A unit plan tiles its region entire, and a circulation core drawn inside that
-    region is a face of its own carrying its own room, so the two describe the
-    same floor area twice. The plan ships as generated (clipping a placement
-    would invent a room shape the generator never produced) and the double count
-    is disclosed rather than hidden.
+    A polygonized host retains its exterior loop while its area is net of every
+    nested face. Excluding every nested face, not only circulation cores, keeps
+    generated rooms consistent with that net area and avoids a shape's content
+    being described both as its own room and as part of its host plan.
     """
     boxes = []
     for other in regions:
-        if other is region or other["core"] is None:
+        if other is region or other["area_m2"] >= region["area_m2"]:
             continue
         if _contains(region["loop"], other["interior"]):
             boxes.append(_bbox(other["loop"]))
-    if not boxes:
-        return []
-    hits = []
-    for room in rooms:
-        rx, ry, rw, rh = _bbox(room.polygon)
-        for bx, by, bw, bh in boxes:
-            wide = min(rx + rw, bx + bw) - max(rx, bx)
-            tall = min(ry + rh, by + bh) - max(ry, by)
-            if wide > JOIN_TOL_M and tall > JOIN_TOL_M:
-                hits.append(room.id)
-                break
-    return hits
+    return sorted(set(boxes))
 
 
 #: A core's own footprint reads as this occupancy (its live load is not a bedroom's).
@@ -1982,8 +2056,8 @@ def _region_room(region, storey):
 
 
 def _disclose(model, stale, unmatched, unknown_rooms, unknown_regions, unknown_cores,
-              core_overlaps, assumed_doors, dropped_doors, assumed_windows, assume_windows):
-    # type: (StructuralModel, List[str], List[str], List[str], List[str], List[str], List[str], int, int, int, bool) -> None
+              assumed_doors, dropped_doors, assumed_windows, assume_windows):
+    # type: (StructuralModel, List[str], List[str], List[str], List[str], List[str], int, int, int, bool) -> None
     """Every fallback this adapter took, on the ladder, in a fixed order."""
     stage = "adapters.housing"
     if stale:
@@ -2000,15 +2074,6 @@ def _disclose(model, stale, unmatched, unknown_rooms, unknown_regions, unknown_c
             "%d content entr(ies) could not be matched to a derived face and were "
             "dropped: %s" % (len(unmatched), ", ".join(sorted(unmatched))),
             (),
-            stage=stage,
-        )
-    if core_overlaps:
-        model.add_warning(
-            "W_CORE_UNIT_OVERLAP",
-            "%d placed unit room(s) lie across a circulation core drawn inside their "
-            "region; the floor area is described twice and placement decides whether "
-            "to carve" % len(core_overlaps),
-            sorted(set(core_overlaps)),
             stage=stage,
         )
     if assumed_doors:

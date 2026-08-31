@@ -26,6 +26,7 @@ from ..analysis.frame_fe import (
     assemble_storey_shears,
     build_generic_model,
 )
+from ..loads import CaseKind, LineLoad, LoadCase, LoadModel
 from ..loads.seismic import SeismicContext, build_seismic
 from ..model import (
     AxisDir,
@@ -111,6 +112,39 @@ def _grid_model(storeys=2, height_m=3.0):
                 )
             )
             index += 1
+    return model
+
+
+def _sparse_twelve_storey_model():
+    """19 by 19 axes, but only 91 stacked columns use the grid intersections."""
+    model = StructuralModel(
+        id="fe-sparse-12",
+        storeys=[
+            Storey(index=index, name="S" + str(index), bottom_z_m=3.0 * index, height_m=3.0)
+            for index in range(12)
+        ],
+    )
+    positions = [float(index) for index in range(19)]
+    for index, x in enumerate(positions):
+        label = str(index + 1)
+        model.axes.append(GridAxis(id=axis_id(AxisDir.X, label), dir=AxisDir.X, pos_m=x, label=label))
+    for index, y in enumerate(positions):
+        label = chr(ord("A") + index)
+        model.axes.append(GridAxis(id=axis_id(AxisDir.Y, label), dir=AxisDir.Y, pos_m=y, label=label))
+    used = [(positions[index // 19], positions[index % 19]) for index in range(91)]
+    for storey in range(12):
+        for x, y in used:
+            model.columns.append(
+                Column(
+                    id=column_id(storey, x_m=x, y_m=y),
+                    stack_id=stack_id(x_m=x, y_m=y),
+                    storey=storey,
+                    x_m=x,
+                    y_m=y,
+                    width_m=0.3,
+                    depth_m=0.3,
+                )
+            )
     return model
 
 
@@ -232,6 +266,15 @@ def test_the_node_cap_refuses_with_a_fallback_disclosure():
     ] is True
 
 
+def test_emitted_nodes_are_authoritative_after_a_bounded_candidate_pre_screen():
+    """The 12-storey cap case is 4,705 candidates but only 1,195 emitted nodes."""
+    description = build_generic_model(_sparse_twelve_storey_model())
+    assert description["refused"] is False
+    assert description["diagnostics"]["candidate_nodes"] == 4705
+    assert description["diagnostics"]["nodes"] == 1195
+    assert description["diagnostics"]["nodes"] < GenericModelParams().node_cap
+
+
 def test_the_default_cap_is_the_spec_number():
     assert frame_fe.NODE_CAP == 3000
     assert GenericModelParams().node_cap == 3000
@@ -260,6 +303,59 @@ def test_the_generic_model_serializes_and_is_deterministic():
     # Nodes come out in a fixed order: level, then masters last, then position.
     levels = [node["level"] for node in first["nodes"]]
     assert levels == sorted(levels)
+
+
+def test_generic_model_carries_materials_gravity_line_loads_and_storey_cm():
+    model = _grid_model(2)
+    beam_id = model.beams[0].id
+    load_model = LoadModel(
+        cases={
+            "DL": LoadCase(
+                "DL",
+                CaseKind.DEAD,
+                line=[LineLoad(beam_id, 10.0, 12.0, 0.2, 0.8, CaseKind.DEAD, "takedown")],
+            ),
+            "EQX+": LoadCase("EQX+", CaseKind.SEISMIC),
+        }
+    )
+    materials = {
+        "rc": {"fck_mpa": 30.0, "fy_mpa": 500.0, "ec_mpa": 27386.0},
+    }
+    centres = {0: (1.25, 2.5), 1: (2.75, 1.5)}
+    description = build_generic_model(
+        model,
+        materials=materials,
+        load_model=load_model,
+        centres_of_mass=centres,
+    )
+
+    assert description["materials"] == materials
+    assert description["units"]["line_load"] == "kN/m"
+    assert description["gravity_cases"] == [
+        {
+            "name": "DL",
+            "kind": "dead",
+            "line_loads": [
+                {
+                    "element_id": beam_id,
+                    "w1_kn_m": 10.0,
+                    "w2_kn_m": 12.0,
+                    "a": 0.2,
+                    "b": 0.8,
+                    "kind": "dead",
+                    "source": "takedown",
+                    "note": "",
+                }
+            ],
+        }
+    ]
+    assert description["levels"][1]["cm_m"] == [1.25, 2.5]
+    masters = {node["level"]: node for node in description["nodes"] if node["master"]}
+    assert (masters[1]["x_m"], masters[1]["y_m"]) == pytest.approx((1.25, 2.5))
+
+    model.loads = load_model.to_dict()
+    from_model = build_generic_model(model)
+    assert from_model["gravity_cases"] == description["gravity_cases"]
 
 
 def test_fe_result_round_trips_to_a_sorted_dict():
