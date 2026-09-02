@@ -415,7 +415,7 @@ def test_every_designer_takes_the_positional_call_the_dispatch_makes():
     stair_load, stair_ctx = rcc.stair_design_inputs(ctx)
     stair_result = rcc.design_stair_flight(stair, stair_load, stair_ctx)
     assert stair_result.element_type == "slab" and stair_result.element_id == "stair-x"
-    assert stair_result.section["waist_mm"] == pytest.approx(100.0)
+    assert stair_result.section["waist_mm"] == pytest.approx(150.0)
     assert stair_result.extras["design_pressure_kpa"]["applied_u_kpa"] == pytest.approx(4.5)
 
     pad = FT.PadGeometry(
@@ -744,7 +744,7 @@ def test_meta_stair_flight_reaches_the_package_dispatch_with_its_own_identity():
     result = results[0]
     assert result.element_type == "slab"
     assert result.extras["slab_mode"] == "stair_flight"
-    assert result.section["waist_mm"] == pytest.approx(100.0)
+    assert result.section["waist_mm"] == pytest.approx(150.0)
     assert result.section["risers"] == 10
     assert result.extras["design_pressure_kpa"]["applied_u_kpa"] == pytest.approx(4.5)
     assert result.extras["design_pressure_kpa"]["total_u_kpa"] > 4.5
@@ -811,7 +811,7 @@ def test_building_stair_results_reach_coverage_and_nonzero_quantities(building_s
     assert sorted(row["element_id"] for row in results) == placed_ids
     for row in results:
         assert row["status"] == C.STATUS_PASS
-        assert row["section"]["waist_mm"] == pytest.approx(100.0)
+        assert row["section"]["waist_mm"] == pytest.approx(150.0)
         assert row["section"]["risers"] == 10
         assert row["design_pressure_kpa"]["applied_u_kpa"] == pytest.approx(4.5)
         assert len(row["bars"]) == 2
@@ -836,7 +836,7 @@ def test_building_stair_results_reach_coverage_and_nonzero_quantities(building_s
     concrete = next(row for row in takeoff["concrete"] if row["class"] == "stair")
     formwork = next(row for row in takeoff["formwork"] if row["class"] == "stair")
     assert concrete["count"] == 6
-    assert concrete["volume_exact_m3"] == pytest.approx(2.557023, abs=1e-6)
+    assert concrete["volume_exact_m3"] == pytest.approx(3.432103, abs=1e-6)
     assert formwork["count"] == 6
     assert formwork["area_exact_m2"] == pytest.approx(17.501604, abs=1e-6)
 
@@ -904,7 +904,7 @@ def test_full_check_keeps_edited_footing_and_reports_resize_as_failure(run, monk
     assert row["resize_history"]
     plan_step = row["resize_history"][0]
     assert plan_step["from"] == "152.4 mm x 152.4 mm"
-    assert plan_step["to"] == "900 mm x 1200 mm"
+    assert plan_step["to"] == "1000 mm x 1300 mm"
     assert edited_id in entry["changed_hint"]
     assert entry["element_checks_failed"] >= 1
 

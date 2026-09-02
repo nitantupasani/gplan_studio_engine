@@ -11,7 +11,7 @@ THE GOLDEN FRAME
 
 Two storeys of 3.000 m. Three x lines at 0, 4 and 8 m, two y lines at 0 and 5 m,
 so six column stacks, two bays in x and one in y. Columns 300 x 300, beams
-230 x 450, slab 125 thick, pads 1.5 x 1.5 x 0.4 founded 1.5 m down. Everything
+230 x 450, slab 150 thick, pads 1.5 x 1.5 x 0.4 founded 1.5 m down. Everything
 M25 / Fe500. Six columns, seven beams and one 8 x 5 slab panel per storey.
 
 Columns, 12 of them (spec 1.2: clear height is the storey less the deepest beam
@@ -28,18 +28,18 @@ Beams, 14 of them, clear span = centreline span less half a column at each end
     x beams (8)  clear 4.000 - 0.150 - 0.150                 = 3.700 m
                  volume 0.23 x 0.45 x 3.700                  = 0.38295 m3
                  total  8 x 0.38295                          = 3.06360 m3
-                 formwork (2 x (0.450 - 0.125) + 0.230) x 3.700
-                        = (0.650 + 0.230) x 3.700            = 3.256 m2
-                 total  8 x 3.256                            = 26.048 m2
+                 formwork (2 x (0.450 - 0.150) + 0.230) x 3.700
+                        = (0.600 + 0.230) x 3.700            = 3.071 m2
+                 total  8 x 3.071                            = 24.568 m2
     y beams (6)  clear 5.000 - 0.300                         = 4.700 m
                  volume 0.23 x 0.45 x 4.700                  = 0.48645 m3
                  total  6 x 0.48645                          = 2.91870 m3
-                 formwork 0.880 x 4.700                      = 4.136 m2
-                 total  6 x 4.136                            = 24.816 m2
+                 formwork 0.830 x 4.700                      = 3.901 m2
+                 total  6 x 3.901                            = 23.406 m2
     beams        volume 3.06360 + 2.91870                    = 5.98230 m3
-                 formwork 26.048 + 24.816                    = 50.864 m2
+                 formwork 24.568 + 23.406                    = 47.974 m2
 
-Slab, 2 panels of 8.000 x 5.000 = 40.000 m2 gross, 125 thick. The beam plan
+Slab, 2 panels of 8.000 x 5.000 = 40.000 m2 gross, 150 thick. The beam plan
 footprints are cut out of the panel (spec 1.2, no double count with the full
 depth beams); half a beam width, 0.115, lies inside the panel on every edge line
 and the whole 0.230 on the interior x = 4 line.
@@ -51,8 +51,8 @@ and the whole 0.230 on the interior x = 4 line.
     x = 4 line, one y beam    4.700 x 0.230                  = 1.0810 m2
     footprints                                               = 3.8640 m2
     net panel   40.000 - 3.864                               = 36.136 m2
-    volume each 36.136 x 0.125                               = 4.5170 m3
-    volume total 2 x 4.5170                                  = 9.0340 m3
+    volume each 36.136 x 0.150                               = 5.4204 m3
+    volume total 2 x 5.4204                                  = 10.8408 m3
     formwork (soffit only) 2 x 36.136                        = 72.272 m2
 
 Footings, 6 pads
@@ -62,8 +62,8 @@ Footings, 6 pads
     formwork each (side shutters) 2 x (1.5 + 1.5) x 0.4      = 2.400 m2
     formwork total 6 x 2.400                                 = 14.400 m2
 
-    concrete total 2.7540 + 5.9823 + 9.0340 + 5.4000         = 23.1703 m3
-    formwork total 36.720 + 50.864 + 72.272 + 14.400         = 174.256 m2
+    concrete total 2.7540 + 5.9823 + 10.8408 + 5.4000        = 24.9771 m3
+    formwork total 36.720 + 47.974 + 72.272 + 14.400         = 171.366 m2
 
 Earthwork per pad, working space 0.300, founding depth 1.500 (which is NOT past
 the 1.5 m slope threshold, so no slope allowance is taken)
@@ -130,11 +130,11 @@ ld_mm, so nothing here takes the flat 50d fallback.
     with 3 percent wastage                                   = 1699.4136448 kg
 
 Built-up area is the gross plate, 2 x 40.000 = 80.000 m2, so the two density
-metrics are 1699.4136448 / 80 = 21.243 kg/m2 and 23.1703 / 80 = 0.28963 m3/m2.
-Both are outside the spec's calibration bands (2.5 to 7 kg/m2 and 0.10 to
-0.20 m3/m2), which is itself pinned below: the bands are a heuristic stated per
-square metre of built-up area, and a two-storey building on an 80 m2 plate
-carries its foundations over a small area, so it trips them.
+metrics are 1699.4136448 / 80 = 21.243 kg/m2 and 24.9771 / 80 = 0.31221 m3/m2.
+Both sit inside the recalibrated square-metre screening bands. The former
+2.5 to 7 kg/m2 steel band mixed up the order of magnitude commonly quoted per
+square foot with the declared square-metre unit; the data table records the
+published cross-check and remaining uncertainty.
 """
 
 from __future__ import annotations
@@ -214,7 +214,7 @@ def _beam_design(element_id, span_mm):
 
 def _slab_design(element_id):
     result = DesignResult(element_id=element_id, element_type="slab")
-    result.section = {"b_mm": 1000.0, "D_mm": 125.0, "thickness_mm": 125.0, "cover_mm": 20.0}
+    result.section = {"b_mm": 1000.0, "D_mm": 150.0, "thickness_mm": 150.0, "cover_mm": 20.0}
     result.materials = {"concrete_grade": "M25", "steel_grade": "Fe500"}
     result.add_bar("mesh_main", 40, 10.0, 500.0, [0.0, 5000.0], spacing_mm=200.0)
     result.add_bar("mesh_distribution", 25, 8.0, 400.0, [0.0, 8000.0], spacing_mm=200.0)
@@ -288,7 +288,7 @@ def golden_frame():
                 id=element_id,
                 storey=storey,
                 polygon=[(0.0, 0.0), (8.0, 0.0), (8.0, 5.0), (0.0, 5.0)],
-                thickness_m=0.125,
+                thickness_m=0.150,
                 kind=SlabKind.ROOF if storey == 1 else SlabKind.FLOOR,
             )
         )
@@ -336,15 +336,15 @@ def _codes(log):
 
 
 def test_golden_frame_concrete_volumes_are_the_hand_computed_ones():
-    """Column 2.7540, beam 5.98230, slab 9.0340, footing 5.4000, total 23.1703 m3."""
+    """Column 2.7540, beam 5.98230, slab 10.8408, footing 5.4000, total 24.9771 m3."""
     model, designs = golden_frame()
     takeoff = Q.take_off(model, designs)
 
     assert _volume(takeoff, "column") == pytest.approx(2.7540)
     assert _volume(takeoff, "beam") == pytest.approx(5.98230)
-    assert _volume(takeoff, "slab") == pytest.approx(9.0340)
+    assert _volume(takeoff, "slab") == pytest.approx(10.8408)
     assert _volume(takeoff, "footing") == pytest.approx(5.4000)
-    assert takeoff.concrete_m3 == pytest.approx(23.1703)
+    assert takeoff.concrete_m3 == pytest.approx(24.9771)
 
 
 def test_golden_frame_column_is_measured_over_the_clear_height():
@@ -432,7 +432,7 @@ def test_golden_frame_slab_deducts_the_beam_footprints_once():
     rows = [row for row in takeoff.concrete_by_element if row.element_class == "slab"]
     assert len(rows) == 2
     for row in rows:
-        assert row.volume_m3 == pytest.approx(36.136 * 0.125)
+        assert row.volume_m3 == pytest.approx(36.136 * 0.150)
     assert "beam footprints 3.864 m2" in rows[0].basis
 
 
@@ -443,7 +443,7 @@ def test_concrete_rows_carry_both_the_rounded_and_the_exact_volume():
     row = [item for item in takeoff.concrete if item.element_class == "beam"][0].to_dict()
     assert row["volume_m3"] == pytest.approx(5.98)
     assert row["volume_exact_m3"] == pytest.approx(5.9823)
-    assert takeoff.to_dict()["totals"]["concrete_m3"] == pytest.approx(23.17)
+    assert takeoff.to_dict()["totals"]["concrete_m3"] == pytest.approx(24.98)
 
 
 def test_a_class_the_model_does_not_carry_ships_as_a_zero_row():
@@ -491,23 +491,23 @@ def test_a_blocked_footing_digs_no_pit():
 
 
 def test_golden_frame_formwork_areas_are_the_hand_computed_ones():
-    """Column 36.720, beam 50.864, slab 72.272, footing 14.400, total 174.256 m2."""
+    """Column 36.720, beam 47.974, slab 72.272, footing 14.400, total 171.366 m2."""
     model, designs = golden_frame()
     takeoff = Q.take_off(model, designs)
 
     assert _formwork(takeoff, "column") == pytest.approx(36.720)
-    assert _formwork(takeoff, "beam") == pytest.approx(50.864)
+    assert _formwork(takeoff, "beam") == pytest.approx(47.974)
     assert _formwork(takeoff, "slab") == pytest.approx(72.272)
     assert _formwork(takeoff, "footing") == pytest.approx(14.400)
-    assert takeoff.formwork_m2 == pytest.approx(174.256)
+    assert takeoff.formwork_m2 == pytest.approx(171.366)
 
 
 def test_beam_side_shutter_stops_under_the_slab():
-    """One x beam: (2 x (0.450 - 0.125) + 0.230) x 3.700 = 3.256 m2."""
+    """One x beam: (2 x (0.450 - 0.150) + 0.230) x 3.700 = 3.071 m2."""
     model, designs = golden_frame()
     takeoff = Q.take_off(model, designs)
-    assert _formwork(takeoff, "beam") / 14 != pytest.approx(3.256)  # the two spans differ
-    assert _formwork(takeoff, "beam") == pytest.approx(8 * 3.256 + 6 * 4.136)
+    assert _formwork(takeoff, "beam") / 14 != pytest.approx(3.071)  # the two spans differ
+    assert _formwork(takeoff, "beam") == pytest.approx(8 * 3.071 + 6 * 3.901)
 
 
 def test_slab_formwork_is_the_soffit_only_and_the_edges_are_disclosed():
@@ -606,7 +606,8 @@ def _bare_slab_model(core_w, core_h):
 def test_a_slab_opening_of_exactly_a_tenth_of_a_square_metre_is_not_deducted():
     """The stated threshold is strict, so 0.100 m2 exactly stays in."""
     takeoff = Q.take_off(_bare_slab_model(0.25, 0.40), [])
-    assert _volume(takeoff, "slab") == pytest.approx(24.0 * 0.125)
+    assert _volume(takeoff, "slab") == pytest.approx(24.0 * 0.150)
+    assert "150 mm project minimum RC slab thickness applied" in takeoff.concrete_by_element[0].basis
     assert "openings deducted 0 m2" in takeoff.concrete_by_element[0].basis
     assert "IS 1200 Part 2" in takeoff.concrete_by_element[0].basis
     assert "IS 1200 Part 5" not in takeoff.concrete_by_element[0].basis
@@ -615,7 +616,7 @@ def test_a_slab_opening_of_exactly_a_tenth_of_a_square_metre_is_not_deducted():
 def test_a_slab_opening_just_over_the_limit_is_deducted():
     """0.25 x 0.44 = 0.110 m2 exceeds the limit, so the panel loses it."""
     takeoff = Q.take_off(_bare_slab_model(0.25, 0.44), [])
-    assert _volume(takeoff, "slab") == pytest.approx((24.0 - 0.11) * 0.125)
+    assert _volume(takeoff, "slab") == pytest.approx((24.0 - 0.11) * 0.150)
 
 
 def _masonry_model():
@@ -696,25 +697,26 @@ def _masonry_model():
 def test_masonry_opening_of_exactly_a_tenth_of_a_square_metre_is_not_deducted():
     """The 0.25 x 0.40 vent is exactly 0.1 m2 and stays; the 0.9 x 2.1 door goes.
 
-    Bearing wall: 6.000 long, 0.230 thick, clear height 3.000 - 0.120 slab
-    - 0.075 band = 2.805, so gross 6 x 0.23 x 2.805 = 3.8709 m3. The door
+    Bearing wall: 6.000 long, 0.230 thick, clear height 3.000 - 0.150 slab
+    - 0.075 band = 2.775, so gross 6 x 0.23 x 2.775 = 3.8295 m3. The door
     deducts 0.9 x 2.1 x 0.23 = 0.4347 m3 and the lintel over it deducts its own
-    1.2 x 0.23 x 0.15 = 0.0414 m3 (finding N36), so 0.4761 off, 3.3948 left.
+    1.2 x 0.23 x 0.15 = 0.0414 m3 (finding N36), so 0.4761 off, 3.3534 left.
     """
     takeoff = Q.take_off(_masonry_model(), [])
     bearing = [row for row in takeoff.masonry if row.bearing][0]
     assert bearing.thickness_mm == 230
-    assert bearing.gross_m3 == pytest.approx(3.8709)
+    assert bearing.gross_m3 == pytest.approx(3.8295)
     assert bearing.deductions_m3 == pytest.approx(0.4347 + 0.0414)
-    assert bearing.volume_m3 == pytest.approx(3.3948)
+    assert bearing.volume_m3 == pytest.approx(3.3534)
 
 
 def test_a_band_crossing_a_wall_shortens_the_wall_and_carries_its_own_volume():
     """The band takes 0.075 off the wall's clear height and adds 0.1035 m3 of RC."""
     takeoff = Q.take_off(_masonry_model(), [])
     partition = [row for row in takeoff.masonry if not row.bearing][0]
-    # wall-b carries no band, so it keeps the full 3.000 - 0.120 = 2.880
-    assert partition.volume_m3 == pytest.approx(3.0 * 0.115 * 2.880)
+    # wall-b carries no band, so the thin legacy slab is normalized and it
+    # keeps the full 3.000 - 0.150 = 2.850 m clear height.
+    assert partition.volume_m3 == pytest.approx(3.0 * 0.115 * 2.850)
     assert _volume(takeoff, "band") == pytest.approx(6.0 * 0.23 * 0.075)
     assert _formwork(takeoff, "band") == pytest.approx((2 * 0.075 + 0.23) * 6.0)
 
@@ -789,16 +791,17 @@ def test_a_wall_stops_under_the_beam_over_it_not_under_the_slab():
     assert bearing.gross_m3 == pytest.approx(6.0 * 0.23 * (3.0 - 0.45 - 0.075))
     assert "the beam that spans over the wall" in bearing.basis
 
-    # wall-b runs at y = 2.0 and no beam is over it, so it keeps the slab rule
+    # wall-b runs at y = 2.0 and no beam is over it, so it keeps the normalized
+    # 150 mm slab rule.
     partition = [row for row in takeoff.masonry if not row.bearing][0]
-    assert partition.volume_m3 == pytest.approx(3.0 * 0.115 * (3.0 - 0.12))
+    assert partition.volume_m3 == pytest.approx(3.0 * 0.115 * (3.0 - 0.15))
 
 
 def test_a_beam_shallower_than_the_slab_never_lengthens_the_wall():
     """The plate is over the wall either way, so the deduction never goes down."""
     takeoff = Q.take_off(_masonry_model_under_a_beam(0.10), [])
     bearing = [row for row in takeoff.masonry if row.bearing][0]
-    assert bearing.gross_m3 == pytest.approx(6.0 * 0.23 * (3.0 - 0.12 - 0.075))
+    assert bearing.gross_m3 == pytest.approx(6.0 * 0.23 * (3.0 - 0.15 - 0.075))
 
 
 def test_a_beam_on_another_line_is_not_a_beam_over_this_wall():
@@ -809,7 +812,7 @@ def test_a_beam_on_another_line_is_not_a_beam_over_this_wall():
     )
     takeoff = Q.take_off(model, [])
     bearing = [row for row in takeoff.masonry if row.bearing][0]
-    assert bearing.gross_m3 == pytest.approx(6.0 * 0.23 * (3.0 - 0.12 - 0.075))
+    assert bearing.gross_m3 == pytest.approx(6.0 * 0.23 * (3.0 - 0.15 - 0.075))
 
 
 # ---------------------------------------------------------------------------
@@ -860,6 +863,33 @@ def test_a_stair_flight_is_the_inclined_waist_plus_the_step_triangles():
     assert _formwork(takeoff, "stair") == pytest.approx(inclined)
     row = [item for item in takeoff.concrete if item.element_class == "stair"][0]
     assert row.grade == "M20"
+
+
+def test_a_legacy_thin_stair_waist_is_measured_at_the_project_minimum():
+    model = _masonry_model()
+    model.meta["frame_placement"] = {
+        "stair_slabs": [
+            {
+                "id": "stair-c1-f0",
+                "storey": 0,
+                "span_m": 2.4,
+                "width_m": 1.0,
+                "rise_m": 1.5,
+                "incline_deg": 32.0,
+            }
+        ]
+    }
+    design = _stair_design()
+    design.section["D_mm"] = 100.0
+    design.section["waist_mm"] = 100.0
+
+    takeoff = Q.take_off(model, [design])
+    inclined = 2.4 / math.cos(math.radians(32.0))
+    steps = 0.5 * 0.300 * 0.1875 * 8
+    row = [item for item in takeoff.concrete_by_element if item.element_class == "stair"][0]
+
+    assert row.volume_m3 == pytest.approx(inclined * 0.150 + steps)
+    assert "150 mm project minimum RC slab thickness applied" in row.basis
 
 
 def test_a_flight_with_no_designed_waist_is_measured_as_zero_and_says_so():
@@ -1314,7 +1344,7 @@ def test_the_density_metrics_are_per_square_metre_of_builtup_area():
     boq = Q.price(takeoff)
     assert takeoff.builtup_area_m2 == pytest.approx(80.0)
     assert boq.steel_kg_per_m2 == pytest.approx(1649.91616 * 1.03 / 80.0)
-    assert boq.concrete_m3_per_m2 == pytest.approx(23.1703 / 80.0)
+    assert boq.concrete_m3_per_m2 == pytest.approx(24.9771 / 80.0)
     assert boq.cost_per_m2 == pytest.approx(boq.total / 80.0)
 
 
@@ -1327,60 +1357,54 @@ def test_the_calibration_bands_stay_quiet_inside_the_band():
 
 
 def test_the_calibration_bands_fire_on_an_absurd_design():
-    """Ten times the steel and twice the concrete trips both bands, with numbers."""
+    """Ten times the steel and an implausibly thick slab trip both bands."""
     model, designs = golden_frame()
     for result in designs:
         for bar in result.bars:
             bar["count"] = int(bar["count"]) * 10
         if result.element_type == "slab":
-            result.section["thickness_mm"] = 250.0
-            result.section["D_mm"] = 250.0
+            result.section["thickness_mm"] = 1000.0
+            result.section["D_mm"] = 1000.0
     boq = Q.price(Q.take_off(model, designs))
     codes = _codes(boq.disclosures)
     assert "W_STEEL_DENSITY_BAND" in codes
     assert "W_CONCRETE_DENSITY_BAND" in codes
     message = [row for row in boq.disclosures.entries if row.code == "W_STEEL_DENSITY_BAND"][0].message
     assert "kg per m2 of built-up area" in message
-    assert "2.50 to 7.00" in message
+    assert "15.00 to 120.00" in message
     # The one thing the old sentence never said: which system it judged.
     assert "calibration band for low-rise reinforced concrete" in message
 
 
-def test_the_shipped_bands_are_the_spec_ones_and_are_stated_in_the_basis():
-    assert Q.STEEL_DENSITY_BAND_KG_M2 == (2.5, 7.0)
-    assert Q.CONCRETE_DENSITY_BAND_M3_M2 == (0.10, 0.20)
+def test_the_shipped_rc_bands_use_m2_units_and_are_stated_in_the_basis():
+    assert Q.STEEL_DENSITY_BAND_KG_M2 == (15.0, 120.0)
+    assert Q.CONCRETE_DENSITY_BAND_M3_M2 == (0.15, 0.70)
     model, designs = golden_frame()
     boq = Q.price(Q.take_off(model, designs))
-    assert "2.50 to 7.00 kg/m2" in boq.density_basis
-    assert "0.10 to 0.20 m3/m2" in boq.density_basis
+    assert "15.00 to 120.00 kg/m2" in boq.density_basis
+    assert "0.15 to 0.70 m3/m2" in boq.density_basis
     assert "not a code limit" in boq.density_basis
 
 
-def test_the_rc_frame_basis_sentence_is_byte_for_byte_what_it_always_was():
-    """The RC path is the control: same bands, same words, same bytes.
-
-    This is the whole promise of making the bands per system. `rc_frame` is the
-    row the two hard-coded numbers became, so an RC take-off has to come out of
-    `price` indistinguishable from the version before the table existed.
-    """
+def test_the_rc_frame_basis_sentence_names_the_recalibrated_screening_bands():
     model, designs = golden_frame()
     boq = Q.price(Q.take_off(model, designs))
     assert boq.density_basis == (
         "densities are per square metre of built-up area; the calibration bands are "
-        "2.50 to 7.00 kg/m2 of reinforcement and 0.10 to 0.20 m3/m2 of concrete, "
+        "15.00 to 120.00 kg/m2 of reinforcement and 0.15 to 0.70 m3/m2 of concrete, "
         "a heuristic for low-rise reinforced concrete that catches take-off bugs "
         "and absurd designs, not a code limit"
     )
 
 
-def test_the_golden_frame_trips_both_bands_because_it_is_a_small_plate():
-    """22.9 kg/m2 and 0.290 m3/m2 on an 80 m2 plate: the heuristic says look."""
+def test_the_golden_frame_sits_inside_the_recalibrated_m2_bands():
+    """22.9 kg/m2 and 0.290 m3/m2 are plausible in square-metre units."""
     model, designs = golden_frame()
     boq = Q.price(Q.take_off(model, designs))
-    assert boq.steel_kg_per_m2 > 7.0
-    assert boq.concrete_m3_per_m2 > 0.20
-    assert "W_STEEL_DENSITY_BAND" in _codes(boq.disclosures)
-    assert "W_CONCRETE_DENSITY_BAND" in _codes(boq.disclosures)
+    assert 15.0 < boq.steel_kg_per_m2 < 120.0
+    assert 0.15 < boq.concrete_m3_per_m2 < 0.70
+    assert "W_STEEL_DENSITY_BAND" not in _codes(boq.disclosures)
+    assert "W_CONCRETE_DENSITY_BAND" not in _codes(boq.disclosures)
 
 
 def test_a_model_with_no_area_forms_no_density_and_says_so():
@@ -1399,7 +1423,7 @@ def test_a_model_with_no_area_forms_no_density_and_says_so():
 # the bands are per system (data/density_bands.yaml)
 # ---------------------------------------------------------------------------
 #
-# The gap this closes. Until 2026-08-30 there were two bands, 2.50 to 7.00 kg/m2
+# Historical gap. Until 2026-08-30 there were two bands, 2.50 to 7.00 kg/m2
 # and 0.10 to 0.20 m3/m2, and they were low-rise RC FRAME numbers applied to
 # every system. The measured masonry run below came out at 1.02 kg/m2 and 0.020
 # m3/m2 and tripped both: correct arithmetic, wrong advice, on a design that was
@@ -1482,12 +1506,12 @@ def test_the_very_same_numbers_still_trip_the_bands_when_called_a_frame():
     entries = {row.code: row.message for row in boq.disclosures.entries}
     assert entries["W_STEEL_DENSITY_BAND"] == (
         "reinforcement works out at 1.02 kg per m2 of built-up area, outside the "
-        "2.50 to 7.00 kg/m2 calibration band for low-rise reinforced concrete; "
+        "15.00 to 120.00 kg/m2 calibration band for low-rise reinforced concrete; "
         "check the take-off and the design before trusting the cost"
     )
     assert entries["W_CONCRETE_DENSITY_BAND"] == (
         "concrete works out at 0.020 m3 per m2 of built-up area, outside the "
-        "0.10 to 0.20 m3/m2 calibration band for low-rise reinforced concrete; "
+        "0.15 to 0.70 m3/m2 calibration band for low-rise reinforced concrete; "
         "check the take-off and the design before trusting the cost"
     )
 
@@ -1602,7 +1626,7 @@ def test_an_empty_band_option_asks_for_the_system_table_rather_than_failing():
 def test_an_unknown_system_falls_back_to_the_frame_row_and_names_the_substitution():
     boq = Q.price(_takeoff_of("rammed_earth"))
     assert boq.system == "rammed_earth"
-    assert boq.density_checks["steel"]["band"] == [2.50, 7.00]
+    assert boq.density_checks["steel"]["band"] == [15.00, 120.00]
     assert boq.density_checks["steel"]["band_source"] == (
         "data/density_bands.yaml, the rc_frame row (substituted: the table carries "
         "no row for system rammed_earth)"
@@ -1656,7 +1680,7 @@ def test_the_band_table_is_provenance_tagged_and_covers_every_system():
         # the print-verification debt of IMPLEMENTATION_STATUS 5.2 with rows no
         # book can settle. The vocabulary says what would actually settle each.
         assert row["verify"] in ("inherited", "measured", "unmeasured"), name
-    assert table["systems"]["rc_frame"]["verify"] == "inherited"
+    assert table["systems"]["rc_frame"]["verify"] == "measured"
     assert table["systems"]["load_bearing_masonry"]["verify"] == "measured"
     assert table["systems"]["confined_masonry"]["verify"] == "unmeasured"
     for check, meta in sorted(table["checks"].items()):
@@ -1696,10 +1720,10 @@ def test_the_two_shipped_codes_are_registered_and_the_third_declares_its_gap():
         assert checks["masonry"]["disclosure_code"] == "W_MASONRY_DENSITY_BAND"
 
 
-def test_the_rc_frame_row_is_the_two_numbers_the_module_always_carried():
+def test_the_rc_frame_row_is_the_recalibrated_square_metre_envelope():
     row = Q.DENSITY_BANDS["rc_frame"]
-    assert row["steel"] == (2.5, 7.0)
-    assert row["concrete"] == (0.10, 0.20)
+    assert row["steel"] == (15.0, 120.0)
+    assert row["concrete"] == (0.15, 0.70)
     assert row["masonry"] is None
     assert Q.STEEL_DENSITY_BAND_KG_M2 is row["steel"]
     assert Q.CONCRETE_DENSITY_BAND_M3_M2 is row["concrete"]
@@ -1778,7 +1802,7 @@ def test_the_options_echo_carries_every_resolved_knob():
     echo = Q.take_off(model, designs, {"wastage_pct": 4.5}).to_dict()["options_echo"]
     assert echo["wastage_pct"] == pytest.approx(4.5)
     assert echo["lap_dia_multiple"] == pytest.approx(50.0)
-    assert echo["steel_band_kg_m2"] == [2.5, 7.0]
+    assert echo["steel_band_kg_m2"] == [15.0, 120.0]
     # Empty is the shipped masonry default and it means "ask the system table";
     # rc_frame's row says do not check masonry at all.
     assert echo["masonry_band_m3_m2"] == []

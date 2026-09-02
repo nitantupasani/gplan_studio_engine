@@ -801,7 +801,6 @@ def _design_one_footing(
             columns=tuple(_column_stub(one) for one in columns),
             placed_bx_m=_placed_m(footing, "w_m"),
             placed_ly_m=_placed_m(footing, "h_m"),
-            placed_depth_m=_placed_m(footing, "depth_m"),
         )
         return design_combined_footing(geometry, loads, soil, ctx)
 
@@ -816,7 +815,6 @@ def _design_one_footing(
         - float(getattr(footing, "y_m", 0.0) or 0.0),
         placed_bx_m=_placed_m(footing, "w_m"),
         placed_ly_m=_placed_m(footing, "h_m"),
-        placed_depth_m=_placed_m(footing, "depth_m"),
         kind="strap" if partner else kind,
         strap_partner_id=partner,
         strap_span_m=span_m,

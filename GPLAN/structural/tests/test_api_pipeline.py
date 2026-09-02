@@ -36,7 +36,7 @@ from ..data._loader import load_yaml
 from ..design import common as DC
 from ..design import masonry as DM
 from ..grid import FrameParams
-from ..model import REGISTRY, StructuralModel, System
+from ..model import RC_SLAB_MIN_THICKNESS_MM, REGISTRY, StructuralModel, System
 from ..placement import frame as PF
 from ..placement import masonry as PM
 
@@ -198,6 +198,37 @@ def test_design_list_is_non_empty_and_every_result_is_shaped(designs, name):
 
 
 @pytest.mark.parametrize("name", ["plan", "building", "housing"])
+def test_design_uses_the_project_minimum_slab_thickness_end_to_end(designs, name):
+    """Placement and member design publish the same 150 mm-or-thicker slab."""
+    for entry in _entries(designs[name][0]):
+        model = entry["structural_model"]
+        assert model["slabs"]
+        assert all(
+            slab["thickness_mm"] >= RC_SLAB_MIN_THICKNESS_MM
+            for slab in model["slabs"]
+        )
+        panel_ids = {slab["id"] for slab in model["slabs"]}
+        slab_results = [
+            row for row in model["design"] if row["element_id"] in panel_ids
+        ]
+        assert slab_results
+        assert all(
+            row["section"]["thickness_mm"] >= RC_SLAB_MIN_THICKNESS_MM
+            for row in slab_results
+        )
+        sectioned_slabs = [
+            row
+            for row in model["design"]
+            if row["element_type"] == "slab" and "D_mm" in row.get("section", {})
+        ]
+        assert sectioned_slabs
+        assert all(
+            row["section"]["D_mm"] >= RC_SLAB_MIN_THICKNESS_MM
+            for row in sectioned_slabs
+        )
+
+
+@pytest.mark.parametrize("name", ["plan", "building", "housing"])
 def test_design_populates_quantities_and_the_boq(designs, name):
     envelope, _ = designs[name]
     for entry in _entries(envelope):
@@ -292,6 +323,16 @@ def test_layout_returns_a_valid_envelope(layouts, validator, name):
 
 
 @pytest.mark.parametrize("name", ["plan", "building", "housing"])
+def test_layout_never_places_a_thin_rc_slab(layouts, name):
+    for entry in _entries(layouts[name][0]):
+        slabs = entry["structural_model"]["slabs"]
+        assert slabs
+        assert all(
+            slab["thickness_mm"] >= RC_SLAB_MIN_THICKNESS_MM for slab in slabs
+        )
+
+
+@pytest.mark.parametrize("name", ["plan", "building", "housing"])
 def test_layout_carries_no_sized_footing(layouts, name):
     """Finding 18: unsized markers at the column stacks, never a sized footing."""
     envelope, _ = layouts[name]
@@ -330,6 +371,26 @@ def test_layout_and_design_agree_on_the_geometry(layouts, designs):
             row["id"] for row in design_entry["structural_model"][slot]
         ]
     assert layout_entry["layout_score"]["score"] == design_entry["layout_score"]["score"]
+
+
+def test_design_does_not_reuse_the_placed_founding_level_as_rc_thickness(designs):
+    """A 1.5 m founding level belongs to excavation, not the RC pad section."""
+    entry = _entries(designs["plan"][0])[0]
+    founding_levels_mm = [
+        float(footing["depth_ft"]) * 304.8
+        for footing in entry["structural_model"]["footings"]
+        if footing["depth_ft"] is not None
+    ]
+    designed_thicknesses_mm = [
+        float(row["section"]["D_mm"])
+        for row in entry["structural_model"]["design"]
+        if row["element_type"] == "footing" and row["section"].get("D_mm") is not None
+    ]
+    assert founding_levels_mm and designed_thicknesses_mm
+    # The placement model is serialized in feet to six decimals, then brought
+    # back to millimetres here, so allow that wire-rounding noise.
+    assert min(founding_levels_mm) == pytest.approx(1500.0, abs=0.1)
+    assert max(designed_thicknesses_mm) < min(founding_levels_mm)
 
 
 # ---------------------------------------------------------------------------
@@ -398,11 +459,13 @@ def test_the_trace_flag_gates_every_clause_trace(payloads, designs):
 #: The default response of the 775-member building must cross Celery, Redis and
 #: then the wire to a browser, so it is budgeted. The number is bytes of the
 #: CANONICAL encoding `api.canonical_json` produces, which is what DRF renders
-#: and what the backend hashes. Measured when the regime was written: 0.63 MB
-#: (plan, 208 members), 0.76 MB (housing, 255) and 1.48 MB (building, 775),
-#: against 2.93 / 3.41 / 8.45 MB at `full`. This is a ceiling, not a target: it
-#: catches a block that stopped being elided, not a kilobyte of drift.
-DESIGN_BUDGET_BYTES = {"plan": 1000000, "housing": 1200000, "building": 1500000}
+#: and what the backend hashes. The universal 150 mm slab floor makes more of
+#: the deliberately difficult building fixture fail member checks; failed rows
+#: remain whole by policy, so its compact response is now about 2.14 MB. Full
+#: detail remains above 8 MB. These are ceilings, not targets: they catch a
+#: bulk block that stopped being elided, not normal drift in actionable failure
+#: rows.
+DESIGN_BUDGET_BYTES = {"plan": 1000000, "housing": 1200000, "building": 2250000}
 
 
 def _wire_bytes(payload):
@@ -862,6 +925,24 @@ def test_check_reports_a_duplicated_element_id(designed_model):
     assert "E_BAD_ENVELOPE" in {item["code"] for item in entry["hard_violations"]}
 
 
+def test_check_rejects_a_hand_edited_slab_below_the_project_minimum(designed_model):
+    edited = copy.deepcopy(designed_model)
+    slab = edited["slabs"][0]
+    slab["thickness_mm"] = RC_SLAB_MIN_THICKNESS_MM - 1.0
+
+    envelope = api.run_check({"source": "model", "model": edited, "scope": "placement"})
+    entry = _entries(envelope)[0]
+
+    assert entry["verdict"] == "FAIL"
+    violations = [
+        item
+        for item in entry["hard_violations"]
+        if item["code"] == "E_SLAB_THICKNESS_MIN"
+    ]
+    assert violations
+    assert slab["id"] in violations[0]["element_ids"]
+
+
 # ---------------------------------------------------------------------------
 # housing: one entry per built plot stack (finding 16)
 # ---------------------------------------------------------------------------
@@ -1056,6 +1137,14 @@ def test_validation_refuses_a_cantilever_past_the_metric_refusal_length(payloads
     error = _failure(payload)
     assert error["field"] == "params.cantilever.max_m"
     assert "2.5" in error["message"]
+
+
+def test_validation_rejects_a_slab_target_below_the_project_minimum(payloads):
+    payload = copy.deepcopy(payloads["plan"])
+    payload["params"] = {"slab": {"t_max_mm": RC_SLAB_MIN_THICKNESS_MM - 1.0}}
+    error = _failure(payload)
+    assert error["field"] == "params.slab.t_max_mm"
+    assert "150 mm project minimum" in error["message"]
 
 
 def test_validation_rejects_an_unknown_soil(payloads):
@@ -1328,6 +1417,51 @@ def test_the_engine_fingerprint_is_stable_within_a_build():
     assert first == api.structural_fingerprint()
     assert first.startswith("st-")
     assert len(first) == len("st-") + 16
+
+
+def test_the_engine_fingerprint_changes_for_a_code_only_rollout(monkeypatch):
+    monkeypatch.setattr(api, "available_tables", lambda: [])
+    monkeypatch.setattr(
+        api,
+        "_runtime_source_components",
+        lambda: [("placement/frame.py", b"candidate = 1\n")],
+    )
+    api._FINGERPRINT_CACHE.clear()
+    first = api.structural_fingerprint()
+
+    monkeypatch.setattr(
+        api,
+        "_runtime_source_components",
+        lambda: [("placement/frame.py", b"candidate = 2\n")],
+    )
+    api._FINGERPRINT_CACHE.clear()
+    second = api.structural_fingerprint()
+
+    assert first != second
+    api._FINGERPRINT_CACHE.clear()
+
+
+def test_the_engine_fingerprint_changes_for_a_json_schema_only_rollout(monkeypatch):
+    monkeypatch.setattr(api, "available_tables", lambda: [])
+    monkeypatch.setattr(api, "_runtime_source_components", lambda: [])
+    monkeypatch.setattr(
+        api,
+        "_runtime_schema_components",
+        lambda: [("schema/structural_response.schema.json", b'{"version": 1}')],
+    )
+    api._FINGERPRINT_CACHE.clear()
+    first = api.structural_fingerprint()
+
+    monkeypatch.setattr(
+        api,
+        "_runtime_schema_components",
+        lambda: [("schema/structural_response.schema.json", b'{"version": 2}')],
+    )
+    api._FINGERPRINT_CACHE.clear()
+    second = api.structural_fingerprint()
+
+    assert first != second
+    api._FINGERPRINT_CACHE.clear()
 
 
 def test_the_model_round_trips_through_its_own_wire_shape(designed_model):

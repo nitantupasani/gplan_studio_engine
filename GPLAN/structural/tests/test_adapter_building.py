@@ -579,6 +579,9 @@ def test_abutting_units_merge_into_one_party_wall():
     # vertical wall: (right, left), so u2 at x 20..40 is named first
     assert party[0].room_ids == ("room-s0-u2", "room-s0-u1")
     assert _ft(party[0].thickness_m) == 0.75  # max(t1, t2)
+    assert model.meta["foundation_party_boundary_wall_ids"] == [], (
+        "shared unit edges are demising walls, not inferred legal boundaries"
+    )
 
     # a unit edge meeting the corridor is interior, not party and not exterior
     shared = [w for w in model.walls if _axis_ft(w)[0] == "h" and _axis_ft(w)[1] == 20.0]

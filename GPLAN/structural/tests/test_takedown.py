@@ -20,6 +20,7 @@ from ..adapters import housing as H
 from ..adapters import plan_json as A
 from ..analysis import ForceEnvelope, to_beam_forces, to_column_forces, to_slab_load
 from ..analysis import takedown as T
+from .. import api as API
 from ..loads import (
     CASE_DL,
     CASE_LL,
@@ -33,6 +34,7 @@ from ..loads import (
 from ..loads import combos as C
 from ..loads import dead as D
 from ..loads import live as L
+from ..placement import foundations as F
 
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
@@ -226,11 +228,37 @@ def test_conservation_on_the_housing_fixture_with_its_gable_roof():
     assert result.conservation[CASE_LLR]["applied_kn"] > 0.0
 
 
-def test_every_footing_load_is_downward(plan_result):
-    for record in plan_result.footing_loads["columns"].values():
-        assert record["p_dl_kn"] > 0.0
+def test_signed_base_reaction_is_preserved_for_uplift_refusal(plan_result):
+    """The irregular hand frame has one real tension support; never clamp it.
+
+    Its unequal four-span vertical run produces uplift at the 1.524 m short
+    span.  Global equilibrium remains the keystone invariant, while the
+    compression-only foundation boundary must refuse this signed result.
+    """
+    columns = plan_result.footing_loads["columns"]
+    uplift = columns["stk-@15x19"]
+    assert uplift["p_dl_kn"] == pytest.approx(-1.1893337224722895)
+    assert uplift["p_ll_reduced_kn"] == pytest.approx(-4.615604543874642)
+    assert {
+        key for key, record in columns.items() if record["p_dl_kn"] <= 0.0
+    } == {"stk-@15x19"}
     for record in plan_result.footing_loads["walls"].values():
         assert record["n_dl_kn_m"] >= 0.0
+
+    for case in (CASE_DL, CASE_LL, CASE_LLR):
+        assert plan_result.conservation[case]["rel_err"] < TOL
+
+    column_loads, wall_loads = API._foundation_loads(plan_result)
+    assert column_loads["stk-@15x19"] == pytest.approx(-5.804938266346932)
+    with pytest.raises(F.FoundationLoadError) as error:
+        F.layout_foundations(
+            M.StructuralModel(id="signed-uplift-handoff"),
+            column_loads=column_loads,
+            wall_loads=wall_loads,
+            write_back=False,
+        )
+    assert error.value.code == "E_GRAVITY_UPLIFT"
+    assert "stk-@15x19" in error.value.element_ids
 
 
 # ---------------------------------------------------------------------------

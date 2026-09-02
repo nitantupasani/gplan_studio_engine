@@ -542,8 +542,10 @@ class PadGeometry:
 
     `col_offset_*_m` is the column centre measured from the footing centre: zero
     for the ordinary concentric pad, non-zero for the boundary pad a strap beam
-    ties back. The placed plan size and depth are the starting point, not a
-    result: design grows them when a check asks and discloses every step.
+    ties back. The placed plan size is the starting point, not a result: design
+    grows it when a check asks and discloses every step. A placed foundation's
+    ``depth_m`` is its *founding level*, never an RC thickness. Only the
+    explicitly named thickness fields below may seed the RC depth ladder.
     """
 
     element_id: str
@@ -552,19 +554,35 @@ class PadGeometry:
     col_offset_y_m: float = 0.0
     placed_bx_m: Optional[float] = None
     placed_ly_m: Optional[float] = None
+    # Canonical explicit physical-thickness input for a direct RCC caller.
+    placed_thickness_m: Optional[float] = None
+    # Backwards-compatible explicit-thickness spelling. Do not map a placed
+    # Footing.depth_m into this field: that value is the founding level.
     placed_depth_m: Optional[float] = None
     kind: str = "isolated"
     strap_partner_id: str = ""
     strap_span_m: float = 0.0
+
+    @property
+    def specified_thickness_m(self) -> Optional[float]:
+        """The optional physical pad thickness stated by a direct design input.
+
+        ``placed_depth_m`` remains readable for callers of the earlier RCC-only
+        API. It has never been a safe alias for the placement model's generic
+        ``depth_m`` field, which records the founding level.
+        """
+        return self.placed_thickness_m if self.placed_thickness_m is not None else self.placed_depth_m
 
     @staticmethod
     def from_mapping(data: Mapping) -> "PadGeometry":
         """A pad geometry from the plain dict an orchestrator builds off the model.
 
         This module's own names are read first and the model-side names next: a
-        model `Footing` crosses as `b_mm` / `D_mm` for its PLAN sizes and
-        `depth_mm` for its thickness, which is why those two names mean something
-        different here than they do on a beam.
+        model `Footing` crosses its PLAN sizes as `b_mm` / `D_mm`. A generic
+        model ``depth_m``/``depth_mm`` is intentionally not accepted as an RC
+        thickness because placement uses it for founding level. Direct callers
+        must use ``placed_thickness_*`` (or the legacy explicit
+        ``placed_depth_*`` spelling).
 
         The column section has no default. A footing designed against an invented
         column is a wrong number wearing a design's clothes, so a mapping that
@@ -588,7 +606,8 @@ class PadGeometry:
             col_offset_y_m=pick("col_offset_y_m", default=0.0),
             placed_bx_m=pick("placed_bx_m", "bx_m") or _mm_to_m_opt(pick("placed_bx_mm", "b_mm")),
             placed_ly_m=pick("placed_ly_m", "ly_m") or _mm_to_m_opt(pick("placed_ly_mm", "D_mm")),
-            placed_depth_m=pick("placed_depth_m", "depth_m") or _mm_to_m_opt(pick("placed_depth_mm", "depth_mm")),
+            placed_thickness_m=pick("placed_thickness_m") or _mm_to_m_opt(pick("placed_thickness_mm")),
+            placed_depth_m=pick("placed_depth_m") or _mm_to_m_opt(pick("placed_depth_mm")),
             kind=str(data.get("kind", "isolated") or "isolated"),
             strap_partner_id=str(data.get("strap_partner_id", "") or ""),
             strap_span_m=pick("strap_span_m", default=0.0),
@@ -618,7 +637,6 @@ class PadGeometry:
             col_offset_y_m=offset_y,
             placed_bx_m=float(getattr(pad, "w_m", 0.0)) or None,
             placed_ly_m=float(getattr(pad, "h_m", 0.0)) or None,
-            placed_depth_m=float(getattr(pad, "depth_m", 0.0)) or None,
             kind="strap" if partner else str(getattr(pad, "kind", "isolated") or "isolated"),
             strap_partner_id=partner,
             strap_span_m=span,
@@ -637,8 +655,15 @@ class CombinedGeometry:
     columns: Tuple[ColumnStub, ...] = ()
     placed_bx_m: Optional[float] = None
     placed_ly_m: Optional[float] = None
+    # See PadGeometry: this is a physical section input, not founding level.
+    placed_thickness_m: Optional[float] = None
+    # Legacy explicit physical-thickness spelling retained for RCC callers.
     placed_depth_m: Optional[float] = None
     kind: str = "combined"
+
+    @property
+    def specified_thickness_m(self) -> Optional[float]:
+        return self.placed_thickness_m if self.placed_thickness_m is not None else self.placed_depth_m
 
     @staticmethod
     def from_combined_footing(combined: Any, columns: Sequence[ColumnStub]) -> "CombinedGeometry":
@@ -647,7 +672,6 @@ class CombinedGeometry:
             columns=tuple(columns),
             placed_bx_m=float(getattr(combined, "w_m", 0.0)) or None,
             placed_ly_m=float(getattr(combined, "h_m", 0.0)) or None,
-            placed_depth_m=float(getattr(combined, "depth_m", 0.0)) or None,
         )
 
 
@@ -2167,11 +2191,11 @@ def _pad_body(
     overall = max(
         is456.cl_34_1_2__min_edge_thickness(),
         C.round_up_mm(d_req + cover.cover_mm + 1.5 * seed_dia, step),
-        0.0 if geom.placed_depth_m is None else C.m_to_mm(geom.placed_depth_m),
+        0.0 if geom.specified_thickness_m is None else C.m_to_mm(geom.specified_thickness_m),
     )
-    if geom.placed_depth_m is not None and abs(C.m_to_mm(geom.placed_depth_m) - overall) > _EPS:
+    if geom.specified_thickness_m is not None and abs(C.m_to_mm(geom.specified_thickness_m) - overall) > _EPS:
         result.add_resize(
-            _mm_text(C.m_to_mm(geom.placed_depth_m)),
+            _mm_text(C.m_to_mm(geom.specified_thickness_m)),
             _mm_text(overall),
             "depth set by " + _deepest(demands),
         )
@@ -2941,11 +2965,11 @@ def _combined_body(
     overall = max(
         is456.cl_34_1_2__min_edge_thickness(),
         C.round_up_mm(d_req + cover.cover_mm + 1.5 * seed_dia, depth_step),
-        0.0 if geom.placed_depth_m is None else C.m_to_mm(geom.placed_depth_m),
+        0.0 if geom.specified_thickness_m is None else C.m_to_mm(geom.specified_thickness_m),
     )
-    if geom.placed_depth_m is not None and abs(C.m_to_mm(geom.placed_depth_m) - overall) > _EPS:
+    if geom.specified_thickness_m is not None and abs(C.m_to_mm(geom.specified_thickness_m) - overall) > _EPS:
         result.add_resize(
-            _mm_text(C.m_to_mm(geom.placed_depth_m)), _mm_text(overall), "depth set by " + _deepest(demands)
+            _mm_text(C.m_to_mm(geom.specified_thickness_m)), _mm_text(overall), "depth set by " + _deepest(demands)
         )
 
     evaluation = None  # type: Optional[_CombinedEval]

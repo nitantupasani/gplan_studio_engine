@@ -565,6 +565,96 @@ def test_generated_plan_is_carved_around_a_nested_core_face():
     assert model.validate() == []
 
 
+#: The user's saved 30 x 40 ft 2BHK (library design "Housing 2BHK", plan 1), the plan
+#: behind the mid-room-columns report. The stair placement carries the client's float
+#: noise on purpose: it is what the carve has to survive.
+CORNER_CORE_PLAN = [
+    ("Living Room", 0, 17, 14, 13),
+    ("Dining", 0, 4, 14, 13),
+    ("Kitchen", 14, 0, 16, 16.12),
+    ("Bedroom", 14, 16.12, 16, 11.88),
+    ("Bedroom 2", 14, 28, 16, 12),
+    ("Bathroom", 7, 30, 7, 10),
+    ("Toilet", 0, 0, 14, 4),
+    ("Staircase", 0, 29.999999999999996, 7, 10.000000000000004),
+]
+
+
+def test_boundary_content_survives_a_core_touching_the_plot_corner():
+    """A mandatory stair core at the plot corner notches the boundary face, so no
+    face EQUALS the boundary; the plan on boundaryContent must still be read.
+    Dropping it solved the frame for an empty plot: outline + core edges + even
+    span stations, every interior column in the middle of a room."""
+    core = _core_shape("shape-core", "core-stairs", "stairs", 0, 30, 7, 10)
+    floor = _floor(0, "Ground", _rect(0, 0, 30, 40), shapes=[core])
+    floor["boundaryContent"] = _generated(30, 40, CORNER_CORE_PLAN)
+    model = housing.from_housing(_design([floor]))[0]
+    codes = _codes(model)
+    assert "W_UNIT_NO_PLAN" not in codes
+    assert "W_REGION_CONTENT_UNMATCHED" not in codes
+    placed = [room for room in model.rooms if room.unit_id is not None]
+    assert sorted(room.name for room in placed) == sorted(
+        name for name, _x, _y, _w, _h in CORNER_CORE_PLAN if name != "Staircase"
+    ), "the stair placement is carved away by the core, the seven rooms stay"
+    stairs = [room for room in model.rooms if room.occupancy == Occupancy.STAIR]
+    assert len(stairs) == 1
+    # the plan is placed in the PLOT frame at scale 1, not fitted to the notched face
+    kitchen = next(room for room in placed if room.name == "Kitchen")
+    assert _rect_ft(kitchen) == pytest.approx((14.0, 0.0, 16.0, 16.12), abs=FT_TOL)
+    placed_area = sum(room.area_m2 for room in placed)
+    assert placed_area + stairs[0].area_m2 == pytest.approx(ft_to_m(1.0) ** 2 * 30.0 * 40.0)
+    # the plan's walls reach the model: the dining/kitchen line at x = 14 ft
+    interior = [_wall_ft(w) for w in model.walls if w.role == WallRole.INTERIOR]
+    assert any(abs(x1 - 14.0) < FT_TOL and abs(x2 - 14.0) < FT_TOL for x1, _y1, x2, _y2 in interior)
+    assert "W_CORE_UNIT_OVERLAP" not in codes
+    assert model.validate() == []
+
+
+def test_boundary_content_survives_a_core_on_a_full_plot_edge():
+    """With the core across a whole edge the remaining face is a smaller rectangle;
+    the plan must not be shrunk into it, it was authored for the plot."""
+    core = _core_shape("shape-core", "core-stairs", "stairs", 0, 30, 30, 10)
+    floor = _floor(0, "Ground", _rect(0, 0, 30, 40), shapes=[core])
+    floor["boundaryContent"] = _generated(
+        30, 40, [("Living Room", 0, 0, 30, 30), ("Staircase", 0, 30, 30, 10)]
+    )
+    model = housing.from_housing(_design([floor]))[0]
+    codes = _codes(model)
+    assert "W_UNIT_NO_PLAN" not in codes
+    assert "W_REGION_CONTENT_UNMATCHED" not in codes
+    placed = [room for room in model.rooms if room.unit_id is not None]
+    assert [room.name for room in placed] == ["Living Room"]
+    assert _rect_ft(placed[0]) == pytest.approx((0.0, 0.0, 30.0, 30.0), abs=FT_TOL)
+    assert len([room for room in model.rooms if room.occupancy == Occupancy.STAIR]) == 1
+    assert model.validate() == []
+
+
+def test_boundary_content_beside_a_partition_and_a_core_is_still_disclosed():
+    """Two eligible faces inside the boundary is derivation drift, not a guess."""
+    core = _core_shape("shape-core", "core-stairs", "stairs", 0, 30, 7, 10)
+    floor = _floor(
+        0, "Ground", _rect(0, 0, 30, 40), segments=[("seg-1", 15, 0, 15, 40)], shapes=[core]
+    )
+    floor["boundaryContent"] = _generated(30, 40, [("Living Room", 0, 0, 30, 40)])
+    model = housing.from_housing(_design([floor]))[0]
+    codes = _codes(model)
+    assert "W_REGION_CONTENT_UNMATCHED" in codes
+    assert "W_UNIT_NO_PLAN" in codes
+    assert not [room for room in model.rooms if room.unit_id is not None]
+
+
+def test_a_carved_placement_equal_to_its_blocker_leaves_no_sliver():
+    """The client's float noise opened a zero-height row that survived as a room."""
+    pieces = housing._unblocked_rectangles(
+        0.0,
+        ft_to_m(29.999999999999996),
+        ft_to_m(7.0),
+        ft_to_m(10.000000000000004),
+        [(0.0, ft_to_m(30.0), ft_to_m(7.0), ft_to_m(10.0))],
+    )
+    assert pieces == []
+
+
 def test_a_region_border_with_no_drawn_wall_is_not_a_wall():
     """Open plan is a real answer: only drawn geometry becomes a WallLine."""
     floor = _floor(0, "Ground", _rect(0, 0, 30, 40), segments=[("seg-a", 0, 20, 30, 20)])
@@ -796,17 +886,36 @@ def test_boundary_parking_with_the_mandatory_stair_core_is_stilt():
 # --------------------------------------------------------------------------
 
 
-def test_four_floors_are_refused():
+def test_ground_plus_three_is_accepted_and_a_fifth_floor_is_refused():
     floors = [
-        _floor(level, "L%d" % level, _rect(0, 0, 30, 40), segments=[("seg-a", 0, 20, 30, 20)])
+        _floor(
+            level,
+            "L%d" % level,
+            _rect(0, 0, 30, 40),
+            segments=[("seg-a-%d" % level, 0, 20, 30, 20)],
+            shapes=[_core_shape("shape-%d" % level, "core-stairs", "stairs", 20, 26, 7, 10)],
+        )
         for level in range(4)
     ]
+    models = housing.from_housing(_design(floors))
+    assert len(models) == 1
+    assert [storey.index for storey in models[0].storeys] == [0, 1, 2, 3]
+    assert [record["level"] for record in housing.split_plot_stacks(_design(floors))[0]["floors"]] == [0, 1, 2, 3]
+
+    fifth = _floor(
+        4,
+        "L4",
+        _rect(0, 0, 30, 40),
+        segments=[("seg-a-4", 0, 20, 30, 20)],
+        shapes=[_core_shape("shape-4", "core-stairs", "stairs", 20, 26, 7, 10)],
+    )
+    too_many = floors + [fifth]
     with pytest.raises(housing.AdapterError) as refusal:
-        housing.from_housing(_design(floors))
+        housing.from_housing(_design(too_many))
     assert refusal.value.code == "E_UNSUPPORTED_STOREYS"
-    assert "3" in refusal.value.message
+    assert "4" in refusal.value.message
     with pytest.raises(housing.AdapterError):
-        housing.split_plot_stacks(_design(floors))
+        housing.split_plot_stacks(_design(too_many))
 
 
 def test_a_core_whose_copies_differ_is_refused():

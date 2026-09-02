@@ -81,8 +81,8 @@ from ..model import (
 HOUSING_STOREY_HEIGHT_FT = 10.4
 #: Plinth height, feet. Recorded on meta; the model's z datum stays the ground FFL.
 HOUSING_PLINTH_FT = 0.5
-#: The product caps a housing design at three floors (frontend MAX_HOUSING_FLOORS).
-MAX_HOUSING_FLOORS = 3
+#: The product supports Ground + 3 housing (frontend MAX_HOUSING_FLOORS).
+MAX_HOUSING_FLOORS = 4
 #: Exterior (plot boundary) wall thickness, feet.
 EXTERIOR_WALL_FT = 0.75
 #: `wallDisplay.interiorWallFt` default, feet (4 inches).
@@ -859,18 +859,38 @@ def _match_carrier_content(faces, carriers):
     # type: (List[Dict[str, Any]], List[Tuple[str, List[Tuple[float, float]], Dict[str, Any]]]) -> List[str]
     """Attach boundary, plot and shape content to the face that IS that polygon.
 
-    Equality only: a carrier names its own polygon, so containment would be a
-    guess, and a carrier the arrangement has since partitioned comes back for
-    disclosure instead. Region content is matched FIRST, so a key addressing one
-    of these faces still wins the face it names.
+    Equality first: a carrier names its own polygon. When no face equals it,
+    the same containment rule `_match_region_content` applies to region keys is
+    used: exactly ONE eligible face inside the carrier takes the content. That
+    is the corner-core case. The frontend's `detectFloorRegions` never traces
+    shape edges, so a plan dropped on the whole plot stays on `boundaryContent`
+    while a circulation core sits above it; this module DOES planarize shape
+    edges, and a core touching the plot edge turns the boundary face into a
+    notched loop that equals nothing. Reading the plan off that one remaining
+    face is what the author meant, and it is what the client draws. Two eligible
+    faces is derivation drift and stays unmatched, disclosed, never guessed.
+
+    A fallback match records the carrier loop as the face's `frame`: the loop the
+    plan was authored for, which `_place_generated` scales against and
+    `_nested_face_boxes` carves within, so the adjacent core is still excluded.
+    Region content is matched FIRST, so a key addressing one of these faces still
+    wins the face it names.
     """
     unmatched = []
     for label, loop, content in carriers:
         hits = [face for face in faces if _same_loop(face["loop"], loop)]
-        if len(hits) != 1 or not _eligible(hits[0]):
+        if hits:
+            if len(hits) == 1 and _eligible(hits[0]):
+                hits[0]["content"] = content
+                continue
             unmatched.append(label)
             continue
-        hits[0]["content"] = content
+        inside = [face for face in faces if _eligible(face) and _contains(loop, face["interior"])]
+        if len(inside) != 1:
+            unmatched.append(label)
+            continue
+        inside[0]["content"] = content
+        inside[0]["frame"] = list(loop)
     return unmatched
 
 
@@ -1220,6 +1240,11 @@ def _unblocked_rectangles(x, y, width, height, exclusions):
     for row in range(len(rows) - 1):
         top = rows[row]
         bottom = rows[row + 1]
+        if bottom - top <= JOIN_TOL_M:
+            # float noise between a placement edge and a blocker edge (a stair
+            # placement at y 29.999999999999996 against a core at 30) opens a
+            # zero-height row; it is not floor area
+            continue
         run_start = None  # type: Optional[float]
         for column in range(len(columns) - 1):
             left = columns[column]
@@ -1255,7 +1280,11 @@ def _unblocked_rectangles(x, y, width, height, exclusions):
         else:
             old = merged[previous]
             merged[previous] = (old[0], old[1], old[2], bottom)
-    return [(left, top, right - left, bottom - top) for left, top, right, bottom in merged]
+    return [
+        (left, top, right - left, bottom - top)
+        for left, top, right, bottom in merged
+        if right - left > JOIN_TOL_M and bottom - top > JOIN_TOL_M
+    ]
 
 
 def _place_generated(region, generated, storey, interior_t, exclusions=()):
@@ -1286,7 +1315,10 @@ def _place_generated(region, generated, storey, interior_t, exclusions=()):
     gen_h = _m(generated.get("genH") if generated.get("genH") is not None else plan.get("floorHeight"))
     plan_w = _m(plan.get("floorWidth") if plan.get("floorWidth") is not None else generated.get("genW"))
     plan_h = _m(plan.get("floorHeight") if plan.get("floorHeight") is not None else generated.get("genH"))
-    bx, by, bw, bh = _bbox(region["loop"])
+    # A carrier matched by containment (a core notched the plot face) keeps the
+    # plan in the frame it was authored for: the carrier loop, not the notched
+    # face, or a core on a full plot edge would shrink the whole plan.
+    bx, by, bw, bh = _bbox(region.get("frame") or region["loop"])
     if plan_w <= 0.0 or plan_h <= 0.0:
         return out
 
@@ -1973,12 +2005,18 @@ def _nested_face_boxes(region, regions):
     nested face. Excluding every nested face, not only circulation cores, keeps
     generated rooms consistent with that net area and avoids a shape's content
     being described both as its own room and as part of its host plan.
+
+    A region that took its content by containment carries the carrier loop as
+    `frame`; containment is tested against that frame, because the core that
+    notched the face is ADJACENT to the face, not nested in it, and the plan
+    authored over the whole frame still describes the core's footprint.
     """
+    frame = region.get("frame") or region["loop"]
     boxes = []
     for other in regions:
         if other is region or other["area_m2"] >= region["area_m2"]:
             continue
-        if _contains(region["loop"], other["interior"]):
+        if _contains(frame, other["interior"]):
             boxes.append(_bbox(other["loop"]))
     return sorted(set(boxes))
 

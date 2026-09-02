@@ -60,7 +60,7 @@ from ...analysis import SlabLoad
 from ...analysis.takedown import table12_alpha
 from ...codes import is456
 from ...codes.trace import TraceEntry, trace_into
-from ...model import make_disclosure
+from ...model import RC_SLAB_MIN_THICKNESS_MM, make_disclosure
 from ..common import (
     CHECK_FAIL,
     STATUS_RESIZED,
@@ -124,8 +124,9 @@ SECONDARY_BEAM_SPACING_M = (2.5, 3.5)
 #: Waist of a stair flight, span over this (finding 40).
 STAIR_WAIST_SPAN_RATIO = 20.0
 
-#: Practical minimum waist, mm.
-STAIR_WAIST_MIN_MM = 100.0
+#: Project minimum RC slab/waist thickness, mm. Stair flights use the same
+#: floor as ordinary panels; their span-based rule may still require more.
+STAIR_WAIST_MIN_MM = RC_SLAB_MIN_THICKNESS_MM
 
 #: A flight may thicken to span over this before the design gives up. A stair
 #: cannot be handed secondary beams, so it has its own cap rather than the
@@ -1642,18 +1643,28 @@ def _initial_thickness(
 ) -> Tuple[float, Optional[str]]:
     """Thickness to start the ladder at, in mm, and a note when it was derived."""
     thickness_m = _lookup(panel, ("thickness_m",))
-    if thickness_m:
-        return float(thickness_m) * 1000.0, None
+    if thickness_m is not None:
+        placed = float(thickness_m) * 1000.0
+        if placed < RC_SLAB_MIN_THICKNESS_MM - _EPS:
+            return (
+                RC_SLAB_MIN_THICKNESS_MM,
+                "the placed panel depth "
+                + _mm_text(placed)
+                + " is below the project minimum and was raised to "
+                + _mm_text(RC_SLAB_MIN_THICKNESS_MM),
+            )
+        return placed, None
     derived = round_up_mm(design_span_mm / 30.0, policy.slab_step_mm)
-    derived = min(max(derived, 100.0), policy.slab_cap_mm)
+    cap_mm = max(policy.slab_cap_mm, RC_SLAB_MIN_THICKNESS_MM)
+    derived = min(max(derived, RC_SLAB_MIN_THICKNESS_MM), cap_mm)
     return (
         derived,
         "the panel carried no thickness, so the ladder starts at design span/30 rounded up to the "
         + _mm_text(policy.slab_step_mm)
         + " module and clamped to the "
-        + _mm_text(100.0)
+        + _mm_text(RC_SLAB_MIN_THICKNESS_MM)
         + " to "
-        + _mm_text(policy.slab_cap_mm)
+        + _mm_text(cap_mm)
         + " band",
     )
 
@@ -1663,9 +1674,21 @@ def _initial_cantilever_thickness(
 ) -> Tuple[float, Optional[str]]:
     """Placed depth, or the Cl 23.2.1 basic a/7 start for a bare cantilever."""
     thickness_m = _lookup(panel, ("thickness_m",))
-    if thickness_m:
-        return float(thickness_m) * 1000.0, None
-    derived = max(100.0, round_up_mm(projection_mm / 7.0, policy.slab_step_mm))
+    if thickness_m is not None:
+        placed = float(thickness_m) * 1000.0
+        if placed < RC_SLAB_MIN_THICKNESS_MM - _EPS:
+            return (
+                RC_SLAB_MIN_THICKNESS_MM,
+                "the placed cantilever depth "
+                + _mm_text(placed)
+                + " is below the project minimum and was raised to "
+                + _mm_text(RC_SLAB_MIN_THICKNESS_MM),
+            )
+        return placed, None
+    derived = max(
+        RC_SLAB_MIN_THICKNESS_MM,
+        round_up_mm(projection_mm / 7.0, policy.slab_step_mm),
+    )
     return (
         derived,
         "the cantilever carried no thickness, so the ladder starts at projection/7 rounded "
@@ -1673,6 +1696,20 @@ def _initial_cantilever_thickness(
         + _mm_text(policy.slab_step_mm)
         + " module",
     )
+
+
+def _record_project_minimum_resizes(
+    result: DesignResult, placed_depth_mm: Optional[float], policy: ResizePolicy
+) -> None:
+    """Record the ordinary slab ladder up to the mandatory project floor."""
+    if placed_depth_mm is None:
+        return
+    depth = float(placed_depth_mm)
+    step = max(float(policy.slab_step_mm), 1.0)
+    while depth < RC_SLAB_MIN_THICKNESS_MM - _EPS:
+        next_depth = min(depth + step, RC_SLAB_MIN_THICKNESS_MM)
+        result.add_resize(depth, next_depth, "project minimum RC slab thickness")
+        depth = next_depth
 
 
 def _design_cantilever(
@@ -1688,9 +1725,15 @@ def _design_cantilever(
     depth, depth_note = _initial_cantilever_thickness(
         panel, route.projection_mm, policy
     )
+    placed_depth = _lookup(panel, ("thickness_m",))
+    _record_project_minimum_resizes(
+        result,
+        None if placed_depth is None else float(placed_depth) * 1000.0,
+        policy,
+    )
     if depth_note:
         result.add_note(depth_note)
-    cap_mm = max(policy.slab_cap_mm, depth)
+    cap_mm = max(policy.slab_cap_mm, RC_SLAB_MIN_THICKNESS_MM, depth)
     w_line = _line_load_n_per_mm(pressures.w_u_kpa)
 
     attempt = _cantilever_attempt(route, context, depth, w_line)
@@ -1895,9 +1938,15 @@ def design_slab(panel: Any, load: Any, ctx: Any = None) -> DesignResult:
     policy = context.policy
     design_span_mm = geo.lx_mm if two_way else route.span_mm
     depth, depth_note = _initial_thickness(panel, design_span_mm, policy)
+    placed_depth = _lookup(panel, ("thickness_m",))
+    _record_project_minimum_resizes(
+        result,
+        None if placed_depth is None else float(placed_depth) * 1000.0,
+        policy,
+    )
     if depth_note:
         result.add_note(depth_note)
-    cap_mm = max(policy.slab_cap_mm, depth)
+    cap_mm = max(policy.slab_cap_mm, RC_SLAB_MIN_THICKNESS_MM, depth)
     w_line = _line_load_n_per_mm(pressures.w_u_kpa)
 
     attempt = _panel_attempt(geo, context, depth, w_line, ll_kpa, two_way, route)
@@ -2223,9 +2272,10 @@ def design_stair_flight(stair: Any, load: Any, ctx: Any = None) -> DesignResult:
     """Design one stair flight as an inclined one-way slab (critic finding 40).
 
     `stair` is a `placement/cores.py` StairSlab (or anything carrying span_m,
-    width_m, rise_m and incline_deg). The waist starts at span/20 and walks the
-    slab ladder; a flight cannot be handed secondary beams, so its cap is
-    span/12 rather than the panel's 150 mm and it fails rather than referring.
+    width_m, rise_m and incline_deg). The waist starts at the greater of
+    span/20 and the 150 mm project minimum, then walks the slab ladder; a
+    flight cannot be handed secondary beams, so its cap is span/12 (but never
+    below that minimum) and it fails rather than referring.
     """
     context = slab_context(ctx)
     pressures = _load_view(load)

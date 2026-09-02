@@ -199,7 +199,7 @@ def sample_model():
             id=M.slab_id(0, 0),
             storey=0,
             polygon=[(0.0, 0.0), (12.0, 0.0), (12.0, 8.0), (0.0, 8.0)],
-            thickness_m=0.125,
+            thickness_m=0.150,
             two_way=True,
             lx_m=7.0,
             ly_m=8.0,
@@ -310,7 +310,7 @@ def test_geometry_crosses_the_wire_in_feet_and_sections_in_mm():
     column = wire["columns"][0]
     assert column["b_mm"] == 230
     assert column["d_mm"] == 300
-    assert wire["slabs"][0]["thickness_mm"] == 125
+    assert wire["slabs"][0]["thickness_mm"] == 150
     assert wire["rooms"][0]["area_sqft"] == pytest.approx(602.78, abs=0.01)
 
 
@@ -471,6 +471,14 @@ def test_disclosure_severity_comes_from_the_registry():
 
 def test_validate_is_clean_on_the_sample_model():
     assert sample_model().validate() == []
+
+
+def test_validate_rejects_an_rc_slab_below_the_project_minimum():
+    model = sample_model()
+    model.slabs[0].thickness_m = 0.149
+    problems = model.validate()
+    assert [problem.code for problem in problems] == ["E_SLAB_THICKNESS_MIN"]
+    assert problems[0].element_ids == [model.slabs[0].id]
 
 
 def test_validate_catches_core_footprint_mismatch():

@@ -686,6 +686,46 @@ def test_api_dispatch_refuses_an_unresolved_combined_support():
     assert "support_count" not in result.section
 
 
+def test_api_dispatch_routes_strap_partners_into_both_pad_designs():
+    from types import SimpleNamespace
+
+    from .. import api as structural_api
+    from .. import model as M
+
+    model = M.StructuralModel(id="strap-api-dispatch")
+    model.columns.extend([
+        M.Column(id="C1", stack_id="S1", storey=0, x_m=0.0, y_m=0.0, width_m=0.3, depth_m=0.3),
+        M.Column(id="C2", stack_id="S2", storey=0, x_m=4.0, y_m=0.0, width_m=0.3, depth_m=0.3),
+    ])
+    model.footings.extend([
+        M.Footing(id="F1", kind=M.FootingKind.ISOLATED, supports=["C1"], x_m=0.4, y_m=0.0, w_m=1.8, h_m=1.8, depth_m=1.5),
+        M.Footing(id="F2", kind=M.FootingKind.ISOLATED, supports=["C2"], x_m=4.0, y_m=0.0, w_m=1.8, h_m=1.8, depth_m=1.5),
+        M.Footing(id="FS", kind=M.FootingKind.STRAP, supports=["F1", "F2"], x_m=2.0, y_m=0.0, w_m=4.0, h_m=0.0),
+    ])
+    analysis = SimpleNamespace(
+        envelopes={},
+        footing_loads={
+            "columns": {
+                "S1": {"p_dl_kn": 300.0, "p_ll_reduced_kn": 100.0},
+                "S2": {"p_dl_kn": 300.0, "p_ll_reduced_kn": 100.0},
+            },
+            "walls": {},
+        },
+    )
+    options = structural_api._Resolved({"params": {"soil": {"sbc_kpa": 200.0}}}, {})
+    designed = structural_api._design_members(
+        model, analysis, None, options, "rc_frame", M.DisclosureLog()
+    )
+    results = {row.element_id: row for row in designed}
+    assert sorted(results) == ["F1", "F2"]
+    for footing_id, partner_id in (("F1", "F2"), ("F2", "F1")):
+        result = results[footing_id]
+        assert result.section["kind"] == "strap"
+        referral = next(row for row in result.referrals if row["action"] == "strap_required")
+        assert referral["detail"]["partner_footing_id"] == partner_id
+        assert referral["detail"]["strap_span_m"] == pytest.approx(4.0)
+
+
 def test_factored_resultant_closes_the_beam_when_load_factors_differ():
     """700/700 kN service at x = 0/4 m has xs = 2.000 m, while
     Pu = 1050/1300 kN has xu = 1300(4)/2350 = 2.212766 m.  The old 4.6 m beam

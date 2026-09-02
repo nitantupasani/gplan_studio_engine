@@ -15,6 +15,7 @@ import pytest
 from .. import api
 from .. import model as MM
 from ..design import rcc
+from ..design.rcc import footings as FT
 from ..placement import foundations as F
 
 SBC = 150.0
@@ -169,7 +170,10 @@ def test_a_wide_strip_is_flagged_reinforced_concrete_past_three_t():
 
 def test_a_bare_geometric_minimum_never_drops_below_450_mm():
     model = _rect_model(t=0.115)
-    _plan, strips = _strips(model, {wall.id: 0.0 for wall in model.walls})
+    # Missing reactions deliberately request disclosed geometric-minimum
+    # markers.  An explicitly supplied zero is a non-positive service
+    # reaction and must be refused by the compression-only foundation gate.
+    _plan, strips = _strips(model, {})
     for strip in strips.values():
         assert strip.width_m == pytest.approx(0.45)
 
@@ -247,6 +251,45 @@ def test_a_party_wall_strip_is_flagged_eccentric():
     assert geometry.e_m == pytest.approx(strip.e_m)
 
 
+def test_an_adapter_demising_wall_is_not_invented_as_a_property_boundary():
+    model = _rect_model(party=True)
+    model.meta["foundation_party_boundary_wall_ids"] = []
+    plan = F.layout_foundations(model, _bearing(model), [], {}, {}, soil=SOIL)
+    assert not [strip for strip in plan.strips if strip.eccentric]
+    assert "W_ECCENTRIC_COLUMN" not in [entry.code for entry in plan.warnings]
+
+
+def test_post_design_audit_uses_resized_rectangles_for_overlap_and_boundaries():
+    model = _base()
+    model.meta["plot_bounds_m"] = [-1.0, -2.0, 5.0, 2.0]
+    model.footings.extend([
+        MM.Footing(
+            id="F1", kind=MM.FootingKind.ISOLATED, supports=["C1"],
+            x_m=0.0, y_m=0.0, w_m=1.0, h_m=1.0, depth_m=1.5,
+        ),
+        MM.Footing(
+            id="F2", kind=MM.FootingKind.ISOLATED, supports=["C2"],
+            x_m=2.0, y_m=0.0, w_m=1.0, h_m=1.0, depth_m=1.5,
+        ),
+    ])
+    results = [
+        SimpleNamespace(
+            element_id="F1", element_type="footing", status="pass",
+            section={"bx_mm": 2400.0, "ly_mm": 1800.0},
+        ),
+        SimpleNamespace(
+            element_id="F2", element_type="footing", status="pass",
+            section={"bx_mm": 2400.0, "ly_mm": 1800.0},
+        ),
+    ]
+    log = MM.DisclosureLog()
+    api._audit_designed_foundation_geometry(model, results, log)
+    codes = [entry.code for entry in log.entries]
+    assert "W_FOOTING_OVERLAP" in codes, "the 0.4 m resized overlap must be checked"
+    assert "W_ECCENTRIC_COLUMN" in codes, "F1 grows past the explicit x=-1.0 m plot line"
+    assert all(entry.stage == "api.design.foundation_geometry" for entry in log.entries)
+
+
 # ---------------------------------------------------------------------------
 # pads
 # ---------------------------------------------------------------------------
@@ -287,6 +330,64 @@ def test_a_pad_load_may_be_keyed_on_the_stack_id():
     assert len(plan.pads) == 1
     assert plan.pads[0].column_ids == sorted([lower.id, upper.id])
     assert plan.pads[0].w_m == pytest.approx(2.1)
+
+
+def test_placed_founding_level_does_not_pin_rc_pad_or_combined_thickness():
+    """The placement depth is excavation level; RCC owns pad section thickness."""
+    generic_depth = FT.PadGeometry.from_mapping(
+        {"element_id": "F-contract", "col_bx_mm": 230.0, "col_dy_mm": 230.0, "depth_m": 1.5}
+    )
+    explicit_thickness = FT.PadGeometry.from_mapping(
+        {
+            "element_id": "F-contract-explicit",
+            "col_bx_mm": 230.0,
+            "col_dy_mm": 230.0,
+            "placed_thickness_m": 0.45,
+        }
+    )
+    assert generic_depth.specified_thickness_m is None
+    assert explicit_thickness.specified_thickness_m == pytest.approx(0.45)
+
+    pad_model = _base()
+    pad_column = _column(0, 3.0, 3.0)
+    pad_model.columns.append(pad_column)
+    pad_plan = F.layout_foundations(
+        pad_model, [], [pad_column.id], {}, {pad_column.id: 600.0}, soil=SOIL
+    )
+    placed_pad = pad_plan.pads[0]
+    pad_geometry = FT.PadGeometry.from_pad_footing(
+        placed_pad,
+        FT.ColumnStub(pad_column.id, 230.0, 230.0, x_m=pad_column.x_m, y_m=pad_column.y_m),
+    )
+    assert placed_pad.depth_m == pytest.approx(1.5)
+    assert pad_geometry.specified_thickness_m is None
+    pad_result = FT.design_footing(
+        pad_geometry, FT.FootingLoads(p_service_kn=600.0), SOIL
+    )
+    assert 0.0 < pad_result.section["D_mm"] < placed_pad.depth_m * 1000.0
+
+    combined_model = _base()
+    left, right = _column(0, 2.0, 2.0), _column(0, 2.8, 2.0)
+    combined_model.columns.extend([left, right])
+    combined_plan = F.layout_foundations(
+        combined_model, [], [left.id, right.id], {}, {left.id: 100.0, right.id: 300.0}, soil=SOIL
+    )
+    placed_combined = combined_plan.combined[0]
+    combined_geometry = FT.CombinedGeometry.from_combined_footing(
+        placed_combined,
+        tuple(
+            FT.ColumnStub(column.id, 230.0, 230.0, x_m=column.x_m, y_m=column.y_m)
+            for column in (left, right)
+        ),
+    )
+    assert placed_combined.depth_m == pytest.approx(1.5)
+    assert combined_geometry.specified_thickness_m is None
+    combined_result = FT.design_combined_footing(
+        combined_geometry,
+        [FT.FootingLoads(p_service_kn=100.0), FT.FootingLoads(p_service_kn=300.0)],
+        SOIL,
+    )
+    assert 0.0 < combined_result.section["D_mm"] < placed_combined.depth_m * 1000.0
 
 
 def test_a_missing_axial_load_is_disclosed():

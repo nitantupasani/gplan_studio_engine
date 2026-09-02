@@ -52,11 +52,13 @@ from ..model import (
     GEOM_TOL_M,
     Material,
     Occupancy,
+    RC_SLAB_MIN_THICKNESS_MM,
     SlabKind,
     SlabPanel,
     StructuralModel,
     WallLine,
     WallRole,
+    effective_rc_slab_thickness_m,
     polygon_rect,
     wall_axis,
 )
@@ -484,7 +486,7 @@ def _clear_height_m(model: StructuralModel, wall: WallLine, axis: Tuple[str, flo
     if depths:
         return max(height - max(depths), 0.0)
     slabs = model.slabs_on(wall.storey)
-    ts = [s.thickness_m for s in slabs if s.thickness_m is not None]
+    ts = [effective_rc_slab_thickness_m(s.thickness_m) for s in slabs]
     if ts:
         return max(height - max(ts), 0.0)
     return height
@@ -529,12 +531,12 @@ def build_dead(model: StructuralModel, options: Optional[Dict[str, Any]] = None)
     finish_roof = is875.part1_area_load("roof_finish_flat")
 
     for slab in sorted(model.slabs, key=lambda s: (s.storey, s.id)):
-        thickness = slab.thickness_m
-        if thickness is None:
-            thickness = 0.125
+        thickness = effective_rc_slab_thickness_m(slab.thickness_m)
+        if slab.thickness_m is None:
             model.add_warning(
                 "W_RELEASED_CAP",
-                "slab %s has no thickness; 125 mm assumed for self weight" % slab.id,
+                "slab %s has no thickness; %.0f mm project minimum assumed for self weight"
+                % (slab.id, RC_SLAB_MIN_THICKNESS_MM),
                 [slab.id],
                 stage=_STAGE,
             )
@@ -564,8 +566,9 @@ def build_dead(model: StructuralModel, options: Optional[Dict[str, Any]] = None)
     # -- beam webs ---------------------------------------------------------
     slab_ts = {}  # type: Dict[int, List[Tuple[Tuple[float, float, float, float], float]]]
     for slab in model.slabs:
-        if slab.thickness_m is not None:
-            slab_ts.setdefault(slab.storey, []).append((polygon_rect(slab.polygon), slab.thickness_m))
+        slab_ts.setdefault(slab.storey, []).append(
+            (polygon_rect(slab.polygon), effective_rc_slab_thickness_m(slab.thickness_m))
+        )
     for beam in sorted(model.beams, key=lambda b: (b.storey, b.id)):
         if beam.depth_m is None:
             model.add_warning(

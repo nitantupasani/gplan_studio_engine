@@ -726,6 +726,77 @@ def _framing_target(beams: Sequence[Beam], self_ids: Sequence[str], orient: str,
     return None
 
 
+def _primary_framing_target(
+    beams: Sequence[Beam], self_ids: Sequence[str], orient: str, pos_m: float, s_m: float
+) -> Optional[Beam]:
+    """An explicit primary run that crosses an interior secondary station.
+
+    Unlike the legacy endpoint lookup, this resolves continuity across primary
+    drawing fragments, so a primary split exactly at the crossing still forms
+    one target run.
+    """
+    x_m, y_m = _to_xy(orient, pos_m, s_m)
+    groups = {}  # type: Dict[Tuple[str, int], List[Tuple[float, float, Beam]]]
+    for beam in beams:
+        if beam.id in self_ids or beam.kind != BeamKind.PRIMARY:
+            continue
+        axis = beam_axis(beam)
+        if axis is None or axis[0] == orient:
+            continue
+        groups.setdefault((axis[0], _quant(axis[1])), []).append((axis[2], axis[3], beam))
+    candidates = []  # type: List[Beam]
+    for key in sorted(groups):
+        target_orient, pos_mm = key
+        target_pos = pos_mm / 1000.0
+        across = y_m if target_orient == "h" else x_m
+        along = x_m if target_orient == "h" else y_m
+        members = sorted(groups[key], key=lambda row: (row[0], row[1], row[2].id))
+        if abs(across - target_pos) > max(
+            0.5 * member.width_m + _SUPPORT_TOL_M for _, _, member in members
+        ):
+            continue
+        chain_lo = chain_hi = None  # type: Optional[float]
+        representative = None  # type: Optional[Beam]
+        for lo, hi, member in members:
+            if chain_lo is None or lo > float(chain_hi) + _CHAIN_TOL_M:
+                if (
+                    chain_lo is not None
+                    and float(chain_lo) + _FRAME_INSET_M < along < float(chain_hi) - _FRAME_INSET_M
+                    and representative is not None
+                ):
+                    candidates.append(representative)
+                chain_lo, chain_hi, representative = lo, hi, member
+            else:
+                chain_hi = max(float(chain_hi), hi)
+                if representative is None or member.id < representative.id:
+                    representative = member
+        if (
+            chain_lo is not None
+            and float(chain_lo) + _FRAME_INSET_M < along < float(chain_hi) - _FRAME_INSET_M
+            and representative is not None
+        ):
+            candidates.append(representative)
+    return sorted(candidates, key=lambda one: one.id)[0] if candidates else None
+
+
+def _may_use_interior_frame_support(run_beams: Sequence[Beam], target: Beam) -> bool:
+    """Whether a crossing beam is a real support inside a chained run.
+
+    An architectural wall can split one secondary member into several model
+    fragments.  When those fragments cross a primary at their common endpoint,
+    the primary is a physical support even though that point is not an endpoint
+    of the whole collinear chain.  Primary-primary crossings are deliberately
+    excluded: treating either one as the other's support would invent a load
+    path and can create a dependency cycle.
+    """
+    supported_kinds = {
+        BeamKind.SECONDARY,
+        BeamKind.TRIMMER,
+        BeamKind.LANDING,
+    }
+    return bool(run_beams) and all(beam.kind in supported_kinds for beam in run_beams) and target.kind == BeamKind.PRIMARY
+
+
 def _build_runs(model: StructuralModel, storey: int, log: DisclosureLog) -> List["_Run"]:
     """Collinear beams of one storey chained into continuous runs."""
     groups = {}  # type: Dict[Tuple[str, int, bool], List[Tuple[float, float, Beam]]]
@@ -781,10 +852,19 @@ def _build_runs(model: StructuralModel, storey: int, log: DisclosureLog) -> List
                 if wall is not None:
                     supports.append(_Support(x_m=s, kind="wall", target_id=wall.id))
                     continue
-                if st_mm in (_quant(lo), _quant(hi)):
-                    target = _framing_target(all_beams, self_ids, orient, pos, s)
-                    if target is not None:
-                        supports.append(_Support(x_m=s, kind="frame", target_id=target.id))
+                boundary = st_mm in (_quant(lo), _quant(hi))
+                target = (
+                    _framing_target(all_beams, self_ids, orient, pos, s)
+                    if boundary
+                    else _primary_framing_target(all_beams, self_ids, orient, pos, s)
+                    if all(
+                        beam.kind in (BeamKind.SECONDARY, BeamKind.TRIMMER, BeamKind.LANDING)
+                        for beam in beams
+                    )
+                    else None
+                )
+                if target is not None and (boundary or _may_use_interior_frame_support(beams, target)):
+                    supports.append(_Support(x_m=s, kind="frame", target_id=target.id))
                 # otherwise an interior joint: continuity, the spans merge
             # dedupe supports by position
             seen = {}  # type: Dict[int, _Support]
@@ -1639,6 +1719,8 @@ def _solve_run(run: "_Run", cases: Sequence[str], force_exact: bool, log: Disclo
     reactions = {}  # type: Dict[str, List[float]]
     summary = {}  # type: Dict[str, Dict[str, Any]]
     beam_stations = {}  # type: Dict[str, Dict[str, List[Dict[str, float]]]]
+    beam_analysis_spans = {}  # type: Dict[str, float]
+    straddling_fragments = []  # type: List[str]
 
     all_solutions = {}  # type: Dict[str, List[_RunSolution]]
     for case in cases:
@@ -1687,6 +1769,19 @@ def _solve_run(run: "_Run", cases: Sequence[str], force_exact: bool, log: Disclo
         b0 = max(axis[2], run.lo_m)
         b1 = min(axis[3], run.hi_m)
         mid = 0.5 * (b0 + b1)
+        touched = [
+            (lo, hi)
+            for lo, hi in run.spans
+            if min(b1, hi) - max(b0, lo) > _SUPPORT_TOL_M
+        ]
+        if touched:
+            beam_analysis_spans[beam.id] = max(hi - lo for lo, hi in touched)
+            if len(touched) > 1:
+                straddling_fragments.append(beam.id)
+        else:
+            # Cantilever/edge fragments can sit outside the supported span
+            # roster. Their own length is the only applicable geometry.
+            beam_analysis_spans[beam.id] = max(b1 - b0, 0.0)
         stations_x = (b0, mid, b1)
         beam_stations[beam.id] = {}
         for case in cases:
@@ -1746,7 +1841,14 @@ def _solve_run(run: "_Run", cases: Sequence[str], force_exact: bool, log: Disclo
                 for si in (0, 2):
                     rows[si]["m_min"] = min(rows[si]["m_min"], allowance)
             beam_stations[beam.id][case] = rows
-    return {"reactions": reactions, "summary": summary, "beam_stations": beam_stations, "method": run.method}
+    return {
+        "reactions": reactions,
+        "summary": summary,
+        "beam_stations": beam_stations,
+        "beam_analysis_spans": beam_analysis_spans,
+        "straddling_fragments": sorted(set(straddling_fragments)),
+        "method": run.method,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1984,6 +2086,7 @@ def _run_inner(model: StructuralModel, loadmodel: LoadModel, tol: float, force_e
     wall_stresses = []  # type: List[WallStress]
     beam_station_data = {}  # type: Dict[str, Dict[str, List[Dict[str, float]]]]
     beam_method = {}  # type: Dict[str, str]
+    beam_analysis_spans = {}  # type: Dict[str, float]
     run_records = []  # type: List[Dict[str, Any]]
     column_entry_by_id = {}  # type: Dict[str, Dict[str, Any]]
 
@@ -2003,6 +2106,7 @@ def _run_inner(model: StructuralModel, loadmodel: LoadModel, tol: float, force_e
                 beam_method[beam.id] = solved["method"]
             for beam_id, rows in solved["beam_stations"].items():
                 beam_station_data[beam_id] = rows
+            beam_analysis_spans.update(solved["beam_analysis_spans"])
             run_records.append(
                 {
                     "run_id": one.run_id,
@@ -2013,7 +2117,25 @@ def _run_inner(model: StructuralModel, loadmodel: LoadModel, tol: float, force_e
                     "method": solved["method"],
                     "method_reason": one.method_reason,
                     "beam_ids": [b.id for b in one.beams],
+                    "beam_analysis_spans_m": {
+                        beam_id: _r(solved["beam_analysis_spans"][beam_id])
+                        for beam_id in sorted(solved["beam_analysis_spans"])
+                    },
+                    "fragments_straddling_supports": list(solved["straddling_fragments"]),
                     "spans": [[_r(lo), _r(hi)] for lo, hi in one.spans],
+                    "overhangs": [
+                        {
+                            "side": side,
+                            "lo_m": _r(span[0]),
+                            "hi_m": _r(span[1]),
+                            "length_m": _r(span[1] - span[0]),
+                        }
+                        for side, span in (
+                            ("left", one.overhang_left),
+                            ("right", one.overhang_right),
+                        )
+                        if span is not None
+                    ],
                     "supports": [
                         {"x_m": _r(s.x_m), "kind": s.kind, "target_id": s.target_id} for s in one.supports
                     ],
@@ -2239,6 +2361,7 @@ def _run_inner(model: StructuralModel, loadmodel: LoadModel, tol: float, force_e
         cases,
         beam_station_data,
         beam_method,
+        beam_analysis_spans,
         column_entry_by_id,
         wall_stresses,
         area_q,
@@ -2264,6 +2387,7 @@ def _combine_envelopes(
     cases: Sequence[str],
     beam_station_data: Dict[str, Dict[str, List[Dict[str, float]]]],
     beam_method: Dict[str, str],
+    beam_analysis_spans: Dict[str, float],
     column_entry_by_id: Dict[str, Dict[str, Any]],
     wall_stresses: Sequence[WallStress],
     area_q: Dict[str, Dict[str, float]],
@@ -2298,6 +2422,7 @@ def _combine_envelopes(
             stations=stations,
             method=beam_method.get(beam_id, "exact"),
             governing=governing,
+            length_m=beam_analysis_spans.get(beam_id),
         )
 
     for col_id in sorted(column_entry_by_id):

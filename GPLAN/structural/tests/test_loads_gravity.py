@@ -114,9 +114,10 @@ def test_slab_dead_load_takes_finish_by_role():
     m.slabs.append(_slab(0, 0, 0, 0, 4, 5, kind=M.SlabKind.FLOOR))
     m.slabs.append(_slab(0, 1, 4, 0, 4, 5, kind=M.SlabKind.ROOF))
     dl = D.build_dead(m, options={"parapet": False})
-    # 25 x 0.125 = 3.125 self; floor finish 1.5, flat roof finish 2.0
-    assert _area_total(dl, M.slab_id(0, 0)) == pytest.approx(3.125 + 1.5)
-    assert _area_total(dl, M.slab_id(0, 1)) == pytest.approx(3.125 + 2.0)
+    # An explicitly thin legacy panel is normalized to the 150 mm project
+    # minimum: 25 x 0.150 = 3.750 self; finishes then follow the panel role.
+    assert _area_total(dl, M.slab_id(0, 0)) == pytest.approx(3.750 + 1.5)
+    assert _area_total(dl, M.slab_id(0, 1)) == pytest.approx(3.750 + 2.0)
 
 
 def test_sunken_fill_lands_on_bath_panels_scaled_by_depth():
@@ -141,8 +142,9 @@ def test_beam_web_self_weight_deducts_the_adjacent_slab():
     dl = D.build_dead(m, options={"parapet": False})
     loads = _line_loads_on(dl, "B-web")
     assert len(loads) == 1
-    # 25 x 0.23 x (0.45 - 0.125) = 1.86875 kN/m
-    assert loads[0].w1_kn_m == pytest.approx(25.0 * 0.23 * 0.325)
+    # The same 150 mm project minimum is used for the slab already counted as
+    # area load: 25 x 0.23 x (0.45 - 0.150) = 1.725 kN/m.
+    assert loads[0].w1_kn_m == pytest.approx(25.0 * 0.23 * 0.300)
     assert loads[0].w2_kn_m == pytest.approx(loads[0].w1_kn_m)
 
 

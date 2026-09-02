@@ -103,6 +103,8 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import math
+import os
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from . import quantities as Q
@@ -127,6 +129,7 @@ from .model import (
     DisclosureLog,
     Footing,
     FootingKind,
+    RC_SLAB_MIN_THICKNESS_MM,
     Severity,
     StructuralModel,
     System,
@@ -152,6 +155,8 @@ __all__ = [
     "REQUEST_SYSTEMS",
     "WIRE_SYSTEMS",
     "CODE_PROFILES",
+    "ANALYSIS_MODES",
+    "PLACEMENT_STRATEGIES",
     "SCOPES",
     "DUCTILITY",
     "SEISMIC_ZONES",
@@ -198,6 +203,17 @@ WIRE_SYSTEMS = tuple(member.value for member in System)
 
 CODE_PROFILES = ("IS",)
 
+# ``code_complete`` preserves the existing lateral-load pipeline.  The
+# deliberately narrower ``gravity_only`` mode exists for like-for-like option
+# screening; it is never described as a code-complete design in the response.
+ANALYSIS_MODES = ("code_complete", "gravity_only")
+
+# The original exhaustive architectural-axis placement remains the default for
+# compatibility.  ``economy_grid`` regularizes those candidates before the
+# frame is generated and is intended to be compared through a full design and
+# quantity pass, not trusted on its placement score alone.
+PLACEMENT_STRATEGIES = ("wall_aligned", "economy_grid")
+
 SCOPES = ("placement", "full")
 
 #: Ductility classes; the resolved default is OMRF up to zone III (finding 41).
@@ -233,7 +249,7 @@ MAX_STOREYS_RC = 12
 MAX_STOREYS_MASONRY = max(int(v) for v in _masonry.MAX_STOREYS_BY_CATEGORY.values())
 MAX_STOREYS_MASONRY_ZONE_V = int(_masonry.MAX_STOREYS_BY_CATEGORY["E"])
 MAX_ROOMS_PER_FLOOR = 60
-MAX_HOUSING_FLOORS = 3
+MAX_HOUSING_FLOORS = 4
 MAX_CANTILEVER_M = float(_FRAME_DEFAULTS.cantilever_cap)
 REFUSE_CANTILEVER_M = float(_frame.REFUSE_CANTILEVER_M)
 MIN_SPAN_M = float(_FRAME_DEFAULTS.min_span)
@@ -499,13 +515,56 @@ def payload_hash(payload: Any) -> str:
 _FINGERPRINT_CACHE = []  # type: List[str]
 
 
-def structural_fingerprint() -> str:
-    """Schema version plus the bytes of every shipped structural data table.
+def _runtime_source_components() -> List[Tuple[str, bytes]]:
+    """Deterministic runtime Python sources that can change a result.
 
-    The backend folds this into its cache key so a table edit invalidates the
-    cached responses that were computed from the old numbers. Computed once per
-    process: the tables themselves are cached by `data/_loader`, and a response
-    asks for this several times.
+    The fingerprint originally covered only schema and YAML tables. A code-only
+    rollout could therefore reuse cached structural results under the same id.
+    Tests and bytecode are excluded; every shipped structural Python source is
+    length-framed by its package-relative POSIX path and exact bytes.
+    """
+    package_root = os.path.dirname(os.path.abspath(__file__))
+    components = []  # type: List[Tuple[str, bytes]]
+    for root, dirs, files in os.walk(package_root):
+        dirs[:] = sorted(
+            name for name in dirs
+            if name not in {"__pycache__", "tests", "data"}
+        )
+        for filename in sorted(files):
+            if not filename.endswith(".py"):
+                continue
+            path = os.path.join(root, filename)
+            relative = os.path.relpath(path, package_root).replace(os.sep, "/")
+            with open(path, "rb") as handle:
+                components.append((relative, handle.read()))
+    return components
+
+
+def _runtime_schema_components() -> List[Tuple[str, bytes]]:
+    """Shipped JSON contracts that can change a response without Python edits."""
+    package_root = os.path.dirname(os.path.abspath(__file__))
+    schema_root = os.path.join(package_root, "schema")
+    components = []  # type: List[Tuple[str, bytes]]
+    if not os.path.isdir(schema_root):
+        return components
+    for root, dirs, files in os.walk(schema_root):
+        dirs[:] = sorted(dirs)
+        for filename in sorted(files):
+            if not filename.endswith(".json"):
+                continue
+            path = os.path.join(root, filename)
+            relative = os.path.relpath(path, package_root).replace(os.sep, "/")
+            with open(path, "rb") as handle:
+                components.append((relative, handle.read()))
+    return components
+
+
+def structural_fingerprint() -> str:
+    """Schema, data tables and runtime implementation under one cache identity.
+
+    The backend folds this into its cache key so a code, schema or table edit
+    invalidates responses computed from the old implementation. Computed once
+    per process: a response asks for it several times.
 
     Each component is length-framed. The framing makes the digest sensitive to
     table additions and removals and prevents a filename or byte boundary from
@@ -529,6 +588,16 @@ def structural_fingerprint() -> str:
         filename = name + ".yaml"
         with open(data_path(name), "rb") as handle:
             add_component(filename, handle.read())
+
+    schemas = _runtime_schema_components()
+    add_component("runtime_schema_count", str(len(schemas)).encode("ascii"))
+    for relative, contents in schemas:
+        add_component("schema/" + relative, contents)
+
+    sources = _runtime_source_components()
+    add_component("runtime_source_count", str(len(sources)).encode("ascii"))
+    for relative, contents in sources:
+        add_component("source/" + relative, contents)
 
     digest = digest_builder.hexdigest()
     _FINGERPRINT_CACHE.append("st-" + digest[:16])
@@ -608,6 +677,8 @@ def run_options() -> Dict[str, Any]:
         "systems": list(REQUEST_SYSTEMS),
         "systems_returned": list(WIRE_SYSTEMS),
         "code_profiles": list(CODE_PROFILES),
+        "analysis_modes": list(ANALYSIS_MODES),
+        "placement_strategies": list(PLACEMENT_STRATEGIES),
         "scopes": list(SCOPES),
         "seismic_zones": dict(SEISMIC_ZONES),
         "soils": {
@@ -672,6 +743,8 @@ def _default_params_echo() -> Dict[str, Any]:
     return {
         "system": {"value": "auto", "origin": "default"},
         "code_profile": {"value": "IS", "origin": "default"},
+        "analysis_mode": {"value": "code_complete", "origin": "default"},
+        "placement_strategy": {"value": "wall_aligned", "origin": "default"},
         "seismic_zone": {"value": "III", "origin": "default"},
         "importance_factor": {"value": 1.0, "origin": "IS 1893 Table 8 residential"},
         "soil": {"value": resolve_soil(None), "origin": "data/soil_defaults.yaml"},
@@ -785,6 +858,18 @@ def _check_params(params: Dict[str, Any]) -> None:
             "params.code_profile",
             "only " + ", ".join(CODE_PROFILES) + " is implemented, got " + repr(profile),
         )
+    analysis_mode = params.get("analysis_mode", "code_complete")
+    if not isinstance(analysis_mode, str) or analysis_mode not in ANALYSIS_MODES:
+        raise StructuralValidationError(
+            "params.analysis_mode",
+            "must be one of " + ", ".join(ANALYSIS_MODES) + ", got " + repr(analysis_mode),
+        )
+    placement_strategy = params.get("placement_strategy", "wall_aligned")
+    if not isinstance(placement_strategy, str) or placement_strategy not in PLACEMENT_STRATEGIES:
+        raise StructuralValidationError(
+            "params.placement_strategy",
+            "must be one of " + ", ".join(PLACEMENT_STRATEGIES) + ", got " + repr(placement_strategy),
+        )
     zone = params.get("seismic_zone", "III")
     if not isinstance(zone, str) or zone not in SEISMIC_ZONES:
         raise StructuralValidationError(
@@ -861,6 +946,16 @@ def _check_params(params: Dict[str, Any]) -> None:
                 "params.cantilever.max_m",
                 "cantilevers above %.1f m are refused; %.3f m was asked for"
                 % (REFUSE_CANTILEVER_M, cap),
+            )
+
+    slab = _mapping(params.get("slab"), "params.slab")
+    if slab.get("t_max_mm") is not None:
+        slab_t_max_mm = _num(slab.get("t_max_mm"), RC_SLAB_MIN_THICKNESS_MM)
+        if slab_t_max_mm < RC_SLAB_MIN_THICKNESS_MM - 1e-9:
+            raise StructuralValidationError(
+                "params.slab.t_max_mm",
+                "slab target %.3f mm is below the %.0f mm project minimum"
+                % (slab_t_max_mm, RC_SLAB_MIN_THICKNESS_MM),
             )
 
     # touches the one soil table, so an unknown soil word fails here not later
@@ -974,6 +1069,13 @@ class _Resolved(object):
 
         self.system_requested = self._pick("system", params.get("system"), "auto")
         self.code_profile = self._pick("code_profile", params.get("code_profile"), "IS")
+        self.analysis_mode = self._pick(
+            "analysis_mode", params.get("analysis_mode"), "code_complete"
+        )
+
+        self.placement_strategy = self._pick(
+            "placement_strategy", params.get("placement_strategy"), "wall_aligned"
+        )
         self.zone = self._pick("seismic_zone", params.get("seismic_zone"), "III")
         self.soil = resolve_soil(params.get("soil"))
         self.origins["soil"] = "request" if params.get("soil") is not None else "data/soil_defaults.yaml"
@@ -1022,7 +1124,10 @@ class _Resolved(object):
         self.origins["cantilever.max_m"] = "request" if cantilever else "grid.FrameParams"
 
         slab = _mapping(params.get("slab"), "params.slab")
-        self.slab_t_max_mm = _num(slab.get("t_max_mm"), float(_FRAME_DEFAULTS.slab_t_max_mm))
+        self.slab_t_max_mm = max(
+            _num(slab.get("t_max_mm"), float(_FRAME_DEFAULTS.slab_t_max_mm)),
+            RC_SLAB_MIN_THICKNESS_MM,
+        )
         self.origins["slab.t_max_mm"] = "request" if slab else "grid.FrameParams"
 
         walls = _mapping(params.get("walls"), "params.walls")
@@ -1106,10 +1211,15 @@ class _Resolved(object):
     def frame_params(self, system: str) -> FrameParams:
         return FrameParams(
             system=system,
+            column_strategy=self.placement_strategy,
             max_primary_span=self.max_span_m,
             min_span=self.min_span_m,
             cantilever_cap=self.cantilever_m,
             slab_t_max_mm=self.slab_t_max_mm,
+            # A gravity-only RC comparison must not quietly introduce
+            # prescription-only shaft walls that the v1 member designer cannot
+            # check.  Keep stairs framed by columns/trimmers in this mode.
+            shaft_min_storeys=(MAX_STOREYS_RC + 1 if self.analysis_mode == "gravity_only" else _FRAME_DEFAULTS.shaft_min_storeys),
         )
 
     def masonry_params(self, system: str) -> Any:
@@ -1126,6 +1236,7 @@ class _Resolved(object):
         return {
             "materials": {"fck": self.fck_mpa(), "fy": self.fy_mpa()},
             "seismic": {"zone": self.zone, "frame": self.ductility},
+            "is13920": "off" if self.analysis_mode == "gravity_only" else "auto",
             "exposure": self.exposure,
         }
 
@@ -1134,6 +1245,8 @@ class _Resolved(object):
         values = {
             "system": self.system_requested,
             "code_profile": self.code_profile,
+            "analysis_mode": self.analysis_mode,
+            "placement_strategy": self.placement_strategy,
             "seismic_zone": self.zone,
             "importance_factor": self.importance_echo,
             "frame_ductility": self.ductility,
@@ -1654,6 +1767,34 @@ def _build_loads(
     wind_report = None  # type: Optional[Dict[str, Any]]
     lateral_cases = []  # type: List[Dict[str, Any]]
 
+    if opts.analysis_mode == "gravity_only":
+        log.append(
+            make_disclosure(
+                "N_GRAVITY_ONLY",
+                "PRELIMINARY GRAVITY-LOAD OPTION COMPARISON: wind, earthquake, "
+                "lateral stability, drift, ductile detailing and robustness checks "
+                "were intentionally not performed; not for construction, tender, "
+                "permit or safety certification",
+                (),
+                clause="IS 456:2000 scope; NBC 2016 Part 6",
+                stage="api.loads",
+            )
+        )
+        if opts.wind_speed_ms is not None:
+            opts.mark_unapplied(
+                "params.wind",
+                "analysis_mode gravity_only excludes wind by explicit request",
+            )
+        for field in ("seismic_zone", "importance_factor", "frame_ductility"):
+            if field in opts.params:
+                opts.mark_unapplied(
+                    "params." + field,
+                    "analysis_mode gravity_only excludes earthquake actions and ductile detailing",
+                )
+        loadmodel.combos = _combos.generate(sorted(loadmodel.cases))
+        loadmodel.trace = []
+        return (loadmodel, None, None, [])
+
     rows = _storey_weight_rows(model, ledger)
     plan_dims = _plan_dims_m(model)
     if rows:
@@ -1953,6 +2094,7 @@ def _design_members(
             if beam is None or not beam.span_m():
                 continue
             beam_forces = to_beam_forces(envelope)
+            analysis_span_m = float(getattr(envelope, "length_m", 0.0) or beam.span_m())
             results.append(
                 design_beam(
                     beam_forces,
@@ -1960,7 +2102,11 @@ def _design_members(
                         "element_id": element_id,
                         "b_mm": m_to_mm(beam.width_m),
                         "D_mm": m_to_mm(beam.depth_m if beam.depth_m else 0.3),
-                        "span_mm": m_to_mm(beam.span_m()),
+                        # The support-to-support span used by takedown is the
+                        # design geometry.  A display/wall fragment can be
+                        # shorter and must never make the same demand appear
+                        # easier to resist.
+                        "span_mm": m_to_mm(analysis_span_m),
                         "storey": int(beam.storey),
                         "support": beam_support_condition(beam, beam_forces),
                     },
@@ -2036,6 +2182,20 @@ def _design_members(
         for element_id in envelopes
         if getattr(envelopes[element_id], "element_type", "") == "footing"
     )
+    straps_by_footing = {}  # type: Dict[str, Tuple[str, float]]
+    for strap in footings.values():
+        strap_kind = str(getattr(strap.kind, "value", strap.kind))
+        if strap_kind != "strap":
+            continue
+        ends = [str(one) for one in (getattr(strap, "supports", None) or [])]
+        if len(ends) != 2:
+            continue
+        span = math.hypot(
+            abs(float(getattr(strap, "w_m", 0.0) or 0.0)),
+            abs(float(getattr(strap, "h_m", 0.0) or 0.0)),
+        )
+        straps_by_footing.setdefault(ends[0], (ends[1], span))
+        straps_by_footing.setdefault(ends[1], (ends[0], span))
 
     def _stub(source: Any) -> Any:
         return ColumnStub(
@@ -2122,7 +2282,6 @@ def _design_members(
                 columns=tuple(_stub(one) for one in supports),
                 placed_bx_m=footing.w_m,
                 placed_ly_m=footing.h_m,
-                placed_depth_m=footing.depth_m,
             )
             results.append(
                 design_combined_footing(
@@ -2136,6 +2295,7 @@ def _design_members(
         if not supports:
             continue
         source = supports[0]
+        strap_partner, strap_span_m = straps_by_footing.get(element_id, ("", 0.0))
         geometry = PadGeometry(
             element_id=element_id,
             column=_stub(source),
@@ -2143,8 +2303,9 @@ def _design_members(
             col_offset_y_m=float(source.y_m) - float(footing.y_m),
             placed_bx_m=footing.w_m,
             placed_ly_m=footing.h_m,
-            placed_depth_m=footing.depth_m,
-            kind=kind,
+            kind="strap" if strap_partner else kind,
+            strap_partner_id=strap_partner,
+            strap_span_m=strap_span_m,
         )
         results.append(design_footing(geometry, _loads_for(source, element_id), opts.soil, ctx))
 
@@ -2297,6 +2458,81 @@ def _disclose_undesigned(
             )
         )
     return sorted(missing)
+
+
+def _audit_designed_foundation_geometry(
+    model: StructuralModel,
+    results: Sequence[Any],
+    log: DisclosureLog,
+) -> None:
+    """Recheck soil rectangles after the member designer has enlarged them.
+
+    Foundation placement checks its seed rectangles, while the RC designer may
+    grow `bx_mm`/`ly_mm`. Ranking a candidate without repeating overlap and
+    no-cross-boundary checks on those final rectangles would validate different
+    geometry from the BOQ and drawing.
+    """
+    footing_by_id = {str(row.id): row for row in model.footings}
+    rectangles = []  # type: List[Tuple[str, Tuple[float, float, float, float]]]
+    for result in results:
+        if str(getattr(result, "element_type", "")) != "footing":
+            continue
+        if str(getattr(result, "status", "")) == "fail":
+            continue
+        element_id = str(getattr(result, "element_id", ""))
+        footing = footing_by_id.get(element_id)
+        if footing is None or str(getattr(footing.kind, "value", footing.kind)) == "strap":
+            continue
+        section = getattr(result, "section", {}) or {}
+        width_m = _num(section.get("bx_mm") or section.get("length_mm")) / 1000.0
+        height_m = _num(section.get("ly_mm") or section.get("width_mm")) / 1000.0
+        if width_m <= 0.0:
+            width_m = _num(getattr(footing, "w_m", 0.0))
+        if height_m <= 0.0:
+            height_m = _num(getattr(footing, "h_m", 0.0))
+        if width_m <= 0.0 or height_m <= 0.0:
+            continue
+        rect = (
+            float(footing.x_m) - 0.5 * width_m,
+            float(footing.y_m) - 0.5 * height_m,
+            width_m,
+            height_m,
+        )
+        rectangles.append((element_id, rect))
+
+    for index, (left_id, left) in enumerate(rectangles):
+        for right_id, right in rectangles[index + 1:]:
+            dx = min(left[0] + left[2], right[0] + right[2]) - max(left[0], right[0])
+            dy = min(left[1] + left[3], right[1] + right[3]) - max(left[1], right[1])
+            if dx <= 1e-6 or dy <= 1e-6:
+                continue
+            log.append(
+                make_disclosure(
+                    "W_FOOTING_OVERLAP",
+                    "designed footing rectangles %s and %s overlap by %.3f m2 after member sizing; "
+                    "the BOQ/drawing rectangles share bearing soil and require engineer resolution"
+                    % (left_id, right_id, dx * dy),
+                    [left_id, right_id],
+                    clause="IS6403:1981",
+                    stage="api.design.foundation_geometry",
+                )
+            )
+
+    boundary_lines = _foundations._boundary_lines(model)
+    for element_id, rect in rectangles:
+        if not boundary_lines or not _foundations._crosses(rect, boundary_lines):
+            continue
+        log.append(
+            make_disclosure(
+                "W_ECCENTRIC_COLUMN",
+                "designed footing %s is %.3f m x %.3f m after sizing and crosses an explicit "
+                "plot/party no-cross boundary; placement seed compliance is no longer sufficient"
+                % (element_id, rect[2], rect[3]),
+                [element_id],
+                clause="IS6403:1981",
+                stage="api.design.foundation_geometry",
+            )
+        )
 
 
 def _design_coverage(model: StructuralModel, results: Sequence[Any], system: str) -> Dict[str, Any]:
@@ -3049,16 +3285,177 @@ def _design_once(
     """
     from .analysis import diaphragm, takedown
 
-    ledger = _gravity_ledger(model, opts)
+    ledger = {} if opts.analysis_mode == "gravity_only" else _gravity_ledger(model, opts)
     loadmodel, seismic, wind, lateral_cases = _build_loads(model, opts, log, ledger)
 
     result = takedown.run(model, loadmodel)
     if result.log is not None:
         log.extend(result.log.entries)
 
+    # Placement fragments are drawing conveniences; the analysis supports
+    # define the physical spans.  A requested span cap therefore has to be
+    # checked against BeamRun spans after takedown, before foundations, member
+    # design, quantities or cost ranking can make the option look acceptable.
+    long_runs = []  # type: List[Tuple[str, float, List[str]]]
+    long_overhangs = []  # type: List[Tuple[str, str, float, List[str]]]
+    straddling = []  # type: List[str]
+    for record in getattr(result, "beam_runs", ()) or ():
+        straddling.extend(
+            str(value)
+            for value in record.get("fragments_straddling_supports", ()) or ()
+        )
+        if record.get("plinth"):
+            # A plinth beam ties two ground columns across whatever lies
+            # between them, open floor included, and carries wall load only;
+            # the requested cap governs the floor beams that carry slabs. With
+            # wall-aligned columns a plinth tie between two mid-wall stations
+            # on opposite walls is routinely longer than a tight cap. The
+            # 7.5 m hard cap still applies to every beam in run_check.
+            continue
+        longest = max(
+            (float(hi) - float(lo) for lo, hi in record.get("spans", ()) or ()),
+            default=0.0,
+        )
+        if longest > opts.max_span_m + 1e-6:
+            long_runs.append(
+                (
+                    str(record.get("run_id", "beam-run")),
+                    longest,
+                    [str(value) for value in record.get("beam_ids", ()) or ()],
+                )
+            )
+        for overhang in record.get("overhangs", ()) or ():
+            length = float(overhang.get("length_m", 0.0))
+            if length > opts.cantilever_m + 1e-6:
+                long_overhangs.append(
+                    (
+                        str(record.get("run_id", "beam-run")),
+                        str(overhang.get("side", "overhang")),
+                        length,
+                        [str(value) for value in record.get("beam_ids", ()) or ()],
+                    )
+                )
+    straddling = sorted(set(straddling))
+    if straddling:
+        message = (
+            "%d drawn beam fragment(s) cross an internal physical support; the member "
+            "topology must be split at that support before its station forces can be designed"
+            % len(straddling)
+        )
+        if opts.analysis_mode == "gravity_only":
+            from .analysis.takedown import AnalysisError
+
+            raise AnalysisError("E_MEMBER_TOPOLOGY", message, straddling)
+        log.append(
+            make_disclosure(
+                "W_RELEASED_CAP",
+                message + "; the legacy code_complete route continues with the conservative "
+                "largest containing analysis span and is not eligible for cost-option ranking",
+                straddling,
+                stage="api.analysis.member_topology",
+            )
+        )
+    if long_runs:
+        worst = max(long_runs, key=lambda row: (row[1], row[0]))
+        element_ids = sorted({element for _, _, ids in long_runs for element in ids})
+        message = (
+            "%d physical support-to-support beam run(s) exceed the requested %.3f m cap; "
+            "worst is %s at %.3f m"
+            % (len(long_runs), opts.max_span_m, worst[0], worst[1])
+        )
+        if opts.analysis_mode == "gravity_only":
+            from .analysis.takedown import AnalysisError
+
+            raise AnalysisError("E_SPAN_OVER_MAX", message, element_ids)
+        log.append(
+            make_disclosure(
+                "W_RELEASED_CAP",
+                message + "; the legacy code_complete route continues to member checks, "
+                "but this layout is not eligible for cost-option ranking",
+                element_ids,
+                stage="api.analysis.physical_spans",
+            )
+        )
+    if long_overhangs:
+        worst = max(long_overhangs, key=lambda row: (row[2], row[0], row[1]))
+        element_ids = sorted({element for _, _, _, ids in long_overhangs for element in ids})
+        message = (
+            "%d physical beam overhang(s) exceed the requested %.3f m cantilever cap; "
+            "worst is %s %s at %.3f m"
+            % (len(long_overhangs), opts.cantilever_m, worst[0], worst[1], worst[2])
+        )
+        if opts.analysis_mode == "gravity_only":
+            from .analysis.takedown import AnalysisError
+
+            raise AnalysisError("E_CANTILEVER_SPAN", message, element_ids)
+        log.append(
+            make_disclosure(
+                "E_CANTILEVER_SPAN",
+                message + "; the legacy code_complete route continues to member checks, "
+                "but this layout is not eligible for cost-option ranking",
+                element_ids,
+                stage="api.analysis.physical_overhangs",
+            )
+        )
+
     plan = None  # type: Any
     if place_foundations:
         column_loads, wall_loads = _foundation_loads(result)
+        footing_ledger = getattr(result, "footing_loads", {}) or {}
+        non_positive_dead_columns = sorted(
+            str(key)
+            for key, row in (footing_ledger.get("columns") or {}).items()
+            if _num(row.get("p_dl_kn")) <= 1e-9
+        )
+        non_positive_dead_walls = sorted(
+            str(key)
+            for key, row in (footing_ledger.get("walls") or {}).items()
+            if _num(row.get("n_dl_kn_m")) <= 1e-9
+        )
+        non_positive_service_columns = sorted(
+            key for key, value in column_loads.items() if float(value) <= 1e-9
+        )
+        non_positive_service_walls = sorted(
+            key for key, value in wall_loads.items() if float(value) <= 1e-9
+        )
+        non_positive = sorted(set(
+            non_positive_dead_columns
+            + non_positive_dead_walls
+            + non_positive_service_columns
+            + non_positive_service_walls
+        ))
+        if non_positive:
+            message = (
+                "%d base support(s) have a non-positive dead-load or DL + reduced "
+                "imposed-load foundation reaction; a compression-only pad, combined, or strip footing cannot "
+                "be sized until the grid or support model is revised: %s"
+                % (len(non_positive), ", ".join(non_positive[:10]))
+            )
+            if opts.analysis_mode == "gravity_only":
+                from .analysis.takedown import AnalysisError
+
+                raise AnalysisError("E_GRAVITY_UPLIFT", message, non_positive)
+            log.append(
+                make_disclosure(
+                    "W_RELEASED_CAP",
+                    message + "; the legacy code_complete route emits only the geometric-minimum "
+                    "foundation and the footing designer must reject it",
+                    non_positive,
+                    stage="api.foundation.gravity_reaction",
+                )
+            )
+            # Foundation placement itself rejects non-positive demand.  The
+            # legacy route therefore treats these explicitly disclosed stacks
+            # as missing and emits geometric-minimum markers; the footing
+            # designer still receives the unmodified takedown envelope and
+            # fails it.  Gravity-only comparisons stop above and never enter
+            # this compatibility path.
+            column_loads = {
+                key: value for key, value in column_loads.items() if float(value) > 1e-9
+            }
+            wall_loads = {
+                key: value for key, value in wall_loads.items() if float(value) > 1e-9
+            }
         bearing = sorted(
             wall.id
             for wall in model.walls
@@ -3144,12 +3541,46 @@ def _analysis_block(pass_out: Dict[str, Any], opts: _Resolved, re_passes: int) -
     """The wire `analysis` block, serialized from the stage outputs verbatim."""
     loadmodel = pass_out["loadmodel"]
     lateral = pass_out["lateral"]
+    takedown = pass_out["takedown"]
+    beam_runs = list(getattr(takedown, "beam_runs", ()) or ())
+    # Floor beams carry the slabs and answer to the requested cap; plinth ties
+    # run column to column at ground across open floor and are reported apart.
+    physical_spans = [
+        float(hi) - float(lo)
+        for record in beam_runs
+        if not record.get("plinth")
+        for lo, hi in record.get("spans", ()) or ()
+    ]
+    plinth_spans = [
+        float(hi) - float(lo)
+        for record in beam_runs
+        if record.get("plinth")
+        for lo, hi in record.get("spans", ()) or ()
+    ]
+    physical_overhangs = [
+        float(overhang.get("length_m", 0.0))
+        for record in beam_runs
+        for overhang in record.get("overhangs", ()) or ()
+    ]
+    straddling_fragments = sorted(
+        {
+            str(element_id)
+            for record in beam_runs
+            for element_id in record.get("fragments_straddling_supports", ()) or ()
+        }
+    )
     if opts.compact:
         lateral = _compact_lateral(lateral)
     out = {
-        "method": "tributary_takedown_v1",
+        "method": (
+            "tributary_takedown_v1_gravity_only"
+            if opts.analysis_mode == "gravity_only"
+            else "tributary_takedown_v1"
+        ),
         "storey_weight_source": (
-            "gravity takedown pass 1 (the seismic weights come from the takedown "
+            "not required: earthquake actions were intentionally excluded"
+            if opts.analysis_mode == "gravity_only"
+            else "gravity takedown pass 1 (the seismic weights come from the takedown "
             "ledger, which is why the takedown runs twice)"
         ),
         "referral_re_passes": int(re_passes),
@@ -3164,6 +3595,25 @@ def _analysis_block(pass_out: Dict[str, Any], opts: _Resolved, re_passes: int) -
             None
             if pass_out["foundations"] is None
             else pass_out["foundations"].to_dict()
+        ),
+        # These audit values remain available at compact detail even though the
+        # full BeamRun records are elided from structural_model.analysis.  A UI
+        # or report must compare the physical support-to-support span, never a
+        # short drawing fragment split at an architectural wall intersection.
+        "physical_max_span_m": _num(max(physical_spans, default=0.0)),
+        "physical_span_count": len(physical_spans),
+        "plinth_max_span_m": _num(max(plinth_spans, default=0.0)),
+        "plinth_span_count": len(plinth_spans),
+        "physical_max_overhang_m": _num(max(physical_overhangs, default=0.0)),
+        "physical_overhang_count": len(physical_overhangs),
+        "drawn_fragments_straddling_supports": straddling_fragments,
+        "support_face_span_basis": (
+            "BeamRun centreline support stations; member clear-span design applies the "
+            "v1 generic support-width convention"
+        ),
+        "foundation_reaction_scope": (
+            "single all-spans-loaded DL plus reduced LL/LLR service state; a patterned "
+            "minimum-reaction/uplift envelope is not implemented"
         ),
         # The bulky blocks live once, where findings 6 and 14 put them: the
         # unfactored cases on `structural_model.loads`, the takedown on
@@ -3276,12 +3726,13 @@ def _pipeline_failure(
         code = "E_BAD_ENVELOPE"
     message = "%s: %s" % (type(error).__name__, error)
     log = DisclosureLog()
+    element_ids = list(getattr(error, "element_ids", ()) or ())
     log.append(
         make_disclosure(
             code,
             "the design pipeline stopped on model " + repr(model.id) + " (" + message + "); "
             "the geometry placed before the stop is returned as a partial",
-            (),
+            element_ids,
             stage="api.design",
         )
     )
@@ -3395,6 +3846,7 @@ def _design_one(
 
     results = pass_out["design"]
     takedown_result = pass_out["takedown"]
+    _audit_designed_foundation_geometry(model, results, log)
     undesigned = _disclose_undesigned(model, results, placement.system, log)
 
     blocked = sorted(
@@ -3528,6 +3980,92 @@ def _design_one(
         ],
         "referrals_outstanding_ids": outstanding_ids[:100],
     }
+    boq_wire = None if boq is None else boq.to_dict()
+    boq_total = _num(boq_wire.get("total")) if boq_wire is not None else 0.0
+    cost_computed = bool(
+        boq_wire is not None
+        and math.isfinite(boq_total)
+        and boq_total > 0.0
+        and str(boq_wire.get("currency") or "").strip()
+        and str(boq_wire.get("schedule") or "").strip()
+    )
+    ranking_reasons = []  # type: List[str]
+    if errors:
+        ranking_reasons.append("hard_error")
+    if failed:
+        ranking_reasons.append("member_design_failure")
+    if outstanding:
+        ranking_reasons.append("unresolved_referral")
+    if undesigned:
+        # `_disclose_undesigned` lists only placed elements owned by the active
+        # design route (not intentionally out-of-scope lintels/bands). A BOQ
+        # may still quantify such geometry, but it is not a fully checked
+        # candidate and must never receive a cost-ranking badge.
+        ranking_reasons.append("required_element_undesigned")
+    if not cost_computed:
+        ranking_reasons.append("cost_not_computed")
+    invalid_stages = {
+        "api.analysis.physical_spans",
+        "api.analysis.member_topology",
+        "api.analysis.physical_overhangs",
+        "api.foundation.gravity_reaction",
+    }
+    if any(str(row.get("stage", "")) in invalid_stages for row in warnings):
+        ranking_reasons.append("invalid_analysis_or_foundation_topology")
+    if any(
+        str(row.get("stage", "")) in {
+            "placement.foundations",
+            "api.design.foundation_geometry",
+        }
+        and str(row.get("code", "")) in {"W_FOOTING_OVERLAP", "W_ECCENTRIC_COLUMN"}
+        for row in warnings
+    ):
+        ranking_reasons.append("unresolved_foundation_topology")
+    density_warning_codes = {
+        "W_STEEL_DENSITY_BAND",
+        "W_CONCRETE_DENSITY_BAND",
+        "W_MASONRY_DENSITY_BAND",
+    }
+    if any(str(row.get("code", "")) in density_warning_codes for row in warnings):
+        # A quantity sanity warning literally asks the reader to check the
+        # take-off before trusting cost.  Calling that same option eligible for
+        # a cost ranking was contradictory.  The broad, system-specific bands
+        # remain heuristics, but crossing one now blocks the badge until the
+        # quantity anomaly has been resolved or independently accepted.
+        ranking_reasons.append("quantity_sanity_check_failed")
+    placeholder_rates = bool(
+        cost_computed
+        and (
+            boq_wire.get("placeholder_rates")
+            or any(row.get("code") == "W_PLACEHOLDER_RATES" for row in warnings)
+        )
+    )
+    feasible_for_ranking = not ranking_reasons
+    comparison_claim = (
+        "eligible for like-for-like comparison among checked candidates; no global optimum is claimed"
+        if feasible_for_ranking
+        else "not eligible for candidate ranking; see comparison reasons; no optimum is claimed"
+    )
+    entry["comparison_validity"] = {
+        "analysis_scope": (
+            "preliminary_gravity_comparison"
+            if opts.analysis_mode == "gravity_only"
+            else "code_complete_route"
+        ),
+        "feasible_for_ranking": feasible_for_ranking,
+        "valid_for_relative_cost_comparison": feasible_for_ranking,
+        "valid_for_absolute_cost": feasible_for_ranking and not placeholder_rates,
+        "cost_basis": (
+            "not_computed"
+            if not cost_computed
+            else "indicative_placeholder_rates"
+            if placeholder_rates
+            else "versioned_rate_pack"
+        ),
+        "reasons": sorted(set(ranking_reasons)),
+        "claim": comparison_claim,
+        "not_for_construction": True,
+    }
     if opts.include_quantities:
         entry["quantities"] = {
             "takeoff_ref": "structural_model.quantities.takeoff",
@@ -3536,8 +4074,12 @@ def _design_one(
             "totals": takeoff.to_dict()["totals"],
             "builtup_area_m2": takeoff.to_dict()["builtup_area_m2"],
             "bbs_total_with_wastage_kg": bbs.to_dict().get("total_with_wastage_kg"),
-            "boq_total": None if boq is None else boq.to_dict().get("total"),
-            "currency": None if boq is None else boq.to_dict().get("currency"),
+            "boq_total": None if boq_wire is None else boq_wire.get("total"),
+            "currency": None if boq_wire is None else boq_wire.get("currency"),
+            "boq_subtotals": None if boq_wire is None else boq_wire.get("subtotals"),
+            "cost_per_m2": None if boq_wire is None else boq_wire.get("cost_per_m2"),
+            "rate_schedule": None if boq_wire is None else boq_wire.get("schedule"),
+            "placeholder_rates": None if boq_wire is None else boq_wire.get("placeholder_rates"),
         }
     if opts.include_report:
         entry["report"] = report

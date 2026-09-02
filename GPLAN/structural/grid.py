@@ -30,6 +30,7 @@ from .model import (
     AxisSource,
     DisclosureLog,
     GridAxis,
+    RC_SLAB_MIN_THICKNESS_MM,
     StructuralModel,
     System,
     WallRole,
@@ -89,6 +90,12 @@ class FrameParams:
     """
 
     system: str = System.RC_FRAME.value
+    # ``wall_aligned`` preserves the original exhaustive architectural-axis
+    # candidate grid. ``economy_grid`` selects the smallest admissible subset
+    # of those axes before columns and primary beams are placed; every selected
+    # gap still respects ``max_primary_span`` and the full design/quantity pass
+    # decides whether the resulting option is actually economical.
+    column_strategy: str = "wall_aligned"
     max_primary_span: float = 5.0
     min_span: float = 2.5
     span_direction: str = "auto"
@@ -112,9 +119,14 @@ class FrameParams:
         """Column dedupe window, never below the 1.2 m catalogue floor."""
         return max(float(self.column_merge), COLUMN_MERGE_FLOOR_M)
 
+    def slab_t_max_floored_mm(self) -> float:
+        """The slab target cannot sit below the project's RC slab minimum."""
+        return max(float(self.slab_t_max_mm), RC_SLAB_MIN_THICKNESS_MM)
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "system": self.system,
+            "column_strategy": str(self.column_strategy),
             "span_direction": self.span_direction,
             "max_primary_span_m": round(float(self.max_primary_span), 6),
             "min_span_m": round(float(self.min_span), 6),
@@ -127,7 +139,7 @@ class FrameParams:
             "snap_wall_m": round(float(self.snap_wall), 6),
             "tie_trigger_m": round(float(self.tie_trigger), 6),
             "shaft_min_storeys": int(self.shaft_min_storeys),
-            "slab_t_max_mm": round(float(self.slab_t_max_mm), 6),
+            "slab_t_max_mm": round(self.slab_t_max_floored_mm(), 6),
         }
 
 

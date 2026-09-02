@@ -593,9 +593,10 @@ def test_public_building_api_preserves_partial_width_balcony_cantilever_intent()
 
     The exact 20 x 20 ft request creates a 10 x 4 ft balcony panel with a
     quantized 1219 mm projection. Its y_min root is backed by the Living Room
-    panel over 3048 mm. With public w_u=9.5625 kPa:
+    panel over 3048 mm. With the 150 mm project-minimum slab, public
+    w_u=9.75 kPa:
 
-        Mu(root) = 9.5625 x 1219^2 / 2 = 7,104,751.03125 N.mm/m
+        Mu(root) = 9.75 x 1219^2 / 2 = 7,244,059.875 N.mm/m
 
     Old behavior counted four generated edge beams, silently made this an
     ordinary panel, and emitted bottom x/y meshes with no hogging-root check.
@@ -611,7 +612,7 @@ def test_public_building_api_preserves_partial_width_balcony_cantilever_intent()
     )
 
     assert envelope["status"] == "SUCCESS"
-    matches = _element_dicts(envelope, "slab-s0-2")
+    matches = _element_dicts(envelope, "slab-s0-3")
     design = [row for row in matches if row.get("slab_mode") == "cantilever"][0]
     assert design["method"] == "cantilever"
     assert design["status"] == C.STATUS_PASS
@@ -620,7 +621,7 @@ def test_public_building_api_preserves_partial_width_balcony_cantilever_intent()
     assert design["backing_support_ids"] == ["beam-s0-yB-1"]
     assert design["backspan_mm"] == pytest.approx(3048.0)
     assert design["projection_mm"] == pytest.approx(1219.0)
-    assert design["root_moment_nmm"] == pytest.approx(7104751.03125)
+    assert design["root_moment_nmm"] == pytest.approx(7244059.875)
     assert any("root hogging" in note for note in design["notes"])
 
     main = [bar for bar in design["bars"] if bar["role"] == "mesh_cantilever_main_top"][0]
@@ -774,13 +775,13 @@ def test_outside_the_guard_deflection_falls_back_to_the_beam_rule():
     assert by_name(result, "deflection").capacity > 26.0  # continuous basic 26 x MF
 
 
-def test_missing_imposed_split_warns_that_fallback_can_leave_a_thinner_slab():
-    """B19: the fallback is routing, not a conservative slab-depth claim.
+def test_missing_imposed_split_changes_the_route_but_not_the_project_minimum():
+    """B19 plus the project floor: routing may differ; neither result is thin.
 
     For this 3.4 x 4.0 m interior panel starting at 120 mm, using the whole
     7.5 kPa service pressure misses the Cl 24.1 imposed-load guard and the
-    Cl 23.2.1 route passes at 120 mm.  Supplying the actual 2.0 kPa imposed
-    pressure takes Cl 24.1 and its 32 ratio, so the ladder reaches 150 mm.
+    Cl 23.2.1 route would pass thinner. Supplying the actual 2.0 kPa imposed
+    pressure takes Cl 24.1. The 150 mm project floor governs both routes.
     """
     subject = panel(3.4, 4.0, thickness_m=0.12)
     load = SlabLoad(w_u_kpa=11.25, w_service_kpa=7.5)
@@ -792,7 +793,7 @@ def test_missing_imposed_split_warns_that_fallback_can_leave_a_thinner_slab():
     split = slabs.design_slab(subject, load, options(imposed_kpa=2.0))
 
     assert no_split.extras["deflection_route"] == "cl_23_2_1"
-    assert no_split.section["D_mm"] == pytest.approx(120.0)
+    assert no_split.section["D_mm"] == pytest.approx(150.0)
     assert split.extras["deflection_route"] == "cl_24_1"
     assert split.section["D_mm"] == pytest.approx(150.0)
     fallback = " ".join(no_split.notes).lower()
@@ -800,6 +801,8 @@ def test_missing_imposed_split_warns_that_fallback_can_leave_a_thinner_slab():
     assert "larger span/depth ratio" in fallback
     assert "thinner slab" in fallback
     assert "conservative reading" not in fallback
+    assert no_split.resize_history[0]["from"] == pytest.approx(120.0)
+    assert no_split.resize_history[-1]["to"] == pytest.approx(150.0)
 
 
 def test_the_ladder_thickens_ten_millimetres_at_a_time():
@@ -891,12 +894,12 @@ def flight(span_m=2.7, width_m=1.2, rise_m=1.5, element_id="stair-c1-s0-f1"):
     )
 
 
-def test_stair_waist_starts_at_span_over_twenty():
-    """2.7 m going: 2700 / 20 = 135 mm, rounded up the 10 mm module to 140 mm."""
+def test_stair_waist_honours_the_project_minimum_after_span_over_twenty():
+    """2.7 m going gives 140 mm by span/20, so the project floor governs at 150."""
     result = slabs.design_stair_flight(flight(), SlabLoad(w_u_kpa=7.5, w_service_kpa=5.0), options())
     assert result.extras["slab_mode"] == "stair_flight"
-    assert result.resize_history[0]["from"] == pytest.approx(140.0)
-    assert result.section["waist_mm"] >= 140.0
+    assert result.section["waist_mm"] >= 150.0
+    assert all(item["from"] >= 150.0 for item in result.resize_history)
     assert result.section["span_mm"] == pytest.approx(2700.0)
 
 
@@ -1248,7 +1251,7 @@ def test_material_grades_reach_the_result_and_the_design():
 def test_a_panel_with_no_thickness_starts_the_ladder_from_a_derived_one():
     bare = panel(3.6, 4.5, thickness_m=None)
     result = slabs.design_slab(bare, SlabLoad(w_u_kpa=10.0, w_service_kpa=6.7), options())
-    assert result.section["D_mm"] >= 100.0
+    assert result.section["D_mm"] >= 150.0
     assert any("carried no thickness" in note for note in result.notes)
 
 

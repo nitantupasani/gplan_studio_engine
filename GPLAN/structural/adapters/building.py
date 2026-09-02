@@ -1281,6 +1281,10 @@ def from_building(
             "source_name": _text(payload.get("name"), ""),
             "building_type": _text(payload.get("type"), ""),
             "boundary_ft": [[p[0], p[1]] for p in boundary_ft],
+            # Shared unit edges are architectural demising/party walls, not
+            # evidence of a legal property line. Foundation placement consumes
+            # only ids explicitly listed here as no-cross party boundaries.
+            "foundation_party_boundary_wall_ids": [],
             "options": {
                 "storey_height_ft": float(storey_height_ft),
                 "exterior_wall_ft": float(exterior_wall_ft),

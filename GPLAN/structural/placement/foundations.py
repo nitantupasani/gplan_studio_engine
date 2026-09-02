@@ -46,6 +46,7 @@ from ..model import (
     FootingKind,
     GEOM_TOL_M,
     StructuralModel,
+    WallLine,
     WallRole,
     footing_id,
     make_disclosure,
@@ -59,6 +60,16 @@ PLACED_BY = "placement.foundations"
 SOIL_TABLE = "soil_defaults"
 
 _ETA = 1e-9
+
+
+class FoundationLoadError(ValueError):
+    """A compression-only foundation received an unsupported load demand."""
+
+    code = "E_GRAVITY_UPLIFT"
+
+    def __init__(self, message: str, element_ids: Sequence[str] = ()) -> None:
+        super(FoundationLoadError, self).__init__(message)
+        self.element_ids = list(element_ids)
 
 
 # ---------------------------------------------------------------------------
@@ -575,11 +586,27 @@ def _plot_bounds(model: StructuralModel) -> Optional[Tuple[float, float, float, 
     return (min(xs), min(ys), max(xs), max(ys))
 
 
+def _is_foundation_party_boundary(model: StructuralModel, wall: WallLine) -> bool:
+    """Whether this party wall is an explicitly usable no-cross boundary.
+
+    Legacy/direct structural models without metadata retain the historical
+    interpretation that every `PARTY` wall is a boundary. Adapters that know
+    their party label means only an internal demising wall provide an explicit
+    (possibly empty) id roster instead of laundering adjacency into ownership.
+    """
+    if wall.role != WallRole.PARTY:
+        return False
+    explicit = model.meta.get("foundation_party_boundary_wall_ids")
+    if isinstance(explicit, (list, tuple, set)):
+        return str(wall.id) in {str(one) for one in explicit}
+    return True
+
+
 def _party_lines(model: StructuralModel) -> List[Tuple[str, float]]:
-    """Party wall centrelines: a footing may not cross them either (spec 10.5)."""
+    """Explicit no-cross party wall centrelines (spec 10.5)."""
     out = set()
     for wall in model.walls:
-        if wall.role != WallRole.PARTY:
+        if not _is_foundation_party_boundary(model, wall):
             continue
         axis = wall_axis(wall)
         if axis is None:
@@ -615,13 +642,14 @@ def _party_inward(
 
 def _lookup_load(loads: Dict[str, float], keys: Sequence[str]) -> Tuple[float, bool]:
     """The largest load found under any of these ids, and whether one was found."""
-    found = False
-    best = 0.0
+    best = None  # type: Optional[float]
     for key in keys:
         if key in loads and loads[key] is not None:
-            best = max(best, float(loads[key]))
-            found = True
-    return (best, found)
+            value = float(loads[key])
+            best = value if best is None else max(best, value)
+    if best is None or abs(best) <= _ETA:
+        return (0.0, False)
+    return (best, True)
 
 
 def layout_foundations(
@@ -670,6 +698,19 @@ def layout_foundations(
         resolved = Soil.from_params(soil if isinstance(soil, dict) else None)
     wall_loads = dict(wall_loads or {})
     column_loads = dict(column_loads or {})
+    non_positive_columns = sorted(
+        str(key) for key, value in column_loads.items() if float(value) <= _ETA
+    )
+    non_positive_walls = sorted(
+        str(key) for key, value in wall_loads.items() if float(value) <= _ETA
+    )
+    if non_positive_columns or non_positive_walls:
+        ids = non_positive_columns + non_positive_walls
+        raise FoundationLoadError(
+            "compression-only strip/pad placement requires positive service reactions; "
+            "non-positive demand was supplied for " + ", ".join(ids[:20]),
+            ids,
+        )
     plan = FoundationPlan()
     notes = []  # type: List[str]
 
@@ -792,7 +833,7 @@ def _strips(
             )
             if not found:
                 note += "; sized on the geometric minimum because no line load was supplied"
-            party = any(walls[wall_id].role == WallRole.PARTY for wall_id in members)
+            party = any(_is_foundation_party_boundary(model, walls[wall_id]) for wall_id in members)
             strips.append(
                 StripFooting(
                     id=strip_footing_id(members[0]),
@@ -983,7 +1024,7 @@ def _column_on_strip(
         spread_lo = max(lo, station - half_zone)
         spread_hi = min(hi, station + half_zone)
         effective_length = max(spread_hi - spread_lo, min(pad.w_m, max(hi - lo, _ETA)), _ETA)
-        line_load = max(0.0, float(pad.p_service_kn)) / effective_length
+        line_load = float(pad.p_service_kn) / effective_length
         widening = Widening(
             column_id=pad.column_ids[0],
             at_m=station,
@@ -1100,13 +1141,25 @@ def _combine_group(
     `dry_run` returns the same geometry without touching the ladder or the notes,
     so a caller can test the result against a boundary before committing to it.
     """
-    total = sum(max(0.0, float(pad.p_service_kn)) for pad in members)
+    bad = sorted(
+        pad.id
+        for pad in members
+        if pad.load_source == "takedown" and float(pad.p_service_kn) <= _ETA
+    )
+    if bad:
+        raise FoundationLoadError(
+            "combined footing cannot include a non-positive compression reaction: "
+            + ", ".join(bad),
+            bad,
+        )
+    loaded = [pad for pad in members if float(pad.p_service_kn) > _ETA]
+    total = sum(float(pad.p_service_kn) for pad in loaded)
     if total <= _ETA:
         rx = sum(float(pad.load_x_m) for pad in members) / float(len(members))
         ry = sum(float(pad.load_y_m) for pad in members) / float(len(members))
     else:
-        rx = sum(float(pad.load_x_m) * float(pad.p_service_kn) for pad in members) / total
-        ry = sum(float(pad.load_y_m) * float(pad.p_service_kn) for pad in members) / total
+        rx = sum(float(pad.load_x_m) * float(pad.p_service_kn) for pad in loaded) / total
+        ry = sum(float(pad.load_y_m) * float(pad.p_service_kn) for pad in loaded) / total
     rects = [pad.rect() for pad in members]
     x0 = min(rect[0] for rect in rects)
     y0 = min(rect[1] for rect in rects)

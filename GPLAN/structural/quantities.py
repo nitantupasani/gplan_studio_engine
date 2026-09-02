@@ -57,8 +57,11 @@ from .model import (
     Disclosure,
     DisclosureLog,
     Material,
+    RC_SLAB_MIN_THICKNESS_M,
+    RC_SLAB_MIN_THICKNESS_MM,
     StructuralModel,
     WallRole,
+    effective_rc_slab_thickness_m,
     opening_assumed,
 )
 
@@ -144,7 +147,10 @@ SHAPE_CODES = (SHAPE_STRAIGHT, SHAPE_L, SHAPE_STIRRUP)
 # called wrong. Correct arithmetic, wrong advice, and the reader it misled is
 # the reader the warnings exist for. The bands are per system now and live in
 # `data/density_bands.yaml` beside the other calibration data, provenance
-# tagged, with the rc_frame pair unchanged to the digit.
+# tagged. The RC pair was recalibrated on 2026-09-01 after the steel values were
+# found to be an order of magnitude too low for their declared kg/m2 unit; the
+# data file records the published anchors and the India-specific calibration
+# still required.
 
 _BAND_TABLE = load_yaml("density_bands")
 
@@ -1177,8 +1183,7 @@ def _slab_thickness_m(ctx: _Ctx, storey: int) -> float:
         thickness = None if design is None else design.m("thickness_mm", "D_mm")
         if thickness is None:
             thickness = None if panel.thickness_m is None else float(panel.thickness_m)
-        if thickness is not None:
-            best = max(best, float(thickness))
+        best = max(best, effective_rc_slab_thickness_m(thickness))
     ctx.slab_t_m[key] = best
     return best
 
@@ -1435,6 +1440,11 @@ def _measure_slabs(ctx: _Ctx, segments: Sequence[_Segment]) -> float:
         thickness = None if design is None else design.m("thickness_mm", "D_mm")
         if thickness is None:
             thickness = None if panel.thickness_m is None else float(panel.thickness_m)
+        minimum_applied = (
+            thickness is None
+            or float(thickness) < RC_SLAB_MIN_THICKNESS_M - 1e-9
+        )
+        thickness = effective_rc_slab_thickness_m(thickness)
         gross_total += _polygon_area_m2(panel.polygon)
         if ctx.blocked(panel.id):
             ctx.acc.volume(panel.id, "slab", grade, panel.storey, 0.0, _BLOCKED_BASIS)
@@ -1451,9 +1461,8 @@ def _measure_slabs(ctx: _Ctx, segments: Sequence[_Segment]) -> float:
         basis += " over " + str(len(kept)) + " opening(s) past the limit"
         if assumed:
             basis += "; concrete grade assumed " + grade
-        if thickness is None or thickness <= 0.0:
-            basis = "no slab thickness was placed or designed, so this panel is measured as zero"
-            thickness = 0.0
+        if minimum_applied:
+            basis += "; %.0f mm project minimum RC slab thickness applied" % RC_SLAB_MIN_THICKNESS_MM
         ctx.acc.volume(panel.id, "slab", grade, panel.storey, net * float(thickness), basis)
         ctx.acc.shutter("slab", net)
 
@@ -1518,6 +1527,8 @@ def _measure_stairs(ctx: _Ctx) -> float:
                 "the flight carries no designed waist thickness, so it is measured as zero",
             )
             continue
+        supplied_waist = float(waist)
+        waist = effective_rc_slab_thickness_m(supplied_waist)
         cos_theta = math.cos(math.radians(incline))
         if cos_theta <= 1e-6:
             cos_theta = 1.0
@@ -1533,6 +1544,8 @@ def _measure_stairs(ctx: _Ctx) -> float:
         )
         if assumed:
             basis += "; concrete grade assumed " + grade
+        if supplied_waist < RC_SLAB_MIN_THICKNESS_M - 1e-9:
+            basis += "; %.0f mm project minimum RC slab thickness applied" % RC_SLAB_MIN_THICKNESS_MM
         ctx.acc.volume(element_id, "stair", grade, storey, inclined_area * float(waist) + steps, basis)
         ctx.acc.shutter("stair", inclined_area)
     return plan_area
@@ -2950,7 +2963,7 @@ def _resolve_bands(system: Any, options: QuantityOptions) -> Tuple[str, str, Dic
 
 
 def _band_text(check: str, band: Tuple[float, float]) -> str:
-    """"2.50 to 7.00 kg/m2 of reinforcement", the phrase both sentences share."""
+    """A formatted band such as "15.00 to 120.00 kg/m2 of reinforcement"."""
     meta = _BAND_CHECK_META[check]
     fmt = _BAND_LIMIT_FORMAT[check]
     return (

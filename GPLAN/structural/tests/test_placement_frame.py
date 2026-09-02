@@ -19,11 +19,13 @@ import pytest
 from .. import model as M
 from ..grid import FrameParams, extract_axes
 from ..adapters.building import from_building
+from ..adapters.housing import from_housing
 from ..adapters.plan_json import from_plan
 from ..placement.cores import plan_cores
 from ..placement.frame import (
     SCORE_VERSION,
     FrameResult,
+    _PBeam,
     _ColumnState,
     _Stack,
     _View,
@@ -33,6 +35,7 @@ from ..placement.frame import (
     insert_secondary_beams,
     place_lintels_for_infill,
     run_frame_placement,
+    _split_beams_at_columns,
 )
 
 FT = M.FT
@@ -86,6 +89,43 @@ def _storeys(n, h=3.0):
     return [M.Storey(index=i, name="S%d" % i, bottom_z_m=i * h, height_m=h) for i in range(n)]
 
 
+def test_core_beam_is_split_at_an_actual_interior_column_support():
+    """Core trimmers obey the same member/topology contract as other beams."""
+    core_beam = _PBeam(
+        level_key="0",
+        level_rank=0,
+        storey=0,
+        kind=M.BeamKind.TRIMMER,
+        orient="h",
+        pos_mm=1000,
+        lo_mm=0,
+        hi_mm=4000,
+        width_mm=230,
+        depth_mm=450,
+        supports=("core", "core"),
+        core_id="core-stair",
+        note="stair_trimmer",
+        key="core-trimmer",
+    )
+    support = _Stack(
+        x_mm=2000,
+        y_mm=1000,
+        anchor=0,
+        origin="core-test",
+        exists=[0],
+        top=0,
+        base=0,
+        score=Fraction(0),
+    )
+
+    pieces = _split_beams_at_columns([core_beam], [support])
+
+    assert [(beam.lo_mm, beam.hi_mm) for beam in pieces] == [(0, 2000), (2000, 4000)]
+    assert [beam.supports for beam in pieces] == [("core", "col"), ("col", "core")]
+    assert all(beam.core_id == "core-stair" for beam in pieces)
+    assert all((beam.width_mm, beam.depth_mm) == (230, 450) for beam in pieces)
+
+
 def plan_model():
     with open(os.path.join(_FIXTURES, "plan_2bhk.json"), "r") as handle:
         return from_plan(json.load(handle), storeys=2)
@@ -94,6 +134,29 @@ def plan_model():
 def building_model():
     with open(os.path.join(_FIXTURES, "building_3storey.json"), "r") as handle:
         return from_building(json.load(handle))
+
+
+def corner_core_model():
+    """The user's 30 x 40 ft 2BHK with the mandatory stair core at the plot corner
+    (the mid-room-columns report): plan on boundaryContent, core on both floors."""
+    with open(os.path.join(_FIXTURES, "housing_corner_core_2bhk.json"), "r") as handle:
+        return from_housing(json.load(handle))[0]
+
+
+def _distance_to_walls_mm(model, storey, x_mm, y_mm):
+    """Distance from a station to the nearest wall centreline of the storey, mm."""
+    px, py = x_mm / 1000.0, y_mm / 1000.0
+    best = None
+    for wall in model.walls:
+        if wall.storey != storey or wall.role == M.WallRole.RAILING:
+            continue
+        (ax, ay), (bx, by) = wall.a, wall.b
+        dx, dy = bx - ax, by - ay
+        length2 = dx * dx + dy * dy
+        t = 0.0 if length2 == 0 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / length2))
+        d = ((px - ax - t * dx) ** 2 + (py - ay - t * dy) ** 2) ** 0.5
+        best = d if best is None or d < best else best
+    return int(round((best if best is not None else 0.0) * 1000))
 
 
 def two_bay_model():
@@ -371,10 +434,12 @@ def test_full_width_balcony_tip_has_real_column_support_and_stays_regular(plan_r
         )
         level = panel.level
         assert supported is True
+        # Two tip beams between three stacks: the x = 8 ft wall stops at the balcony
+        # root, so its crossing with the tip line is a wall-run station, not a
+        # junction, and the 15 ft tip span it used to split is under the cap.
         assert evidence == {
-            "beam-s%d-yF-0" % level: (["stk-1-F"], ["stk-2-F"]),
-            "beam-s%d-yF-1" % level: (["stk-2-F"], ["stk-3-F"]),
-            "beam-s%d-yF-2" % level: (["stk-3-F"], ["stk-4-F"]),
+            "beam-s%d-yF-0" % level: (["stk-1-F"], ["stk-3-F"]),
+            "beam-s%d-yF-1" % level: (["stk-3-F"], ["stk-4-F"]),
         }
 
     plan_result.write_back(source)
@@ -537,7 +602,7 @@ def test_feedback_resolves_the_6x8_panel_with_one_secondary_each():
     assert len(slabs) == 4
     for panel in slabs:
         assert (panel.lx_mm, panel.ly_mm) == (3000, 4000)
-        assert panel.t_mm == 125  # ceil5((3000 - 230) / 23)
+        assert panel.t_mm == 150  # project minimum governs the 125 mm span/depth thumb value
         assert panel.t_mm <= 150
     codes = {e.code for e in r.log.entries}
     assert "W_COARSE_ITER" not in codes
@@ -729,6 +794,55 @@ def test_tall_ladder_rungs():
     assert "W_TALL" in {e.code for e in r6.log.entries}
 
 
+def test_column_ladder_tapers_by_remaining_storeys_without_widening_upward():
+    def tower(n):
+        rooms = []
+        walls = []
+        for i in range(n):
+            rooms.append(_room(i, "f", M.Occupancy.HABITABLE, 0, 0, 8, 6))
+            walls.extend(_box_walls(i, 0, 0, 8, 6))
+        return M.StructuralModel(id="tier-%d" % n, storeys=_storeys(n), rooms=rooms, walls=walls)
+
+    model = tower(4)
+    result = run_frame_placement(model)
+    result.write_back(model)
+    for stack in result.columns:
+        assert stack.sections_by_storey == {
+            0: (300, 380),
+            1: (300, 300),
+            2: (230, 300),
+            3: (230, 230),
+        }
+        lifts = sorted(
+            (column.storey, round(column.width_m * 1000), round(column.depth_m * 1000))
+            for column in model.columns
+            if column.stack_id == stack.id
+        )
+        assert lifts == [
+            (0, 300, 380),
+            (1, 300, 300),
+            (2, 230, 300),
+            (3, 230, 230),
+        ]
+        assert stack.to_dict()["sections_by_storey"][-1] == {
+            "storey": 3,
+            "width_mm": 230,
+            "depth_mm": 230,
+        }
+
+    # The raw 8 -> 7 ladder changes 300 x 600 to 380 x 450.  The transition
+    # envelope widens the lower lift instead of creating an upward projection.
+    tall = run_frame_placement(tower(8))
+    for stack in tall.columns:
+        sections = [stack.sections_by_storey[level] for level in sorted(stack.exists)]
+        assert sections[0] == (380, 600)
+        assert sections[1] == (380, 450)
+        assert all(
+            lower[0] >= upper[0] and lower[1] >= upper[1]
+            for lower, upper in zip(sections, sections[1:])
+        )
+
+
 # ---------------------------------------------------------------------------
 # the metrics block and the score formula (spec section 7, finding 33)
 # ---------------------------------------------------------------------------
@@ -775,6 +889,104 @@ def test_score_hand_computed_on_the_two_bay_fixture():
         "beams_under_walls_pct": 100,
         "load_path_depth": 3,
     }
+
+
+def test_corner_core_house_columns_sit_on_walls_at_the_5m_cap():
+    """PLACEMENT_RULES B1 steps 3 and 5 on the screenshot house: columns at the
+    junctions of the wall-line graph and the plot corners, an intermediate column
+    only where a wall run between two columns exceeds the cap, beams under walls.
+    The old pass accepted every axis intersection not within 1.5 m of a column, so
+    a station 7 ft along a 14 ft wall (a 4.27 m span) became a column: 20 here."""
+    model = corner_core_model()
+    r = run_frame_placement(model, FrameParams(max_primary_span=5.0))
+    assert r.valid is True
+    assert sum(r.metrics["hard_violations"].values()) == 0
+    assert 16 <= len(r.columns) <= 18
+    for column in r.columns:
+        assert _distance_to_walls_mm(model, 0, column.x_mm, column.y_mm) <= 300, (column.x_mm, column.y_mm)
+    assert all(column.jn >= 2 for column in r.columns if column.origin == "grid")
+    assert {column.origin for column in r.columns} <= {"corner", "core", "grid", "closure", "subdiv"}
+    # the one span-control station: the 5.04 m right-wall run between the plot
+    # corner and the kitchen/bedroom line, split on the wall itself
+    stations = [column for column in r.columns if column.origin == "subdiv"]
+    assert [(column.x_mm, 0 < column.y_mm < 5100) for column in stations] == [(9144, True)]
+    assert r.metrics["beams_under_walls_pct"] == 100
+    assert r.metrics["axis_count"]["x_inserted"] == 0
+    assert r.metrics["axis_count"]["y_inserted"] == 0
+
+
+def test_corner_core_house_at_the_4m_cap_adds_stations_only_by_span_control():
+    """A tighter cap adds columns through span control alone: mid-wall stations on
+    the 4.9 m runs and the grid's inserted axis through the 16 ft kitchen. No axis
+    intersection on a wall run or in open floor is admitted on its own."""
+    model = corner_core_model()
+    r = run_frame_placement(model, FrameParams(max_primary_span=4.0))
+    assert r.valid is True
+    assert sum(r.metrics["hard_violations"].values()) == 0
+    assert all(column.jn >= 2 for column in r.columns if column.origin == "grid")
+    inserted = {
+        axis.pos_mm for axis in r.grid.x_axes + r.grid.y_axes if axis.source.value == "inserted"
+    }
+    assert inserted, "the 16 ft kitchen exceeds a 4 m cap: span control inserts a line"
+    stations = [column for column in r.columns if column.origin == "subdiv"]
+    assert stations
+    for column in r.columns:
+        on_wall = _distance_to_walls_mm(model, 0, column.x_mm, column.y_mm) <= 300
+        on_inserted = column.x_mm in inserted or column.y_mm in inserted
+        assert on_wall or on_inserted, (column.x_mm, column.y_mm, column.origin)
+    assert r.metrics["beams_under_walls_pct"] == 100
+
+
+def test_corner_core_house_designs_end_to_end_at_both_caps():
+    """The full gravity pass on the screenshot house: the 5 m and the 4 m card
+    both complete. At 4 m the ground plinth ties between mid-wall stations on
+    opposite walls are longer than the cap; they carry wall load only and must
+    not refuse the option the way a floor beam over the cap does."""
+    from .. import api
+
+    with open(os.path.join(_FIXTURES, "housing_corner_core_2bhk.json"), "r") as handle:
+        design = json.load(handle)
+    for cap in (5.0, 4.0):
+        envelope = api.run_design(
+            {
+                "source": "housing",
+                "housing": design,
+                "plot_id": "primary",
+                "params": {
+                    "system": "rc_frame",
+                    "analysis_mode": "gravity_only",
+                    "placement_strategy": "wall_aligned",
+                    "spans": {"max_m": cap},
+                },
+                "output": {"detail": "compact", "include_boq": True, "include_quantities": True},
+            }
+        )
+        assert envelope["status"] == "SUCCESS", (cap, envelope.get("message"))
+        entry = envelope["response"]["Documents"]["structural"][0]
+        assert entry["status"] != "refused", (cap, entry.get("stopped_at"))
+        assert entry["design"]["failed_count"] == 0
+        assert entry["analysis"]["physical_max_span_m"] <= cap + 1e-6, "floor beams respect the cap"
+
+
+def test_economy_grid_is_untouched_by_the_junction_pass():
+    """economy_grid keeps every intersection of its sparse axes by construction."""
+    from ..placement.frame import _economy_grid  # noqa: WPS433
+
+    model = plan_model()
+    params = FrameParams(max_primary_span=5.0, column_strategy="economy_grid")
+    r = run_frame_placement(model, params)
+    grid = _economy_grid(extract_axes(model, params), params)
+    inside = {
+        (ax.pos_mm, ay.pos_mm)
+        for ax in grid.x_axes
+        for ay in grid.y_axes
+        if grid.footprints[0].contains(ax.pos_mm, ay.pos_mm)
+    } if hasattr(grid.footprints[0], "contains") else None
+    assert r.metrics["candidate_generator"] == "economy_grid_v0"
+    assert r.metrics["axis_count"] == {"x": 3, "y": 4, "x_inserted": 0, "y_inserted": 0}
+    assert len(r.columns) == 14
+    if inside is not None:
+        assert inside <= {(c.x_mm, c.y_mm) for c in r.columns}
 
 
 def test_metrics_block_is_canonical(plan_result, building_result):

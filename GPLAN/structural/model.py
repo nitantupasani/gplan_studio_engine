@@ -30,6 +30,25 @@ XY = Tuple[float, float]
 # Geometry comparison tolerance in metres (1 mm); the model is not a CAD kernel.
 GEOM_TOL_M = 1e-3
 
+# Project requirement, not a code-derived lower bound. Every RC floor, roof,
+# cantilever panel and designed stair-flight waist is at least this thick at
+# every applicable engine boundary.
+RC_SLAB_MIN_THICKNESS_MM = 150.0
+RC_SLAB_MIN_THICKNESS_M = RC_SLAB_MIN_THICKNESS_MM / 1000.0
+
+
+def effective_rc_slab_thickness_m(thickness_m: Optional[float]) -> float:
+    """Return the project-compliant RC panel thickness in metres.
+
+    A missing value is the same modelling shortfall as a value below the
+    project minimum: downstream load and quantity calculations must not become
+    lighter merely because an edited/intermediate model omitted the depth.
+    ``StructuralModel.validate`` still reports that incomplete geometry.
+    """
+    if thickness_m is None:
+        return RC_SLAB_MIN_THICKNESS_M
+    return max(float(thickness_m), RC_SLAB_MIN_THICKNESS_M)
+
 
 def ft_to_m(value_ft: float) -> float:
     """Feet to metres."""
@@ -213,8 +232,20 @@ REGISTRY = MappingProxyType(
             Severity.ERROR,
             "panel edge lacks the masonry support required by its spanning action",
         ),
+        "E_SLAB_THICKNESS_MIN": (
+            Severity.ERROR,
+            "RC floor, roof or cantilever slab is below the project minimum thickness",
+        ),
         "E_MERGE_FLOOR": (Severity.ERROR, "footing merge would exceed the plan area available"),
         "E_ANA_CONSERVATION": (Severity.ERROR, "load takedown fails the conservation check"),
+        "E_GRAVITY_UPLIFT": (
+            Severity.ERROR,
+            "a support has a non-positive gravity service reaction; the contact-support model is invalid",
+        ),
+        "E_MEMBER_TOPOLOGY": (
+            Severity.ERROR,
+            "one drawn member crosses more than one physical analysis span and must be normalized",
+        ),
         "E_MASONRY_LIMIT": (Severity.ERROR, "masonry storeys or height exceed the code category cap"),
         "E_NO_BEARING_DIRECTION": (Severity.ERROR, "no bearing wall line exists in one direction"),
         # warnings: the result ships, labeled
@@ -271,6 +302,14 @@ REGISTRY = MappingProxyType(
         "W_WIND_STATIC_LIMIT": (Severity.WARNING, "static wind method at the edge of its validity"),
         "W_WIND_UPLIFT": (Severity.WARNING, "net wind uplift governs a roof or footing"),
         # notes: informational simplifications
+        "N_ECONOMY_GRID": (
+            Severity.NOTE,
+            "architectural axis candidates were regularized into a bounded sparse grid",
+        ),
+        "N_GRAVITY_ONLY": (
+            Severity.NOTE,
+            "wind, earthquake and lateral stability were intentionally excluded",
+        ),
         "N_INFILL_STRUT": (Severity.NOTE, "infill credited as equivalent diagonal struts by option"),
         "N_LAP_50D_FLAT": (Severity.NOTE, "laps taken flat at 50d where a bar carries no ld"),
         "N_BBS_SHAPE_CODES_DEFERRED": (Severity.NOTE, "bar shape codes are not emitted in this version"),
@@ -701,6 +740,15 @@ class Lintel:
 
 @dataclass
 class Footing:
+    """A placed foundation footprint.
+
+    ``depth_m`` is the founding level below ground, supplied by the soil / site
+    input. It is deliberately *not* the RC pad thickness: the RCC footing
+    designer owns that section dimension and reports it in its ``D_mm`` result.
+    Keeping the founding level on this placement record preserves the existing
+    ``depth_ft`` wire contract for excavation and drawing consumers.
+    """
+
     id: str
     kind: FootingKind
     supports: List[str] = field(default_factory=list)
@@ -1466,6 +1514,25 @@ class StructuralModel:
                 "E_NOT_RECTANGULAR",
                 "polygon is not a rectilinear loop: " + ", ".join(sorted(crooked)),
                 sorted(crooked),
+                stage=stage,
+            )
+
+        thin_slabs = sorted(
+            slab.id
+            for slab in self.slabs
+            if slab.thickness_m is None
+            or float(slab.thickness_m) < RC_SLAB_MIN_THICKNESS_M - 1e-9
+        )
+        if thin_slabs:
+            log.add(
+                "E_SLAB_THICKNESS_MIN",
+                "%d RC slab panel(s) have no thickness or are below the %.0f mm project minimum: %s"
+                % (
+                    len(thin_slabs),
+                    RC_SLAB_MIN_THICKNESS_MM,
+                    ", ".join(thin_slabs[:10]),
+                ),
+                thin_slabs,
                 stage=stage,
             )
 

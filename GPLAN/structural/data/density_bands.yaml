@@ -9,17 +9,25 @@
 # that always fires is worse, because a correct design that trips a warning
 # teaches the reader to stop reading the warnings.
 #
-# WHY THEY ARE PER SYSTEM. The 2.50 to 7.00 kg/m2 and 0.10 to 0.20 m3/m2 pair is
-# a low-rise RC FRAME rule of thumb, and until 2026-08-30 it was the only pair
-# there was, applied to every system this module supports. A load-bearing
+# WHY THEY ARE PER SYSTEM. The original 2.50 to 7.00 kg/m2 steel band was a
+# unit error: values in that range are sometimes quoted per square foot, not
+# per square metre. Published material-intensity datasets put RC residential
+# steel in the tens of kg/m2 and total concrete (especially when foundations
+# are included) well above 0.20 m3/m2. Until 2026-08-30 the original pair was
+# also applied to every system this module supports. A load-bearing
 # masonry house legitimately carries very little reinforced concrete (seismic
 # bands, lintels, the slab where there is one, and the footings), so the
 # measured masonry run came out at 1.02 kg/m2 and 0.020 m3/m2 and tripped both
 # warnings: correct arithmetic, wrong advice. The bands are per system now, and
 # the warning names the system it judged.
 #
-# PROVENANCE, HONESTLY. Only the rc_frame row is a published rule of thumb. The
-# masonry rows are anchored on this module's own measured runs plus ordinary
+# PROVENANCE, HONESTLY. The rc_frame row is now a deliberately broad envelope
+# anchored to RASMI's published single-family RC percentiles and a Singapore
+# landed-building study that reports building and foundation intensities
+# separately (doi:10.1038/s41597-024-03217-5 and
+# doi:10.1016/j.resconrec.2024.107697). These are cross-geography sanity
+# references, not Indian design norms. The masonry rows are anchored on this
+# module's own measured runs plus ordinary
 # Indian practice arithmetic, and where that anchor is thin the band is WIDE on
 # purpose rather than falsely precise. Every row states what it was anchored on
 # in `basis` and what it does not know in `uncertainty`. Widen a band before
@@ -36,15 +44,17 @@
 #                 wholesale with the first real run, do not nudge it
 schema_version: 1
 source: >-
-  rc_frame: the low-rise reinforced concrete rule of thumb carried by
-  quantities.py since the module was written (spec 07-quantities-report.md
-  section 1.7). load_bearing_masonry: this module's own measured end-to-end run
+  rc_frame: RASMI global material-intensity dataset, Scientific Data 2024,
+  doi:10.1038/s41597-024-03217-5, and the building/foundation intensity table
+  in Resources, Conservation and Recycling 2024,
+  doi:10.1016/j.resconrec.2024.107697; used only as a broad cross-geography
+  sanity envelope. load_bearing_masonry: this module's own measured end-to-end run
   of tests/fixtures/housing_masonry.json on 2026-08-30, widened by hand
   arithmetic over ordinary Indian residential practice (230 mm walls, 3.0 m
   storey, IS 4326 bands and lintels, RC slab present or absent). confined_masonry
   and mixed: NOT MEASURED, bracketed between the two rows that were. No
   published schedule, no code clause.
-edition: "none (engineering heuristic, calibrated 2026-08-30)"
+edition: "none (engineering heuristic, recalibrated 2026-09-01)"
 
 units:
   steel: "kg of reinforcement per m2 of built-up area"
@@ -99,19 +109,25 @@ checks:
 systems:
   rc_frame:
     label: "low-rise reinforced concrete"
-    steel_kg_m2: [2.50, 7.00]
-    concrete_m3_m2: [0.10, 0.20]
+    steel_kg_m2: [15.00, 120.00]
+    concrete_m3_m2: [0.15, 0.70]
     masonry_m3_m2: null
     basis: >-
-      The pair the module has always carried, unchanged. Columns, beams, slabs
-      and footings are the whole structure, so reinforcement and concrete are
-      the two numbers worth sanity checking and masonry is infill.
+      Broad screening envelope over columns, beams, slabs and foundations.
+      RASMI reports 15.6, 21.2 and 35.3 kg/m2 steel and 480.6, 807.6 and
+      1114.5 kg/m2 concrete at the 25th, 50th and 75th percentiles for its
+      single-family RC example. A Singapore landed-building dataset reports
+      90 kg/m2 steel and 720 kg/m2 concrete in the building plus 21 kg/m2 and
+      825 kg/m2 respectively in foundations. Using 2400 kg/m3 for concrete,
+      those sources justify a broad, foundation-inclusive catch range rather
+      than the former factor-of-ten-low steel band.
     uncertainty: >-
-      Masonry is deliberately NOT checked here: an RC frame's walling is a
-      partition-layout question, not a structural one, and the measured frame
-      runs sit anywhere from 0.22 to 0.35 m3/m2 with nothing wrong with any of
-      them. Turning it on would add a warning to a path that is behaving.
-    verify: "inherited"
+      These datasets are not India-specific and differ in floor-area and
+      foundation conventions. The envelope is intentionally wide and is only
+      a bug detector. Calibrate it against independently checked Indian G+1 to
+      G+3 projects before narrowing it. Masonry remains unchecked because an
+      RC frame's infill depends on architectural partitions.
+    verify: "measured"
 
   load_bearing_masonry:
     label: "load bearing masonry"

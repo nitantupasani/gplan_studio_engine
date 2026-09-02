@@ -82,6 +82,7 @@ from ..model import (
     Lintel,
     Material,
     Occupancy,
+    RC_SLAB_MIN_THICKNESS_MM,
     SlabKind,
     SlabPanel,
     StructuralModel,
@@ -99,6 +100,7 @@ from ..model import (
 from .cores import CoreBeam, CorePlan, ShaftWall, StairSlab, frame_core_openings, plan_cores
 
 SCORE_VERSION = "frame-1"
+ECONOMY_SCORE_VERSION = "frame-economy-1"
 
 # Catalogue constants (not user parameters).
 REFUSE_CANTILEVER_M = 2.5
@@ -108,6 +110,9 @@ MID_WALL_DOOR_RUN_MM = 3600
 SLIDE_STEP_MM = 50
 SLIDE_MAX_MM = 1000
 MERGE_FLOOR_MM = 1200
+#: Catalogue R6 upper band: a column whose two line neighbours both sit closer
+#: than this merges away when the span they leave is under the cap.
+SHORT_PAIR_MM = 2000
 PANEL_SHORT_TRIGGER_MM = 4500
 FEEDBACK_ITERATIONS = 3
 SUPPORT_DEDUCT_MM = 230  # centreline span to clear span, one support width
@@ -205,6 +210,146 @@ def _rects_subtract(
             cells = nxt
         pieces.extend(c for c in cells if c[2] > c[0] and c[3] > c[1])
     return sorted(pieces)
+
+
+# ---------------------------------------------------------------------------
+# sparse candidate-grid regularization
+# ---------------------------------------------------------------------------
+
+
+def _economy_axis_path(
+    axes: Sequence[Axis], cap_mm: int, min_span_mm: int
+) -> List[Axis]:
+    """Smallest feasible end-to-end axis path, then the best balanced one.
+
+    ``extract_axes`` intentionally keeps every architectural candidate.  That
+    is useful provenance but it is not a column-placement obligation.  This
+    bounded dynamic program first fixes the minimum number of bays needed by
+    the span cap, then chooses candidates that avoid short bays, balance the
+    bay lengths, and finally prefer a real architectural line over an inserted
+    line.  It is deterministic and exhaustive over the (normally tiny) axis
+    candidate set; no stochastic "optimizer" claim is made.
+    """
+    ordered = sorted(axes, key=lambda one: (one.pos_mm, one.id))
+    if len(ordered) <= 2:
+        return list(ordered)
+    extent = ordered[-1].pos_mm - ordered[0].pos_mm
+    if extent <= 0 or cap_mm <= 0:
+        return [ordered[0], ordered[-1]]
+
+    minimum_segments = max(1, -(-extent // cap_mm))
+    source_cost = {
+        "outline": 0,
+        "party": 1,
+        "core": 1,
+        "corridor": 2,
+        "wall": 3,
+        "inserted": 4,
+    }
+
+    for segments in range(minimum_segments, len(ordered)):
+        target = _round_ratio(extent, segments)
+        # (edges used, terminal axis index) -> (cost tuple, path indices)
+        states = {(0, 0): ((0, 0, 0, 0), (0,))}
+        for used in range(1, segments + 1):
+            for i in range(1, len(ordered)):
+                remaining = segments - used
+                if len(ordered) - 1 - i < remaining:
+                    continue
+                if remaining == 0 and i != len(ordered) - 1:
+                    continue
+                if remaining > 0 and i == len(ordered) - 1:
+                    continue
+                best = None
+                for j in range(0, i):
+                    previous = states.get((used - 1, j))
+                    if previous is None:
+                        continue
+                    gap = ordered[i].pos_mm - ordered[j].pos_mm
+                    if gap <= 0 or gap > cap_mm:
+                        continue
+                    old_cost, old_path = previous
+                    short = max(0, min_span_mm - gap)
+                    added = (
+                        1 if short else 0,
+                        short,
+                        (gap - target) * (gap - target),
+                        0 if i == len(ordered) - 1 else source_cost.get(ordered[i].source.value, 5),
+                    )
+                    cost = tuple(old_cost[k] + added[k] for k in range(4))
+                    path = old_path + (i,)
+                    candidate = (cost, tuple(ordered[p].pos_mm for p in path), path)
+                    if best is None or candidate < best:
+                        best = candidate
+                if best is not None:
+                    states[(used, i)] = (best[0], best[2])
+        final = states.get((segments, len(ordered) - 1))
+        if final is not None:
+            return [ordered[i] for i in final[1]]
+    # Adjacent axes are already span-controlled by grid.extract_axes, so this
+    # fallback is feasible even for an irregular footprint.
+    return list(ordered)
+
+
+def _economy_grid(grid: AxisGrid, params: FrameParams) -> AxisGrid:
+    """Return the sparse admissible subset used by ``economy_grid`` placement."""
+    cap_mm = _mm(min(float(params.max_primary_span), HARD_MAX_SPAN_M))
+    min_span_mm = _mm(float(params.min_span))
+    x_axes = _economy_axis_path(grid.x_axes, cap_mm, min_span_mm)
+    y_axes = _economy_axis_path(grid.y_axes, cap_mm, min_span_mm)
+    x_ids = {axis.id for axis in x_axes}
+    y_ids = {axis.id for axis in y_axes}
+    x_pos = {axis.pos_mm for axis in x_axes}
+    y_pos = {axis.pos_mm for axis in y_axes}
+
+    # Axis-specific warnings from discarded candidates must not survive as if
+    # they described the selected grid.
+    kept_log = DisclosureLog()
+    for entry in grid.log.entries:
+        if entry.code in ("W_SHORT_SPAN", "N_GRID_AXIS_OFFSET"):
+            ids = set(entry.element_ids)
+            if ids and not ids.issubset(x_ids | y_ids):
+                continue
+        kept_log.append(entry)
+
+    for axes in (x_axes, y_axes):
+        for low, high in zip(axes, axes[1:]):
+            gap = high.pos_mm - low.pos_mm
+            if gap < min_span_mm and not (set(low.corridor_keys) & set(high.corridor_keys)):
+                kept_log.add(
+                    "W_SHORT_SPAN",
+                    "selected economy axes %s and %s are %d mm apart, below min_span %d mm"
+                    % (low.id, high.id, gap, min_span_mm),
+                    [low.id, high.id],
+                    stage="placement.economy_grid",
+                )
+
+    kept_log.add(
+        "N_ECONOMY_GRID",
+        "economy_grid_v0 regularized %d x %d architectural candidate axes to %d x %d selected axes; "
+        "all selected bay gaps are bounded by %d mm; this is one deterministic candidate, not a cost optimum, "
+        "and final eligibility follows the full design/foundation/quantity pass"
+        % (len(grid.x_axes), len(grid.y_axes), len(x_axes), len(y_axes), cap_mm),
+        sorted(x_ids | y_ids),
+        stage="placement.economy_grid",
+    )
+    junctions = {
+        storey: [
+            junction
+            for junction in grid.junctions.get(storey, [])
+            if junction.x_mm in x_pos and junction.y_mm in y_pos
+        ]
+        for storey in grid.storeys
+    }
+    return AxisGrid(
+        x_axes=list(x_axes),
+        y_axes=list(y_axes),
+        junctions=junctions,
+        params=params,
+        log=kept_log,
+        storeys=list(grid.storeys),
+        footprints=dict(grid.footprints),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -421,6 +566,7 @@ class _Stack:
     unsupported: List[int] = field(default_factory=list)
     w_mm: int = 230
     d_mm: int = 230
+    sections_by_storey: Dict[int, Tuple[int, int]] = field(default_factory=dict)
     rot: int = 0
     axis_x: Optional[Axis] = None
     axis_y: Optional[Axis] = None
@@ -428,6 +574,12 @@ class _Stack:
     slide_axis: str = ""
     id: str = ""
     placed_by: str = ""
+    #: junction class at the station: X 4, T 3, L 2, on a wall run 1, free 0
+    jn: int = 0
+    #: keys shared by a core corner and the column that ties it to the wall
+    #: line past it when that line is closer than the merge floor (R9/R11):
+    #: such a pair is waived from the floor the way a corridor edge pair is
+    tie_keys: List[str] = field(default_factory=list)
 
     def chebyshev(self, other: "_Stack") -> int:
         return max(abs(self.x_mm - other.x_mm), abs(self.y_mm - other.y_mm))
@@ -442,6 +594,14 @@ class _Stack:
             "y_m": _m(self.y_mm),
             "width_mm": int(self.w_mm),
             "depth_mm": int(self.d_mm),
+            "sections_by_storey": [
+                {
+                    "storey": int(storey),
+                    "width_mm": int(section[0]),
+                    "depth_mm": int(section[1]),
+                }
+                for storey, section in sorted(self.sections_by_storey.items())
+            ],
             "rot": int(self.rot),
             "base_storey": int(self.base),
             "top_storey": int(self.top),
@@ -454,6 +614,10 @@ class _Stack:
             "notes": sorted(self.notes),
             "placed_by": self.placed_by,
         }
+
+    def section_at(self, storey: int) -> Tuple[int, int]:
+        """The monotone thumb section for one physical column lift."""
+        return self.sections_by_storey.get(int(storey), (self.w_mm, self.d_mm))
 
     def on_grid(self) -> bool:
         return (
@@ -537,6 +701,9 @@ class _ColumnState:
             self.cap_mm = _mm(HARD_MAX_SPAN_M)
         self.min_span_mm = _mm(params.min_span)
         self.tol_wall_mm = view.default_t_mm // 2
+        #: station -> (pair key, core corner) for closure columns that tie an
+        #: isolated core corner to a wall line closer than the merge floor
+        self.tie_points = {}  # type: Dict[Tuple[int, int], Tuple[str, _Stack]]
 
     # -- candidate processing -------------------------------------------------
 
@@ -570,6 +737,24 @@ class _ColumnState:
         tol = self.tol_wall_mm
         for rect in self.core_plan.shaft_rects_mm():
             if rect[0] - tol <= x_mm <= rect[2] + tol and rect[1] - tol <= y_mm <= rect[3] + tol:
+                return True
+        return False
+
+    def on_core_edge(self, x_mm: int, y_mm: int) -> bool:
+        """Whether a station lies on the edge of a circulation core.
+
+        A core edge is a loaded wall (flights and landings bear on it), and the
+        crossing of another structural line with it is a station in its own
+        right: it is how the core ties into the grid when its corners cannot
+        (a core closer to the outline than the merge floor gets no column on
+        the outline opposite its corners).
+        """
+        tol = self.tol_wall_mm
+        for cid in sorted(self.core_plan.core_rects_mm):
+            x0, y0, x1, y1 = self.core_plan.core_rects_mm[cid]
+            on_vertical = (abs(x_mm - x0) <= tol or abs(x_mm - x1) <= tol) and y0 - tol <= y_mm <= y1 + tol
+            on_horizontal = (abs(y_mm - y0) <= tol or abs(y_mm - y1) <= tol) and x0 - tol <= x_mm <= x1 + tol
+            if on_vertical or on_horizontal:
                 return True
         return False
 
@@ -612,7 +797,7 @@ class _ColumnState:
         self.door_dropped.append(wall.id)
         return None
 
-    def _score(self, cand: _Cand, x_mm: int, y_mm: int, exists: Sequence[int]) -> Tuple[Fraction, Optional[str], List[str]]:
+    def _score(self, cand: _Cand, x_mm: int, y_mm: int, exists: Sequence[int]) -> Tuple[Fraction, Optional[str], List[str], int]:
         view = self.view
         grid = view.grid
         # Jn: max junction class over storeys; on a wall run without a junction: 1
@@ -655,7 +840,7 @@ class _ColumnState:
                         penalty = 4
                         self.midwall_fired.add(rec.id)
         score = Fraction(10) * jn + Fraction(6) * w_frac + Fraction(8) * cont + Fraction(3) * balance + cand.anchor - penalty
-        return (score, w_dir, support)
+        return (score, w_dir, support, jn)
 
     def process(self, cands: Sequence[_Cand]) -> List[_Stack]:
         """Snap, reject, slide and score one candidate batch (spec B1)."""
@@ -711,7 +896,7 @@ class _ColumnState:
             scored.extend(self.process(extra))
         for key in sorted(prepared):
             cand, exists = prepared[key]
-            score, w_dir, support = self._score(cand, cand.x_mm, cand.y_mm, exists)
+            score, w_dir, support, jn = self._score(cand, cand.x_mm, cand.y_mm, exists)
             top = max(exists)
             scored.append(
                 _Stack(
@@ -727,6 +912,7 @@ class _ColumnState:
                     support=support,
                     slide_axis=cand.slide_axis,
                     placed_by="placement.frame." + cand.origin,
+                    jn=jn,
                 )
             )
         return scored
@@ -776,13 +962,20 @@ class _ColumnState:
                     return True
         return False
 
+    def _waived_pair(self, a: _Stack, b: _Stack) -> bool:
+        """A pair the merge floor does not apply to: both corridor edges, or a
+        core corner and the column tying it to the wall line past it."""
+        if self._corridor_pair(a, b):
+            return True
+        return bool(set(a.tie_keys) & set(b.tie_keys))
+
     def merge(self, scored: Sequence[_Stack]) -> None:
         """Greedy accept by (-S, x, y); a conflicting candidate survives only when
 
         it fixes an over-cap span (the span-guard exception), never closer than
         the 1.2 m catalogue floor to what already stands, and never splitting a
-        span into pieces under that floor. Corridor edge pairs are exempt from
-        the short-span warning (frontend waiver).
+        span into pieces under that floor. Corridor edge pairs and core tie
+        pairs are exempt from the floor and the short-span warning.
         """
         for cand in sorted(scored, key=lambda s: (-s.score, s.x_mm, s.y_mm)):
             conflicts = [a for a in self.accepted if cand.chebyshev(a) < self.merge_mm]
@@ -791,13 +984,13 @@ class _ColumnState:
                 continue
             nearest = sorted(conflicts, key=lambda a: (cand.chebyshev(a), a.x_mm, a.y_mm))[0]
             cheb_min = cand.chebyshev(nearest)
-            if cheb_min < MERGE_FLOOR_MM and not self._corridor_pair(nearest, cand):
+            if cheb_min < MERGE_FLOOR_MM and not self._waived_pair(nearest, cand):
                 # the floor is hard; a subdivision station may slide clear of it
                 if cand.slide_axis and self._slide_station(cand):
                     self.accepted.append(cand)
                 continue
-            if self._corridor_pair(nearest, cand):
-                self.accepted.append(cand)  # both corridor edges stand, waived
+            if self._waived_pair(nearest, cand):
+                self.accepted.append(cand)  # both stand, waived
                 continue
             gaps = self._guard_subgaps(cand)
             if gaps is None or min(gaps) < MERGE_FLOOR_MM:
@@ -849,6 +1042,213 @@ class _ColumnState:
             cand.base = min(exists)
             return True
         return False
+
+    def closure_candidates(self) -> List[_Cand]:
+        """The extent ends of every axis that already carries a column.
+
+        A beam lands on a column at BOTH ends (catalogue R11), so a line that
+        got a column at a junction must also get one where its run ends: the
+        outline crossing at the end of a stair-core edge, the far wall at the
+        end of a partition. Extents already stop at crossing axes, so an end is
+        an existing grid station the junction pass declined; it comes back
+        here through the same snap, door and merge rules, and only when a wall
+        actually passes there (a chord end on open floor stays empty).
+        """
+        out = []  # type: List[_Cand]
+        seen = set()  # type: Set[Tuple[int, int]]
+        for axis in self.view.grid.axes():
+            vertical = axis.dir == AxisDir.X
+            on_line = [
+                a
+                for a in self.accepted
+                if abs((a.x_mm if vertical else a.y_mm) - axis.pos_mm) <= _ON_LINE_TOL_MM
+            ]
+            if not on_line:
+                continue
+            for storey in axis.storeys():
+                for lo, hi in axis.extents_mm.get(storey, []):
+                    inside = [
+                        a
+                        for a in on_line
+                        if storey in a.exists
+                        and lo - _ON_LINE_TOL_MM <= (a.y_mm if vertical else a.x_mm) <= hi + _ON_LINE_TOL_MM
+                    ]
+                    if not inside:
+                        continue
+                    for end in (lo, hi):
+                        if any(abs((a.y_mm if vertical else a.x_mm) - end) <= _ON_LINE_TOL_MM for a in inside):
+                            continue
+                        point = (axis.pos_mm, end) if vertical else (end, axis.pos_mm)
+                        if point in seen:
+                            continue
+                        seen.add(point)
+                        out.append(_Cand(point[0], point[1], 0, "closure"))
+        return sorted(out, key=lambda c: (c.x_mm, c.y_mm))
+
+    # -- post-passes on the accepted set (wall_aligned) -----------------------
+
+    def _line_members(self, vertical: bool, pos_mm: int) -> List[_Stack]:
+        return sorted(
+            (a for a in self.accepted if abs((a.x_mm if vertical else a.y_mm) - pos_mm) <= _ON_LINE_TOL_MM),
+            key=lambda a: (a.y_mm if vertical else a.x_mm),
+        )
+
+    def _removal_leaves_overcap(self, cand: _Stack, vertical: bool) -> bool:
+        """Whether dropping `cand` opens a span over the cap on the given line."""
+        coord = cand.y_mm if vertical else cand.x_mm
+        along = [
+            (a.y_mm if vertical else a.x_mm)
+            for a in self._line_members(vertical, cand.x_mm if vertical else cand.y_mm)
+            if a is not cand
+        ]
+        prev = max((p for p in along if p < coord), default=None)
+        nxt = min((p for p in along if p > coord), default=None)
+        return prev is not None and nxt is not None and (nxt - prev) > self.cap_mm
+
+    def collapse_short_pairs(self) -> List[_Stack]:
+        """Catalogue R6, the upper band: three columns in a row on one line with
+        both gaps under SHORT_PAIR_MM lose the middle one when the span that
+        leaves is under the cap. The partition that met the line there bears on
+        the main beam instead of on a column of its own; a rigid-support
+        continuous-beam analysis lifts a support squeezed between two short
+        spans, and the foundation pass refuses uplift. Anchors, corridor edge
+        pairs and any column whose other line would open past the cap stay.
+        """
+        dropped = []  # type: List[_Stack]
+        progress = True
+        while progress:
+            progress = False
+            for vertical in (True, False):
+                positions = sorted({(a.x_mm if vertical else a.y_mm) for a in self.accepted})
+                for pos in positions:
+                    members = self._line_members(vertical, pos)
+                    for i in range(1, len(members) - 1):
+                        prev, cur, nxt = members[i - 1], members[i], members[i + 1]
+                        if cur.anchor > 0 or cur.origin == "corridor_proj":
+                            continue
+                        g1 = (cur.y_mm - prev.y_mm) if vertical else (cur.x_mm - prev.x_mm)
+                        g2 = (nxt.y_mm - cur.y_mm) if vertical else (nxt.x_mm - cur.x_mm)
+                        if g1 >= SHORT_PAIR_MM or g2 >= SHORT_PAIR_MM or g1 + g2 > self.cap_mm:
+                            continue
+                        if self._waived_pair(prev, cur) or self._waived_pair(cur, nxt):
+                            continue
+                        if self._removal_leaves_overcap(cur, not vertical):
+                            continue
+                        self.accepted.remove(cur)
+                        dropped.append(cur)
+                        progress = True
+                        break
+                    if progress:
+                        break
+                if progress:
+                    break
+        self.accepted.sort(key=lambda s: (s.x_mm, s.y_mm))
+        return dropped
+
+    def _nearest_supporting_mm(
+        self, axes: Sequence[Axis], storey: int, pos_mm: int, from_mm: int, below: bool
+    ) -> Optional[int]:
+        """Nearest perpendicular axis past `from_mm` with a WALL member at `pos_mm`."""
+        best = None  # type: Optional[int]
+        for other in axes:
+            p = other.pos_mm
+            if below and p >= from_mm - _ON_LINE_TOL_MM:
+                continue
+            if not below and p <= from_mm + _ON_LINE_TOL_MM:
+                continue
+            spans = other.member_spans_mm.get(storey) or []
+            if not any(lo - _ON_LINE_TOL_MM <= pos_mm <= hi + _ON_LINE_TOL_MM for lo, hi, _tag in spans):
+                continue
+            if best is None or (below and p > best) or (not below and p < best):
+                best = p
+        return best
+
+    def _core_corner_tied(self, col: _Stack) -> bool:
+        grid = self.view.grid
+        for vertical in (True, False):
+            axis = _axis_at(
+                grid.x_axes if vertical else grid.y_axes,
+                col.x_mm if vertical else col.y_mm,
+                _AXIS_MATCH_TOL_MM,
+            )
+            if axis is None:
+                continue
+            coord = col.y_mm if vertical else col.x_mm
+            members = self._line_members(vertical, axis.pos_mm)
+            for storey in axis.storeys():
+                for lo, hi in axis.extents_mm.get(storey, []):
+                    if not (lo - _ON_LINE_TOL_MM <= coord <= hi + _ON_LINE_TOL_MM):
+                        continue
+                    for a in members:
+                        along = a.y_mm if vertical else a.x_mm
+                        if a is not col and a.origin != "core" and storey in a.exists and lo - _ON_LINE_TOL_MM <= along <= hi + _ON_LINE_TOL_MM:
+                            return True
+        return False
+
+    def tie_isolated_core_corners(self) -> bool:
+        """Catalogue R9/R11: a core corner that shares no run with a non-core
+        column hangs on its trimmers alone. Its two core-edge lines are extended
+        from that corner to the nearest perpendicular line that carries a WALL
+        there (outline or partition), so the framer runs a beam from the corner
+        to that line and the closure pass lands a column on it. Core edges stop
+        at the core's own crossing edges in the grid, which is right for a core
+        that walls already reach and leaves an island otherwise.
+
+        When that wall line is closer than the merge floor (a stair 900 mm off
+        the outer wall), the tie column and the corner form a waived pair, the
+        way two corridor edges do: the corner keeps its column (its trimmers
+        bear on it) and the outline gets one too. Returns whether any extent
+        changed."""
+        grid = self.view.grid
+        changed = False
+        for col in [a for a in self.accepted if a.origin == "core"]:
+            if self._core_corner_tied(col):
+                continue
+            for vertical in (True, False):
+                axes = grid.x_axes if vertical else grid.y_axes
+                others = grid.y_axes if vertical else grid.x_axes
+                axis = _axis_at(axes, col.x_mm if vertical else col.y_mm, _AXIS_MATCH_TOL_MM)
+                if axis is None:
+                    continue
+                coord = col.y_mm if vertical else col.x_mm
+                for storey in list(axis.storeys()):
+                    if storey not in col.exists:
+                        continue
+                    spans = []  # type: List[Tuple[int, int]]
+                    for lo, hi in axis.extents_mm.get(storey, []):
+                        if lo - _ON_LINE_TOL_MM <= coord <= hi + _ON_LINE_TOL_MM:
+                            for at_lo in (True, False):
+                                end = lo if at_lo else hi
+                                if abs(coord - end) > _ON_LINE_TOL_MM:
+                                    continue
+                                target = self._nearest_supporting_mm(others, storey, axis.pos_mm, end, at_lo)
+                                if target is None:
+                                    continue
+                                if at_lo and target < lo:
+                                    lo = target
+                                    changed = True
+                                elif not at_lo and target > hi:
+                                    hi = target
+                                    changed = True
+                                if 0 < abs(target - coord) < MERGE_FLOOR_MM:
+                                    point = (axis.pos_mm, target) if vertical else (target, axis.pos_mm)
+                                    key = "core-tie:%d:%d:%d:%d" % (col.x_mm, col.y_mm, point[0], point[1])
+                                    self.tie_points[point] = (key, col)
+                        spans.append((lo, hi))
+                    axis.extents_mm[storey] = _merge_intervals(spans)
+        return changed
+
+    def mark_tie_pairs(self, scored: Sequence[_Stack]) -> None:
+        """Stamp the shared pair key on a closure column standing on a tie point
+        and on the core corner it ties, so the merge floor waives the pair."""
+        for stack in scored:
+            for (px, py), (key, corner) in self.tie_points.items():
+                if abs(stack.x_mm - px) <= _ON_LINE_TOL_MM and abs(stack.y_mm - py) <= _ON_LINE_TOL_MM:
+                    if key not in stack.tie_keys:
+                        stack.tie_keys.append(key)
+                    if key not in corner.tie_keys:
+                        corner.tie_keys.append(key)
+                    stack.notes.append("ties core corner (%d, %d) mm to this wall line" % (corner.x_mm, corner.y_mm))
 
     def subdivision_candidates(self) -> List[_Cand]:
         """Even stations where accepted columns leave a gap over the cap (B1)."""
@@ -936,11 +1336,67 @@ def place_columns(
                 continue
             common = [s for s in view.storeys if ax.present(s) and ay.present(s)]
             if any(view.covers(s, ax.pos_mm, ay.pos_mm) for s in common):
-                cands.append(_Cand(ax.pos_mm, ay.pos_mm, 0, "grid"))
+                cands.append(
+                    _Cand(
+                        ax.pos_mm,
+                        ay.pos_mm,
+                        0,
+                        "grid",
+                        # The selected economy axes are structural stations.
+                        # Do not snap them back onto a discarded architectural
+                        # line; door avoidance may still slide/drop them and the
+                        # physical-span audit will then decide validity.
+                        no_snap=params.column_strategy == "economy_grid",
+                    )
+                )
 
-    state.merge(state.process(cands))
-    subdiv = state.subdivision_candidates()
-    if subdiv:
+    scored = state.process(cands)
+    if params.column_strategy == "economy_grid":
+        # every intersection of the selected sparse axes is a station of the
+        # regular grid by construction; the strategy's whole point
+        state.merge(scored)
+        subdivision_rounds = 1
+    else:
+        # PLACEMENT_RULES B1 step 3: candidates are the JUNCTIONS of the wall-line
+        # graph (L/T/X) plus the pinned anchors and corridor edge projections. An
+        # axis intersection on a wall run or in open floor is never a column in
+        # its own right: step 5 adds intermediate columns only where a wall run
+        # between two placed columns exceeds max_span, and those stations are
+        # extent-aware and wall-snapped by `subdivision_candidates`. Accepting
+        # every intersection here put a column 7 ft along a 14 ft wall (a
+        # 4.27 m span under the 5 m cap) and a free column wherever two walls'
+        # axes crossed in a room.
+        state.merge(
+            [
+                s
+                for s in scored
+                if s.anchor > 0
+                or s.origin == "corridor_proj"
+                or s.jn >= 2
+                or state.on_core_edge(s.x_mm, s.y_mm)
+            ]
+        )
+        # then close every line that carries a column at the ends of its run,
+        # where a wall passes (R11: beams land on columns at both ends); a core
+        # corner otherwise hangs on its trimmers alone with no beam to the frame
+        closure = state.process(state.closure_candidates())
+        state.merge([s for s in closure if s.jn >= 1])
+        # a core no wall reaches gets its edge lines run out to the nearest wall
+        # line and closed there (R9/R11), then the R6 upper band collapses a
+        # column squeezed between two short spans
+        if state.tie_isolated_core_corners():
+            closure = state.process(state.closure_candidates())
+            state.mark_tie_pairs(closure)
+            state.merge([s for s in closure if s.jn >= 1])
+        state.collapse_short_pairs()
+        # a room over the cap in both directions gets its mid-wall stations in
+        # round 1 and, if the line through them is still over the cap, its
+        # centre station in round 2; bounded, the panel feedback covers the rest
+        subdivision_rounds = 2
+    for _round in range(subdivision_rounds):
+        subdiv = state.subdivision_candidates()
+        if not subdiv:
+            break
         state.merge(state.process(subdiv))
 
     for stack in state.accepted:
@@ -1052,13 +1508,32 @@ def enforce_continuity(
 def _assign_sizes(stacks: List[_Stack], view: _View, log: DisclosureLog) -> None:
     tall = []  # type: List[str]
     for stack in stacks:
-        n = stack.top - stack.base + 1
-        if n >= 8:
-            w, d = (300, 600)
-        else:
-            w, d = _COLUMN_LADDER.get(max(1, n), (230, 230))
-        stack.w_mm, stack.d_mm = w, d
-        if n > 5:
+        levels = sorted(set(int(storey) for storey in stack.exists))
+        raw = {}  # type: Dict[int, Tuple[int, int]]
+        for storey in levels:
+            remaining = sum(1 for level in levels if level >= storey)
+            raw[storey] = (
+                (300, 600)
+                if remaining >= 8
+                else _COLUMN_LADDER.get(max(1, remaining), (230, 230))
+            )
+
+        # A dimension may reduce at a floor but may never increase above one.
+        # Envelope from the roof down.  This is material at the 8 -> 7 rung:
+        # raw 300 x 600 below raw 380 x 450 would otherwise widen upward.
+        sections = {}  # type: Dict[int, Tuple[int, int]]
+        upper_w = upper_d = 0
+        for storey in reversed(levels):
+            raw_w, raw_d = raw[storey]
+            width = max(raw_w, upper_w)
+            depth = max(raw_d, upper_d)
+            sections[storey] = (width, depth)
+            upper_w, upper_d = width, depth
+        stack.sections_by_storey = dict(sorted(sections.items()))
+        if levels:
+            stack.w_mm, stack.d_mm = stack.section_at(levels[0])
+
+        if len(levels) > 5:
             tall.append(stack.id or stack_id(x_m=_m(stack.x_mm), y_m=_m(stack.y_mm)))
         # orientation: long side lies in the longest supporting wall
         best = None  # type: Optional[Tuple[int, str, str]]
@@ -2227,7 +2702,10 @@ class _Panelizer:
         self.log = log
         self.framer = framer
         self.irregular_logged = set()  # type: Set[str]
-        self.slab_t_max = int(round(float(params.slab_t_max_mm)))
+        self.slab_t_max = max(
+            int(round(float(params.slab_t_max_mm))),
+            int(round(RC_SLAB_MIN_THICKNESS_MM)),
+        )
 
     def panelize(self, storey: int, beams: Sequence[_PBeam]) -> List[_Panel]:
         footprint = self.view.grid.footprints.get(storey)
@@ -2400,7 +2878,10 @@ class _Panelizer:
                 ends = (("h", panel.rect_mm[1]), ("h", panel.rect_mm[3]))
             continuous = sum(1 for orient, pos in ends if self._side_continuous(panel, orient, pos))
             ratio = (20, 23, 26)[continuous]
-        panel.t_mm = max(100, _ceil5(-(-clear // ratio)))
+        panel.t_mm = max(
+            int(round(RC_SLAB_MIN_THICKNESS_MM)),
+            _ceil5(-(-clear // ratio)),
+        )
         if panel.kind == "slab":
             panel.marked = panel.t_mm > self.slab_t_max or panel.lx_mm > PANEL_SHORT_TRIGGER_MM
         if panel.irregular and panel.kind == "slab":
@@ -2513,6 +2994,60 @@ def _size_beams(beams: List[_PBeam]) -> None:
                 prev_hi = beam.hi_mm
             else:
                 group = []
+
+
+def _split_beams_at_columns(beams: Sequence[_PBeam], stacks: Sequence[_Stack]) -> List[_PBeam]:
+    """Make every interior column station an explicit beam-fragment end.
+
+    Architectural wall duty and slab-feedback repair can create one long
+    drawing fragment across several already-selected grid columns.  The
+    BeamRun analysis understands the intermediate supports, but a member row
+    and its reinforcement schedule need a fragment boundary there so the
+    internal support moment is not hidden inside one endpoint/midpoint row.
+    """
+    out = []  # type: List[_PBeam]
+    for beam in beams:
+        cuts = []  # type: List[int]
+        for stack in stacks:
+            if beam.storey not in stack.exists:
+                continue
+            across = stack.y_mm if beam.orient == "h" else stack.x_mm
+            along = stack.x_mm if beam.orient == "h" else stack.y_mm
+            if abs(across - beam.pos_mm) > _ON_LINE_TOL_MM:
+                continue
+            if beam.lo_mm + 10 < along < beam.hi_mm - 10:
+                cuts.append(int(along))
+        stations = [beam.lo_mm] + sorted(set(cuts)) + [beam.hi_mm]
+        if len(stations) == 2:
+            out.append(beam)
+            continue
+        for index, (lo, hi) in enumerate(zip(stations[:-1], stations[1:])):
+            out.append(
+                _PBeam(
+                    level_key=beam.level_key,
+                    level_rank=beam.level_rank,
+                    storey=beam.storey,
+                    kind=beam.kind,
+                    orient=beam.orient,
+                    pos_mm=beam.pos_mm,
+                    lo_mm=lo,
+                    hi_mm=hi,
+                    width_mm=beam.width_mm,
+                    depth_mm=beam.depth_mm,
+                    under_wall=beam.under_wall,
+                    supports=(
+                        beam.supports[0] if index == 0 else "col",
+                        beam.supports[1] if index == len(stations) - 2 else "col",
+                    ),
+                    chain=beam.chain,
+                    core_id=beam.core_id,
+                    note=beam.note,
+                    key=(beam.key + ":colsplit:%d" % index) if beam.key else "colsplit:%d" % index,
+                    line_label=beam.line_label,
+                    axis_ref=beam.axis_ref,
+                )
+            )
+    return sorted(out, key=lambda b: (b.storey, b.level_rank, b.orient, b.pos_mm, b.lo_mm, b.hi_mm, b.kind.value))
 
 
 def _assign_beam_ids(beams: List[_PBeam], grid: AxisGrid) -> None:
@@ -2652,7 +3187,21 @@ def score_layout(
     for dim_mm, count in ((dims[0], axis_count["x"]), (dims[1], axis_count["y"])):
         ideal = (-(-dim_mm // cap_mm) + 1) if dim_mm > 0 and cap_mm > 0 else count
         extra_axes += max(0, count - ideal)
-    if columns_per < 4.0:
+    minimum_regular_grid_columns = None  # type: Optional[int]
+    column_count_excess_pct = None  # type: Optional[float]
+    if view.params.column_strategy == "economy_grid":
+        nx = (-(-dims[0] // cap_mm) + 1) if dims[0] > 0 and cap_mm > 0 else len(grid.x_axes)
+        ny = (-(-dims[1] // cap_mm) + 1) if dims[1] > 0 and cap_mm > 0 else len(grid.y_axes)
+        minimum_regular_grid_columns = max(1, int(nx) * int(ny))
+        column_count_excess_pct = round(
+            100.0 * max(0, len(stacks) - minimum_regular_grid_columns) / minimum_regular_grid_columns,
+            1,
+        )
+        # Stair openings, re-entrant corners and door avoidance can legitimately
+        # add supports. Penalize the excess, not the small-building boundary
+        # effect that makes every viable 30 x 40 ft grid exceed 7 columns/100m2.
+        cdist = column_count_excess_pct / 10.0
+    elif columns_per < 4.0:
         cdist = 4.0 - columns_per
     elif columns_per > 7.0:
         cdist = columns_per - 7.0
@@ -2670,9 +3219,13 @@ def score_layout(
         score -= min(10, (90 - beams_under) // 2)
     score = max(0, score)
 
-    return {
+    result = {
         "score": int(score),
-        "score_version": SCORE_VERSION,
+        "score_version": (
+            ECONOMY_SCORE_VERSION
+            if view.params.column_strategy == "economy_grid"
+            else SCORE_VERSION
+        ),
         "hard_violations": counts,
         "span_histogram": histogram_out,
         "axis_count": axis_count,
@@ -2682,6 +3235,12 @@ def score_layout(
         "beams_under_walls_pct": int(beams_under),
         "load_path_depth": int(load_path),
     }
+    if minimum_regular_grid_columns is not None:
+        result["minimum_regular_grid_columns"] = minimum_regular_grid_columns
+        result["column_count_excess_pct"] = column_count_excess_pct
+        result["column_strategy"] = "economy_grid"
+        result["candidate_generator"] = "economy_grid_v0"
+    return result
 
 
 def _plan_dims_mm(grid: AxisGrid) -> Tuple[int, int]:
@@ -3185,6 +3744,7 @@ class FrameResult:
                     cid = column_id(storey, labels[0], labels[1])
                 else:
                     cid = column_id(storey, x_m=_m(stack.x_mm), y_m=_m(stack.y_mm))
+                width_mm, depth_mm = stack.section_at(storey)
                 columns.append(
                     Column(
                         id=cid,
@@ -3192,8 +3752,8 @@ class FrameResult:
                         storey=storey,
                         x_m=_m(stack.x_mm),
                         y_m=_m(stack.y_mm),
-                        width_m=_m(stack.w_mm),
-                        depth_m=_m(stack.d_mm),
+                        width_m=_m(width_mm),
+                        depth_m=_m(depth_mm),
                         rot=int(stack.rot),
                         on_grid=labels,
                         placed_by=stack.placed_by,
@@ -3287,7 +3847,7 @@ class FrameResult:
             )
         model.slabs = slabs
         model.meta["frame_placement"] = {
-            "score_version": SCORE_VERSION,
+            "score_version": self.metrics.get("score_version", SCORE_VERSION),
             "valid": bool(self.valid),
             "metrics": self.metrics,
             "report": self.report,
@@ -3315,6 +3875,8 @@ def run_frame_placement(
     params = params if params is not None else FrameParams()
     log = DisclosureLog()
     grid = extract_axes(model, params)
+    if params.column_strategy == "economy_grid":
+        grid = _economy_grid(grid, params)
     log.extend(grid.log.entries)
 
     core_plan = plan_cores(model, grid, params)
@@ -3369,6 +3931,10 @@ def run_frame_placement(
                 stage=_STAGE_SLABS,
             )
         cap_mm = state.cap_mm
+        slab_target_mm = max(
+            int(round(float(params.slab_t_max_mm))),
+            int(round(RC_SLAB_MIN_THICKNESS_MM)),
+        )
         for panel in sorted(still_marked, key=lambda p: p.id):
             if min(panel.lx_mm, panel.ly_mm) * 2 > 3 * cap_mm:
                 log.add(
@@ -3377,11 +3943,21 @@ def run_frame_placement(
                     [panel.id],
                     stage=_STAGE_SLABS,
                 )
-            else:
+            elif panel.t_mm is not None and panel.t_mm > slab_target_mm:
                 log.add(
                     "W_THICK_SLAB",
                     "panel %s keeps a %s mm thumb thickness above the %d mm target"
-                    % (panel.id, panel.t_mm, int(round(float(params.slab_t_max_mm)))),
+                    % (panel.id, panel.t_mm, slab_target_mm),
+                    [panel.id],
+                    stage=_STAGE_SLABS,
+                )
+            else:
+                log.add(
+                    "W_COARSE_ITER",
+                    "panel %s remains above the secondary-beam span trigger after feedback; "
+                    "its %s mm thumb thickness is within the %d mm target and the final slab "
+                    "design, not this preliminary thumb rule, governs"
+                    % (panel.id, panel.t_mm, slab_target_mm),
                     [panel.id],
                     stage=_STAGE_SLABS,
                 )
@@ -3395,6 +3971,7 @@ def run_frame_placement(
     if ground is not None and ground.height_m > float(params.tie_trigger):
         all_beams.extend(_connect_level(stacks, ground_fp, "T0", BeamKind.TIE, "tie"))
 
+    all_beams = _split_beams_at_columns(all_beams, stacks)
     _size_beams(all_beams)
     _assign_beam_ids(all_beams, grid)
     _assign_stack_ids(stacks)
@@ -3512,7 +4089,7 @@ def _validate_merge_floor(state: _ColumnState, log: DisclosureLog) -> None:
             a, b = accepted[i], accepted[j]
             if b.x_mm - a.x_mm >= MERGE_FLOOR_MM:
                 break
-            if a.chebyshev(b) < MERGE_FLOOR_MM and not state._corridor_pair(a, b):
+            if a.chebyshev(b) < MERGE_FLOOR_MM and not state._waived_pair(a, b):
                 log.add(
                     "E_MERGE_FLOOR",
                     "columns %s and %s are %d mm apart, under the 1.2 m merge floor"
