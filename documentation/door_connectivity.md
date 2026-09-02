@@ -35,7 +35,9 @@ The property of adjacency and non adjacency of the rooms (nodes) are depicted us
   opens the upper bound (`max` is ignored and treated as 99999) — the min-dim solver
   compacts every room toward its minimum, so rooms come out at or just above `min`.
   Do not use min = max to request exact dimensions; exact sizing is not supported on
-  this path. Send `maxDimEnabled: true` to also apply the per-node ceilings.
+  this path for an ordinary room. Send `maxDimEnabled: true` to also apply the
+  per-node ceilings. A node explicitly marked `is_fixed: true` is the one
+  exception; see **Fixed rooms** below.
 
 `maxDimEnabled : bool (true|false) (default = false)`
 
@@ -123,6 +125,28 @@ The property of adjacency and non adjacency of the rooms (nodes) are depicted us
       `minDimEnabled`, only `min` is used (as a lower bound); `max` is ignored
 - `ratio : limit (optional) (default = {"max" : 9999, "min" : 3})`
 
+- `is_fixed : bool (optional) (default = false)`
+    : Marks a rectangular node as a hard occupied part of the dissection, such
+      as a stair or lift core. Fixed nodes require `minDimEnabled: true`, an
+      equal positive `width.min == width.max`, and an equal positive
+      `height.min == height.max`. Unlike an ordinary min-dimensioned room, the
+      engine does not widen these maxima, release them on an infeasible solver
+      rung, relax them toward allocator floors, rotate the plan, grow the fixed
+      room while closing gaps, or let post-processing resize it. The engine also
+      derives an exact area equality from the two spans. Invalid fixed bands are
+      rejected at the API boundary.
+- `fixed_anchor : string (optional with is_fixed)`
+    : Hard exterior anchor for a fixed node. Supported values are `N`, `NE`,
+      `E`, `SE`, `S`, `SW`, `W`, and `NW` (full direction names are accepted
+      too). A corner value requires direct contact with both exterior sides;
+      it is stronger than an ordinary cardinal request, which only requires an
+      unobstructed strip. In the normalized floorplan coordinate system,
+      `NW` therefore means the fixed room's left and top coordinates are both
+      `0`. Housing defaults a newly created staircase to `SW`: left is `0` and
+      bottom equals the declared plot height. For `S`/`E` anchors that declared
+      extent is authoritative, so a smaller translated plan cannot pass merely
+      by touching its own result bounding box.
+
 - `limit` 
     - `max: int`
     - `min: int`
@@ -196,7 +220,43 @@ The property of adjacency and non adjacency of the rooms (nodes) are depicted us
 : When 1 (default), every accepted floorplan is also returned as a whole-plan 90°
   rotated variant. In rotated variants each room satisfies its minimums with width
   and height swapped. Send 0 if minimum width/height must hold strictly per axis
-  (also roughly halves generation time)
+  (also roughly halves generation time). The engine forces rotation off when
+  any node is fixed, even if the client sends 1.
+
+### Fixed rooms
+
+A fixed room participates in the adjacency graph as a normal node, but its
+geometry is an immutable obstacle. Clients should include at least one real
+adjacency edge from the fixed node to the program (for example, Staircase to
+Living Room or circulation) so the requested graph remains connected:
+
+```json
+{
+  "id": 5,
+  "label": "Staircase",
+  "is_fixed": true,
+  "fixed_anchor": "SW",
+  "width": {"min": 7, "max": 7},
+  "height": {"min": 10, "max": 10},
+  "ratio": {"min": 0.5, "max": 3},
+  "color": "#1C4C82"
+}
+```
+
+The engine injects the anchor into every topology attempt, equality-constrains
+both axes in the dimension solver, treats the room as occupied during
+rectangular gap closing, and validates exact spans plus direct side contact
+after rectangularization and after post-processing. Soft cardinal requests and
+ordinary room maxima may still follow their documented relaxation ladders; a
+fixed node never does. If the fixed dimensions/anchor cannot be realised (for
+example, two overlapping rooms both demand the same corner), the response contains no
+invalid fallback plan and its message says the fixed-room constraints are hard.
+
+The returned fixed-room geometry is authoritative. A client must not uniformly
+scale or centre a generated variant after the engine returns it, because that
+would resize the core or move it away from the anchored plot corner. Validate
+the returned fixed bounding box before accepting a variant, then render that
+node as the existing stair/core rather than dressing it as an ordinary room.
 
 ///
 

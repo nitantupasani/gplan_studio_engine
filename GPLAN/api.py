@@ -123,6 +123,137 @@ FLOORPLAN_LIMIT = 30
 CARDINAL_DIR_INDEX = {"N": 0, "E": 1, "S": 2, "W": 3,
                       "NORTH": 0, "EAST": 1, "SOUTH": 2, "WEST": 3}
 
+# A fixed room may be unanchored (exact size only), pinned to one side, or
+# pinned to a corner.  Housing defaults its mandatory stair to SW.
+# Anchors are direct bbox contacts, stronger than the ordinary cardinal
+# "unblocked strip" preference.
+FIXED_ANCHOR_DIRECTIONS = {
+    "N": (0,), "NE": (0, 1), "E": (1,), "SE": (1, 2),
+    "S": (2,), "SW": (2, 3), "W": (3,), "NW": (0, 3),
+}
+FIXED_ANCHOR_ALIASES = {
+    "NORTH": "N", "NORTHEAST": "NE", "EAST": "E",
+    "SOUTHEAST": "SE", "SOUTH": "S", "SOUTHWEST": "SW",
+    "WEST": "W", "NORTHWEST": "NW",
+}
+
+
+def _fixed_axis_value(node, axis):
+    """Exact positive axis value from a fixed node's min == max band."""
+    band = node.get(axis)
+    if not isinstance(band, dict):
+        raise ValueError("fixed room %r needs a %s {min,max} band"
+                         % (node.get("label", node.get("id")), axis))
+    try:
+        lo = float(band.get("min"))
+        hi = float(band.get("max"))
+    except (TypeError, ValueError):
+        raise ValueError("fixed room %r needs numeric %s min/max"
+                         % (node.get("label", node.get("id")), axis))
+    if lo <= 0 or hi <= 0 or abs(lo - hi) > 1e-6:
+        raise ValueError("fixed room %r needs equal positive %s min/max"
+                         % (node.get("label", node.get("id")), axis))
+    return lo
+
+
+def normalize_fixed_rooms(nodes_list, dim_inputs, min_dim_enabled):
+    """Normalize ``is_fixed`` door-connectivity nodes and harden dimensions.
+
+    Wire contract (backward compatible; ordinary nodes are untouched)::
+
+        {"id": 7, "label": "Staircase", "is_fixed": true,
+         "fixed_anchor": "SW",
+         "width": {"min": 7, "max": 7},
+         "height": {"min": 10, "max": 10}}
+
+    The production view builds ``dim_inputs`` before the engine sees the
+    request and older deployments may open every maximum to 99999.  Rewriting
+    the four aligned columns here makes the fixed-node contract authoritative
+    at the engine boundary.  Area is equality-constrained too so gap filling
+    and NBC post-processing see the same lock.
+    """
+    fixed = []
+    for index, node in enumerate(nodes_list or []):
+        if not isinstance(node, dict) or not node.get("is_fixed"):
+            continue
+        if not min_dim_enabled:
+            raise ValueError("fixed rooms require minDimEnabled")
+        width = _fixed_axis_value(node, "width")
+        height = _fixed_axis_value(node, "height")
+        raw_anchor = node.get("fixed_anchor")
+        anchor = None
+        directions = ()
+        if raw_anchor is not None and str(raw_anchor).strip():
+            key = str(raw_anchor).upper().replace("-", "").replace("_", "").replace(" ", "")
+            anchor = FIXED_ANCHOR_ALIASES.get(key, key)
+            if anchor not in FIXED_ANCHOR_DIRECTIONS:
+                raise ValueError("fixed room %r has unsupported anchor %r"
+                                 % (node.get("label", node.get("id")), raw_anchor))
+            directions = FIXED_ANCHOR_DIRECTIONS[anchor]
+        fixed.append({
+            "room": index,
+            "width": width,
+            "height": height,
+            "anchor": anchor,
+            "directions": directions,
+        })
+
+        # N/W normalize to the engine origin. S/E need the real plot extent as
+        # well; touching a smaller generated bbox is not enough to align a
+        # physical core drawn at the target's south/east boundary.
+        if 1 in directions:
+            try:
+                plot_width = float(dim_inputs.get("plot_width") or 0)
+            except (TypeError, ValueError):
+                plot_width = 0
+            if plot_width > 0:
+                fixed[-1]["right"] = plot_width
+        if 2 in directions:
+            try:
+                plot_height = float(dim_inputs.get("plot_height") or 0)
+            except (TypeError, ValueError):
+                plot_height = 0
+            if plot_height > 0:
+                fixed[-1]["bottom"] = plot_height
+
+    if not fixed:
+        return []
+
+    # Copy columns before mutation: get_floorplans historically receives a
+    # caller-owned dict and some tests reuse it across requests.
+    count = len(nodes_list)
+    for key, default in (("min_width", 0.0), ("max_width", 99999.0),
+                         ("min_height", 0.0), ("max_height", 99999.0),
+                         ("min_area", 0.0), ("max_area", 0.0)):
+        values = list(dim_inputs.get(key) or [])
+        if len(values) < count:
+            values.extend([default] * (count - len(values)))
+        dim_inputs[key] = values
+    for spec in fixed:
+        i = spec["room"]
+        dim_inputs["min_width"][i] = spec["width"]
+        dim_inputs["max_width"][i] = spec["width"]
+        dim_inputs["min_height"][i] = spec["height"]
+        dim_inputs["max_height"][i] = spec["height"]
+        area = spec["width"] * spec["height"]
+        dim_inputs["min_area"][i] = area
+        dim_inputs["max_area"][i] = area
+    return fixed
+
+
+def fixed_cardinal_pairs(fixed_rooms):
+    return [(spec["room"], direction)
+            for spec in fixed_rooms for direction in spec.get("directions", ())]
+
+
+def merge_cardinal_pairs(*groups):
+    merged = []
+    for group in groups:
+        for pair in group or []:
+            if pair not in merged:
+                merged.append(pair)
+    return merged
+
 
 def normalize_cardinal_constraints(cardinal_constraints, nodecnt):
     """Normalizes user cardinal constraints into engine (node, dir_idx) pairs.
@@ -424,6 +555,68 @@ def plan_satisfies_cardinal(plan_graph, cardinal_pairs):
     return True
 
 
+def plan_satisfies_fixed(plan_graph, fixed_rooms, tolerance=0.05,
+                         require_absolute=True):
+    """Hard gate for exact fixed-room extents and side/corner contacts.
+
+    Unlike ordinary cardinal constraints, a fixed anchor is not a preference
+    and is never interpreted as merely an unobstructed view to a side.  NW
+    means west/north contact; S/E anchors are additionally checked against the
+    request's authoritative plot height/width, not a shrunken result bbox. The
+    small tolerance covers the legacy LP's three-decimal output only; it is
+    less than one inch and cannot hide a material stair-size change.
+    """
+    if not fixed_rooms:
+        return True
+    rooms = getattr(plan_graph, "final_traversal", None) or []
+    if not rooms:
+        return False
+    rects = []
+    for poly in rooms:
+        if not poly:
+            return False
+        xs = [float(pt[0]) for pt in poly]
+        ys = [float(pt[1]) for pt in poly]
+        rects.append((min(xs), min(ys), max(xs), max(ys)))
+    bx0 = min(r[0] for r in rects)
+    by0 = min(r[1] for r in rects)
+    bx1 = max(r[2] for r in rects)
+    by1 = max(r[3] for r in rects)
+    for spec in fixed_rooms:
+        index = spec["room"]
+        if index < 0 or index >= len(rects):
+            return False
+        x0, y0, x1, y1 = rects[index]
+        if abs((x1 - x0) - spec["width"]) > tolerance:
+            return False
+        if abs((y1 - y0) - spec["height"]) > tolerance:
+            return False
+        for direction in spec.get("directions", ()):
+            side = (y0, x1, y1, x0)[direction]
+            outer = (by0, bx1, by1, bx0)[direction]
+            if abs(side - outer) > tolerance:
+                return False
+        # GPlan serializes floorplans in a normalized top-left coordinate
+        # system.  Do not accept a translated whole-plan geometry merely
+        # because the room still touches the translated bbox: N/W are hard
+        # absolute top/left locks for fixed cores.
+        if (require_absolute and 0 in spec.get("directions", ())
+                and abs(y0) > tolerance):
+            return False
+        if (require_absolute and 3 in spec.get("directions", ())
+                and abs(x0) > tolerance):
+            return False
+        if (require_absolute and 1 in spec.get("directions", ()) and
+                spec.get("right") is not None and
+                abs(x1 - spec["right"]) > tolerance):
+            return False
+        if (require_absolute and 2 in spec.get("directions", ()) and
+                spec.get("bottom") is not None and
+                abs(y1 - spec["bottom"]) > tolerance):
+            return False
+    return True
+
+
 def _shared_wall_length(poly_a, poly_b, eps=0.05):
     """Total collinear overlap between two rectilinear room polygons, feet.
 
@@ -469,6 +662,125 @@ def filter_output_by_cardinal(ui, cardinal_pairs):
                   if plan_satisfies_cardinal(plan, cardinal_pairs)]
     ui._set_output_data(satisfying)
     return satisfying
+
+
+def filter_output_by_fixed(ui, fixed_rooms):
+    """Drop every plan that moved, resized, rotated or unanchored a lock."""
+    satisfying = [plan for plan in ui.get_output_data()
+                  if plan_satisfies_fixed(plan, fixed_rooms)]
+    ui._set_output_data(satisfying)
+    return satisfying
+
+
+def _fixed_alignment(plan_graph, fixed_rooms, tolerance=0.05):
+    """Translation that puts relative fixed anchors in the plot frame.
+
+    Topology generation knows that an SW stair touches the generated plan's
+    south and west sides, but its natural compacted bbox can be smaller than
+    the requested plot.  The physical core is at the plot boundary, so move
+    the WHOLE dissection (never the fixed room alone) before exact-fill grows
+    the free sides.  Multiple locks must prescribe the same translation.
+    """
+    if not plan_satisfies_fixed(plan_graph, fixed_rooms, tolerance,
+                                require_absolute=False):
+        return None
+    rooms = getattr(plan_graph, "final_traversal", None) or []
+    rects = []
+    for poly in rooms:
+        xs = [float(pt[0]) for pt in poly]
+        ys = [float(pt[1]) for pt in poly]
+        rects.append((min(xs), min(ys), max(xs), max(ys)))
+
+    dx_values = []
+    dy_values = []
+    for spec in fixed_rooms:
+        x0, y0, x1, y1 = rects[spec["room"]]
+        directions = spec.get("directions", ())
+        if 3 in directions:
+            dx_values.append(-x0)
+        if 1 in directions and spec.get("right") is not None:
+            dx_values.append(float(spec["right"]) - x1)
+        if 0 in directions:
+            dy_values.append(-y0)
+        if 2 in directions and spec.get("bottom") is not None:
+            dy_values.append(float(spec["bottom"]) - y1)
+
+    def one_axis(values):
+        if not values:
+            return 0.0
+        if max(values) - min(values) > tolerance:
+            return None
+        return sum(values) / len(values)
+
+    dx = one_axis(dx_values)
+    dy = one_axis(dy_values)
+    return None if dx is None or dy is None else (dx, dy)
+
+
+def align_output_by_fixed(ui, fixed_rooms, tolerance=0.05):
+    """Place fixed candidates in the absolute plot frame without scaling."""
+    if not fixed_rooms:
+        return ui.get_output_data()
+    kept = []
+    for plan in ui.get_output_data():
+        shift = _fixed_alignment(plan, fixed_rooms, tolerance)
+        if shift is None:
+            continue
+        dx, dy = shift
+        if abs(dx) > 1e-9 or abs(dy) > 1e-9:
+            plan.final_traversal = [
+                [(float(x) + dx, float(y) + dy) for x, y in poly]
+                for poly in plan.final_traversal
+            ]
+            if getattr(plan, "room_x", None):
+                plan.room_x = [float(x) + dx for x in plan.room_x]
+            if getattr(plan, "room_y", None):
+                plan.room_y = [float(y) + dy for y in plan.room_y]
+            if getattr(plan, "name_coords", None):
+                plan.name_coords = [
+                    [float(point[0]) + dx, float(point[1]) + dy]
+                    for point in plan.name_coords
+                ]
+        if plan_satisfies_fixed(plan, fixed_rooms, tolerance):
+            kept.append(plan)
+    ui._set_output_data(kept)
+    return kept
+
+
+def plan_matches_plot_envelope(plan_graph, plot_width, plot_height,
+                               tolerance=0.05):
+    """True only for the normalized [0,width] x [0,height] plot frame."""
+    rooms = getattr(plan_graph, "final_traversal", None) or []
+    if not rooms:
+        return False
+    xs = [float(pt[0]) for poly in rooms for pt in poly]
+    ys = [float(pt[1]) for poly in rooms for pt in poly]
+    return (abs(min(xs)) <= tolerance and abs(min(ys)) <= tolerance
+            and abs(max(xs) - float(plot_width)) <= tolerance
+            and abs(max(ys) - float(plot_height)) <= tolerance)
+
+
+def plan_fills_plot_exactly(plan_graph, plot_width, plot_height,
+                            tolerance=0.05):
+    """True only when rectangular rooms tile the requested plot frame.
+
+    Matching the outer bbox alone misses the user-visible "Empty space" case:
+    rooms can touch all four plot edges while retaining a notch or interior
+    hole.  This gate also rejects overlaps so summed room area is a valid union
+    area, then requires that union to cover the complete envelope.
+    """
+    if not plan_matches_plot_envelope(
+            plan_graph, plot_width, plot_height, tolerance):
+        return False
+    rooms = getattr(plan_graph, "final_traversal", None) or []
+    rects = []
+    for poly in rooms:
+        rect = _polyline_rect(poly, tolerance)
+        if rect is None:
+            return False
+        rects.append(rect)
+    eps = max(float(plot_width), float(plot_height), 1e-6) * 1e-5
+    return not _rects_overlap(rects, eps) and _is_gapless(rects, eps)
 
 
 def _polyline_rect(poly, eps):
@@ -819,7 +1131,7 @@ def _scaled_caps(caps, slack):
 GAP_FILL_SLACK = 1.4
 
 
-def _fill_gaps(rects, eps, caps=None, enforce=True):
+def _fill_gaps(rects, eps, caps=None, enforce=True, locked=None):
     """Greedy wall extension: push each room's sides outward to the nearest
     obstruction (another room overlapping that side's span, else the plan
     bounds) until nothing moves. Rooms stay rectangles and never overlap;
@@ -839,6 +1151,7 @@ def _fill_gaps(rects, eps, caps=None, enforce=True):
     bx1 = max(r[2] for r in rects)
     by1 = max(r[3] for r in rects)
     limits = caps if enforce else None
+    locked = set(locked or ())
     changed = True
     guard = 0
     while changed and guard < 200:
@@ -846,6 +1159,11 @@ def _fill_gaps(rects, eps, caps=None, enforce=True):
         guard += 1
         order = sorted(range(len(rects)), key=lambda i: (-_headroom(rects, caps, i), i))
         for i in order:
+            # Fixed rooms are occupied obstacles.  Other rooms may grow up to
+            # their walls, but no gap-closing rung may grow the fixed room -
+            # including the legacy uncapped last resort.
+            if i in locked:
+                continue
             x0, y0, x1, y1 = rects[i]
             wide = _span_limit(limits, i, y1 - y0)
             tall = _span_limit(limits, i, x1 - x0)
@@ -910,7 +1228,36 @@ def _is_gapless(rects, eps):
     return abs(total - bounds_area) <= bounds_area * 1e-3
 
 
-def rectangularize_output(ui):
+def _rects_satisfy_fixed(rects, fixed_rooms, tolerance=0.05):
+    if not fixed_rooms:
+        return True
+    if not rects:
+        return False
+    bx0 = min(r[0] for r in rects)
+    by0 = min(r[1] for r in rects)
+    bx1 = max(r[2] for r in rects)
+    by1 = max(r[3] for r in rects)
+    for spec in fixed_rooms:
+        i = spec["room"]
+        if i < 0 or i >= len(rects):
+            return False
+        x0, y0, x1, y1 = rects[i]
+        if abs((x1 - x0) - spec["width"]) > tolerance \
+                or abs((y1 - y0) - spec["height"]) > tolerance:
+            return False
+        for direction in spec.get("directions", ()):
+            side = (y0, x1, y1, x0)[direction]
+            outer = (by0, bx1, by1, bx0)[direction]
+            if abs(side - outer) > tolerance:
+                return False
+        if 0 in spec.get("directions", ()) and abs(y0) > tolerance:
+            return False
+        if 3 in spec.get("directions", ()) and abs(x0) > tolerance:
+            return False
+    return True
+
+
+def rectangularize_output(ui, fixed_rooms=None):
     """Keeps only plans that are (or can be made) gapless rectangles.
 
     For each generated plan whose rooms are all rectangles: fill boundary
@@ -919,6 +1266,11 @@ def rectangularize_output(ui):
     rooms, or residual holes are dropped. Surviving plans get their geometry
     rewritten to the filled rectangles. Returns the surviving list.
     """
+    if fixed_rooms is None:
+        params = getattr(ui, "min_dim_inputs", None)
+        fixed_rooms = (getattr(params, "get_fixed_rooms", lambda: [])()
+                       if params is not None else [])
+    locked = {spec["room"] for spec in fixed_rooms or []}
     kept = []
     caps_broken = False
     for plan in ui.get_output_data():
@@ -936,7 +1288,8 @@ def rectangularize_output(ui):
                 rects = None
                 break
             rects.append(rect)
-        if rects is None or _rects_overlap(rects, eps):
+        if (rects is None or _rects_overlap(rects, eps)
+                or not _rects_satisfy_fixed(rects, fixed_rooms)):
             continue
         # Fill within the room ceilings first, then let whatever hole is left
         # close without them. A gapless rectangle is required; honouring every
@@ -945,19 +1298,20 @@ def rectangularize_output(ui):
         # bathroom or balcony can grab is small.
         caps = _room_size_caps(ui, len(rects))
         if caps is not None:
-            _fill_gaps(rects, eps, caps)
+            _fill_gaps(rects, eps, caps, locked=locked)
         if not _is_gapless(rects, eps) and caps is not None:
             # E3 (2026-08-06): close the hole within a BOUNDED multiple of the
             # ceilings first. Most holes close here, and 1.5x overshoot is
             # repairable; the old jump straight to uncapped is what put WCs at
             # 1.5-3x their ceiling on every 8+ room brief.
-            _fill_gaps(rects, eps, _scaled_caps(caps, GAP_FILL_SLACK))
+            _fill_gaps(rects, eps, _scaled_caps(caps, GAP_FILL_SLACK),
+                       locked=locked)
         if not _is_gapless(rects, eps):
             # Ceilings off, priority ordering still on: the hole must close, but
             # the room that closes it should be one that can carry the area.
             # Last resort only, kept so a pathological plan degrades to an
             # oversized room with a warning instead of vanishing from the batch.
-            _fill_gaps(rects, eps, caps, enforce=False)
+            _fill_gaps(rects, eps, caps, enforce=False, locked=locked)
         if _rects_overlap(rects, eps) or not _is_gapless(rects, eps):
             continue
         # The tiling is now correct but the MEASUREMENTS are not: min-dim only
@@ -991,8 +1345,10 @@ def rectangularize_output(ui):
                     rep_h = max(r[3] for r in repaired) - min(r[1] for r in repaired)
                     accept = (rep_w <= max(limit_w, entry_w) + eps
                               and rep_h <= max(limit_h, entry_h) + eps)
-            if accept:
+            if accept and _rects_satisfy_fixed(repaired, fixed_rooms):
                 rects = repaired
+        if not _rects_satisfy_fixed(rects, fixed_rooms):
+            continue
         # The gap-closing passes can push a room past its ceiling (the bounded
         # E3 pass up to GAP_FILL_SLACK, the last-resort pass without limit).
         # That is the intended trade (a gapless rectangle is required,
@@ -1391,15 +1747,21 @@ class Documents:
         def null_print(*args, **kwargs):
             pass
 
-        builtins.print = null_print
-
         message = ""
         dim_parameters: DimParameters = None
+        dim_inputs = dict(dim_inputs or {})
+        fixed_rooms = normalize_fixed_rooms(nodes_list, dim_inputs,
+                                            bool(minDimEnabled))
+        hard_cardinal_pairs = fixed_cardinal_pairs(fixed_rooms)
+        # Validate the fixed-room wire contract before globally suppressing
+        # the legacy engine's prints.  A malformed request must not leave
+        # builtins.print disabled after normalize_fixed_rooms raises.
+        builtins.print = null_print
         if minDimEnabled:
             # min_ratio/max_ratio ride along for the post-solve band
             # (_room_bounds / repair_dimensions / post-processing). The min-dim
             # SOLVER still ignores them; see minimum_dimensioning.input_constraints.
-            dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'],max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], min_ratio=dim_inputs.get('min_ratio', []), max_ratio=dim_inputs.get('max_ratio', []), min_area=dim_inputs.get('min_area', []), max_area=dim_inputs.get('max_area', []), plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], isOptimalEnabled=dim_inputs['optimal_floorplan'],isRotationAllowed = dim_inputs['rotation_enabled'], enforce_plot=dim_inputs.get('enforce_plot', False))
+            dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'],max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], min_ratio=dim_inputs.get('min_ratio', []), max_ratio=dim_inputs.get('max_ratio', []), min_area=dim_inputs.get('min_area', []), max_area=dim_inputs.get('max_area', []), plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], isOptimalEnabled=dim_inputs['optimal_floorplan'],isRotationAllowed = dim_inputs['rotation_enabled'], enforce_plot=dim_inputs.get('enforce_plot', False), fixed_rooms=fixed_rooms)
         elif dimensioned:
             dim_parameters = DimParameters(min_width=dim_inputs['min_width'], min_height=dim_inputs['min_height'], max_width=dim_inputs['max_width'], max_height=dim_inputs['max_height'], min_ratio=dim_inputs['min_ratio'], max_ratio=dim_inputs['max_ratio'], plot_width=dim_inputs['plot_width'], plot_height=dim_inputs['plot_height'], symmetric=dim_inputs['symmetric'], isOptimalEnabled=dim_inputs['optimal_floorplan'])
         ui = GuiParameters(graph=graph).set_isDimensioned(dimensioned).set_isDimensionedCirculation(
@@ -1477,11 +1839,15 @@ class Documents:
                 ui.set_isNonAdj(nonAdj)
                 ui.set_non_adj_list(non_adj_edge_list)
                 ui.set_is_multiple_door(False)
-                graph.cardinal_constraints = normalize_cardinal_constraints(
-                    cardinal_constraints, len(nodes_list))
+                graph.cardinal_constraints = merge_cardinal_pairs(
+                    normalize_cardinal_constraints(cardinal_constraints,
+                                                   len(nodes_list)),
+                    hard_cardinal_pairs)
                 apply_cardinal_ring(graph, len(nodes_list), edges_list,
                                     graph.cardinal_constraints, non_adj_edge_list)
                 handle_door_connectivity(ui, graph)
+                if fixed_rooms:
+                    align_output_by_fixed(ui, fixed_rooms)
             else:
                 message = f"Support for {caller} Not yet Handled from Backend for Single Floorplan"
                 print(message)
@@ -1504,10 +1870,12 @@ class Documents:
                 ui.set_isNonAdj(nonAdj)
                 ui.set_non_adj_list(non_adj_edge_list)
                 ui.set_is_multiple_door(True)
-                cardinal_pairs = normalize_cardinal_constraints(
+                requested_cardinal_pairs = normalize_cardinal_constraints(
                     cardinal_constraints, len(nodes_list))
+                cardinal_pairs = merge_cardinal_pairs(requested_cardinal_pairs,
+                                                       hard_cardinal_pairs)
                 graph.cardinal_constraints = cardinal_pairs
-                if not non_adj_edge_list:
+                if not non_adj_edge_list and not fixed_rooms:
                     # One-connected graphs (two wings joined by one cut-vertex
                     # room) compose better as stacked component duals than
                     # through biconnectivity augmentation, which invents a
@@ -1559,9 +1927,12 @@ class Documents:
                 # Capture ui's message AFTER the gapless pass: that pass emits
                 # its own warnings (a room pushed past its maximum to close a
                 # hole), and reading the message first dropped them silently.
-                gated_plans = rectangularize_output(ui)
+                gated_plans = rectangularize_output(ui, fixed_rooms)
+                if fixed_rooms:
+                    gated_plans = align_output_by_fixed(ui, fixed_rooms)
                 message = 'Generated Multiple Door connectivity floorplan.'+ ui.get_message()
-                if not gated_plans and original_plans and not cardinal_pairs:
+                if (not gated_plans and original_plans and not cardinal_pairs
+                        and not fixed_rooms):
                     # The gapless gate emptied the batch - return the ungated
                     # plans with an honest note rather than nothing.
                     ui._set_output_data(original_plans)
@@ -1579,12 +1950,37 @@ class Documents:
                                         for node in nodes_list]
                     tree_edges = spanning_tree_edges(edges_list, len(nodes_list))
                     attempts = []
+
+                    def add_attempt(attempt_edges, attempt_cardinal, note):
+                        key = (tuple((int(e[0]), int(e[1])) for e in attempt_edges),
+                               tuple(attempt_cardinal))
+                        if all(existing[0] != key for existing in attempts):
+                            attempts.append((key, attempt_edges,
+                                             attempt_cardinal, note))
+
                     if len(tree_edges) < len(edges_list):
-                        attempts.append((tree_edges, cardinal_pairs,
-                                         " Adjacency constraints were relaxed to satisfy cardinal directions."))
-                    attempts.append((edges_list, [],
-                                     " Cardinal constraints could not be satisfied and were ignored."))
-                    for attempt_edges, attempt_cardinal, note in attempts:
+                        add_attempt(
+                            tree_edges, cardinal_pairs,
+                            " Adjacency constraints were relaxed to satisfy cardinal directions.")
+                    if hard_cardinal_pairs:
+                        # A fixed anchor is a hard geometric constraint.  Soft
+                        # user cardinal wishes may still be dropped, but the
+                        # fixed room's anchor directions survive every retry and
+                        # there is deliberately no invalid last-resort plan.
+                        if any(pair not in hard_cardinal_pairs
+                               for pair in cardinal_pairs):
+                            add_attempt(
+                                edges_list, hard_cardinal_pairs,
+                                " Non-fixed cardinal constraints could not be satisfied and were ignored.")
+                            if len(tree_edges) < len(edges_list):
+                                add_attempt(
+                                    tree_edges, hard_cardinal_pairs,
+                                    " Adjacency and non-fixed cardinal constraints were relaxed to keep fixed-room anchors.")
+                    else:
+                        add_attempt(
+                            edges_list, [],
+                            " Cardinal constraints could not be satisfied and were ignored.")
+                    for _key, attempt_edges, attempt_cardinal, note in attempts:
                         retry_graph = InputGraph(len(nodes_list), len(attempt_edges),
                                                  attempt_edges, node_coordinates)
                         retry_graph.cardinal_constraints = attempt_cardinal
@@ -1593,10 +1989,13 @@ class Documents:
                                             non_adj_edge_list)
                         handle_door_connectivity(ui, retry_graph)
                         retry_original = list(ui.get_output_data())
-                        rectangularize_output(ui)
+                        rectangularize_output(ui, fixed_rooms)
+                        if fixed_rooms:
+                            align_output_by_fixed(ui, fixed_rooms)
                         if attempt_cardinal:
                             filter_output_by_cardinal(ui, attempt_cardinal)
-                        elif not ui.get_output_data() and retry_original:
+                        elif (not ui.get_output_data() and retry_original
+                              and not fixed_rooms):
                             ui._set_output_data(retry_original)
                             note += ' Some floorplans have a non-rectangular outline.'
                         if len(ui.get_output_data()) > 0:
@@ -1608,6 +2007,16 @@ class Documents:
                             message = ('Generated Multiple Door connectivity floorplan.'
                                        + ui.get_message() + note)
                             break
+                    if fixed_rooms and not ui.get_output_data():
+                        message += (' Fixed-room dimensions/anchors are hard;'
+                                    ' no invalid fallback floorplan was returned.')
+                elif fixed_rooms and not ui.get_output_data():
+                    # Exact-size-only fixed rooms have no injected cardinal
+                    # pair, so the cardinal retry block above is not entered.
+                    # Their infeasibility must still be explicit and must not
+                    # restore the legacy ungated batch.
+                    message += (' Fixed-room dimensions/anchors are hard;'
+                                ' no invalid fallback floorplan was returned.')
             elif caller == "multiple_l":
                 handle_multiple_l(ui, graph)
             else:
@@ -1633,17 +2042,59 @@ class Documents:
             # notch space could grow into the strip between a pinned room and
             # its side, so any post-processed plan must re-pass the pin check
             # or be reverted.
-            pp_cardinal_pairs = normalize_cardinal_constraints(
-                cardinal_constraints, len(nodes_list))
+            pp_cardinal_pairs = merge_cardinal_pairs(
+                normalize_cardinal_constraints(cardinal_constraints,
+                                               len(nodes_list)),
+                hard_cardinal_pairs)
             validator = None
-            if pp_cardinal_pairs:
-                validator = (lambda plan:
-                             plan_satisfies_cardinal(plan, pp_cardinal_pairs))
+            if pp_cardinal_pairs or fixed_rooms:
+                validator = (
+                    lambda plan:
+                    (not pp_cardinal_pairs
+                     or plan_satisfies_cardinal(plan, pp_cardinal_pairs))
+                    and plan_satisfies_fixed(plan, fixed_rooms))
             postprocess_reports, pp_note = postprocess_ui_output(
                 ui, nodes_list, edges_list, postprocess_options, total_fp_count,
                 plan_validator=validator)
             message += pp_note
             response.postprocess = postprocess_reports
+
+            # A fixed core turns the enforced plot into an absolute frame, and
+            # exact-fill is a hard output invariant rather than a catalogue
+            # preference.  Never serialize a validator rollback or a bbox-only
+            # result with an internal notch (shown by housing as "Empty space").
+            exact_fill_enabled = not (
+                isinstance(postprocess_options, dict)
+                and postprocess_options.get("exact_fill") is False)
+            hard_fixed_fill = (
+                fixed_rooms and exact_fill_enabled
+                and isinstance(dim_inputs, dict)
+                and bool(dim_inputs.get("enforce_plot"))
+                and float(dim_inputs.get("plot_width") or 0) > 0
+                and float(dim_inputs.get("plot_height") or 0) > 0)
+            if hard_fixed_fill:
+                exact_w = float(dim_inputs["plot_width"])
+                exact_h = float(dim_inputs["plot_height"])
+                kept_plans = []
+                kept_reports = []
+                considered = list(ui.get_output_data())[:total_fp_count]
+                for plan, report in zip(considered, postprocess_reports):
+                    if (plan_satisfies_fixed(plan, fixed_rooms)
+                            and plan_fills_plot_exactly(plan, exact_w, exact_h)):
+                        kept_plans.append(plan)
+                        kept_reports.append(report)
+                dropped = len(considered) - len(kept_plans)
+                ui._set_output_data(kept_plans)
+                outputData = kept_plans
+                postprocess_reports = kept_reports
+                total_fp_count = len(kept_plans)
+                response.count = total_fp_count
+                response.postprocess = postprocess_reports
+                if dropped:
+                    message += (
+                        " %d floorplan(s) were dropped because hard fixed-room"
+                        " exact-fill could not cover the complete plot; no"
+                        " invalid fallback was returned." % dropped)
 
         # Add ptpg_graph if available
         if caller == "door_connectivity":
