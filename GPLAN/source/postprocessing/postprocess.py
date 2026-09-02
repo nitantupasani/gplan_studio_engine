@@ -273,6 +273,22 @@ def _within_limits(rects, limits, eps):
     return (x1 - x0) <= limits[0] + eps and (y1 - y0) <= limits[1] + eps
 
 
+def _within_frame(rects, limits, eps):
+    """True when every room stays in the absolute normalized plot frame.
+
+    Ordinary plans may be translated and therefore use ``_within_limits``.
+    A fixed room, however, gives plot coordinates physical meaning: west/north
+    are zero and east/south are the requested width/height.  Checking extent
+    alone would accept a 30x40 plan at y=2..42 and later force the fixed-room
+    validator to roll an otherwise successful exact fill all the way back.
+    """
+    if limits is None:
+        return True
+    x0, y0, x1, y1 = _bbox(rects)
+    return (x0 >= -eps and y0 >= -eps
+            and x1 <= limits[0] + eps and y1 <= limits[1] + eps)
+
+
 # ---------------------------------------------------------------------------
 # bounds and door requirements
 # ---------------------------------------------------------------------------
@@ -603,14 +619,15 @@ def _door_trim_limit(rects, door_reqs, i, side, eps):
 
 
 def _trim_pass(rects, bounds, names, door_reqs, eps, tolerance, actions,
-               allowances=None):
+               allowances=None, locked=None):
     """One sweep of exterior trims. Returns True when anything moved."""
+    locked = set(locked or ())
     progressed = False
     order = sorted(
         range(len(rects)),
         key=lambda k: -_violation_ratio(rects[k], bounds[k]))
     for i in order:
-        if bounds[i] is None:
+        if i in locked or bounds[i] is None:
             continue
         for _ in range(3):  # a trim on one axis can retarget the other
             x0, y0, x1, y1 = rects[i]
@@ -691,7 +708,7 @@ def _violation_ratio(rect, bounds):
 # phase 3: capped absorption
 # ---------------------------------------------------------------------------
 
-def _absorb_pass(rects, bounds, eps, actions, allowances=None):
+def _absorb_pass(rects, bounds, eps, actions, allowances=None, locked=None):
     """Grow rooms into empty space, hardest-capped last, never past their own
     ceilings or aspect band. The aspect-aware twin of api._fill_gaps with
     `enforce` permanently on. Returns True when anything moved.
@@ -707,6 +724,7 @@ def _absorb_pass(rects, bounds, eps, actions, allowances=None):
     clients assert post-processing does not grow rooms).
     """
     bx0, by0, bx1, by1 = _bbox(rects)
+    locked = set(locked or ())
 
     def headroom(i):
         if bounds[i] is None:
@@ -728,6 +746,8 @@ def _absorb_pass(rects, bounds, eps, actions, allowances=None):
 
     def grow(i, side):
         """One directional growth of room i. Returns True when it moved."""
+        if i in locked:
+            return False
         x0, y0, x1, y1 = rects[i]
         tw, th = ceilings(i, x1 - x0, y1 - y0)
         if side in ("E", "W"):
@@ -779,6 +799,8 @@ def _absorb_pass(rects, bounds, eps, actions, allowances=None):
         guard += 1
         order = sorted(range(len(rects)), key=lambda i: (-headroom(i), i))
         for i in order:
+            if i in locked:
+                continue
             # SHORT axis first. Growing the long axis of an already slender
             # room fails the aspect check, and the check is per-step: a
             # bathroom that could legally regrow to 15x7 was refused at the
@@ -795,6 +817,41 @@ def _absorb_pass(rects, bounds, eps, actions, allowances=None):
 # ---------------------------------------------------------------------------
 # phase 4: reclose the outline / phase 5: grow to the plot
 # ---------------------------------------------------------------------------
+
+def _snap_to_target(work, target, eps, locked=None, snap_tol=0.05, actions=None):
+    """Close a sub-tolerance shortfall between the plan extent and the target.
+
+    The legacy LP emits three-decimal coordinates, so a tiling can arrive at
+    29.988 of a 30 ft target. The growth above reads that as already at the
+    plot (it works to `eps`), yet the plan ships 0.012 ft short and every
+    exact-extent consumer (the fixed-room frame check, reports, the client's
+    fill verdict) sees 29.99. Stretch every room on that outer edge the last
+    fraction onto the target; an edge a locked room sits on is left alone.
+    Returns True when anything moved.
+    """
+    if target is None or not work:
+        return False
+    locked = set(locked or ())
+    bx0, by0, bx1, by1 = _bbox(work)
+    moved = False
+    for axis, extent, goal in ((0, bx1 - bx0, float(target[0])),
+                               (1, by1 - by0, float(target[1]))):
+        short = goal - extent
+        if short <= eps or short > snap_tol:
+            continue
+        edge = bx1 if axis == 0 else by1
+        on_edge = [i for i, r in enumerate(work) if abs(r[2 + axis] - edge) <= eps]
+        if not on_edge or any(i in locked for i in on_edge):
+            continue
+        for i in on_edge:
+            r = list(work[i])
+            r[2 + axis] = edge + short
+            work[i] = tuple(r)
+            if actions is not None:
+                actions.setdefault(i, []).append("snapped onto the plot edge")
+        moved = True
+    return moved
+
 
 def _relaxed_bounds(bounds, slack):
     """Copy of `bounds` with the SPAN and AREA ceilings widened by `slack`.
@@ -835,7 +892,7 @@ def _over_ceiling_rooms(rects, bounds, names, eps_ratio=0.02):
 
 
 def _rectangle_safe_trims(base, bounds, door_reqs, eps, tolerance,
-                          allowances, plot_limits, max_rounds=3):
+                          allowances, plot_limits, max_rounds=3, locked=None):
     """Redo the trimming, keeping ONLY the trims the tiling can close again.
 
     The plain trim pass is greedy: it cuts every over-cap room from an exterior
@@ -850,6 +907,7 @@ def _rectangle_safe_trims(base, bounds, door_reqs, eps, tolerance,
     (rects, actions).
     """
     work = list(base)
+    locked = set(locked or ())
     actions = {}
 
     def gapless(rects):
@@ -867,7 +925,8 @@ def _rectangle_safe_trims(base, bounds, door_reqs, eps, tolerance,
                        key=lambda k: -_violation_ratio(work[k], bounds[k]))
         moved = False
         for i in order:
-            if bounds[i] is None or _violation_ratio(work[i], bounds[i]) <= tolerance:
+            if (i in locked or bounds[i] is None
+                    or _violation_ratio(work[i], bounds[i]) <= tolerance):
                 continue
             x0, y0, x1, y1 = work[i]
             w, h = x1 - x0, y1 - y0
@@ -893,7 +952,7 @@ def _rectangle_safe_trims(base, bounds, door_reqs, eps, tolerance,
                 trial_actions.setdefault(i, []).append(
                     "trimmed %.1f ft from %s" % (allowed, side))
                 _absorb_pass(trial, bounds, eps, trial_actions,
-                             allowances=allowances)
+                             allowances=allowances, locked=locked)
                 if valid(trial) and gapless(trial):
                     work = trial
                     actions = trial_actions
@@ -905,7 +964,8 @@ def _rectangle_safe_trims(base, bounds, door_reqs, eps, tolerance,
 
 
 def _close_notches(work, bounds, door_reqs, eps, opts, actions,
-                   allowances, plot_limits, fallback, fallback_actions):
+                   allowances, plot_limits, fallback, fallback_actions,
+                   locked=None):
     """Phase 4. Turn a notched outline back into a full rectangle.
 
     Ladder, cheapest first:
@@ -934,7 +994,8 @@ def _close_notches(work, bounds, door_reqs, eps, opts, actions,
     # tier A: within every ceiling
     snapshot = list(work)
     action_snapshot = copy.deepcopy(actions)
-    _absorb_pass(work, bounds, eps, actions, allowances=allowances)
+    _absorb_pass(work, bounds, eps, actions, allowances=allowances,
+                 locked=locked)
     if valid(work) and gapless(work):
         return True, False, False
     work[:] = snapshot
@@ -944,7 +1005,8 @@ def _close_notches(work, bounds, door_reqs, eps, opts, actions,
     slack = float(opts.get("notch_close_slack") or 0)
     if slack > 0:
         relaxed = _relaxed_bounds(bounds, slack)
-        _absorb_pass(work, relaxed, eps, actions, allowances=allowances)
+        _absorb_pass(work, relaxed, eps, actions, allowances=allowances,
+                     locked=locked)
         if valid(work) and gapless(work):
             return True, True, False
         work[:] = snapshot
@@ -955,7 +1017,7 @@ def _close_notches(work, bounds, door_reqs, eps, opts, actions,
         return False, False, False
     safe, safe_actions = _rectangle_safe_trims(
         fallback, bounds, door_reqs, eps, float(opts["tolerance"]),
-        allowances, plot_limits)
+        allowances, plot_limits, locked=locked)
     work[:] = list(safe)
     actions.clear()
     merged = copy.deepcopy(fallback_actions)
@@ -1102,7 +1164,7 @@ def _escalated_bounds(bounds, grades):
 
 def _expand_to_target(work, bounds, door_reqs, eps, target,
                       plot_limits, actions, allowances, slack_rooms=None,
-                      exact_fill=False, escalation=None):
+                      exact_fill=False, escalation=None, locked=None):
     """Phase 5. Fill the plan out to `target` EXACTLY (2026-08-17, user
     decision: the typed plot is not just a cap, plans must BE the plot).
 
@@ -1138,12 +1200,36 @@ def _expand_to_target(work, bounds, door_reqs, eps, target,
     """
     if target is None:
         return (0.0, 0.0)
+    locked = set(locked or ())
+    fixed_frame = bool(locked)
     limit_w, limit_h = target
     if plot_limits is not None:
         limit_w = min(limit_w, plot_limits[0])
         limit_h = min(limit_h, plot_limits[1])
     ebx0, eby0, ebx1, eby1 = _bbox(work)
     entry_w, entry_h = ebx1 - ebx0, eby1 - eby0
+
+    def fits_plot(rects):
+        checker = _within_frame if fixed_frame else _within_limits
+        return checker(rects, plot_limits, eps)
+
+    def side_gap(side):
+        """Remaining outward distance on one side.
+
+        With a fixed core we fill the absolute [0,w] x [0,h] frame.  Without
+        one, legacy generation is translation invariant and only its extent is
+        meaningful, so either side may spend the same total extent deficit.
+        """
+        bx0, by0, bx1, by1 = _bbox(work)
+        if fixed_frame:
+            return {
+                "E": limit_w - bx1,
+                "W": bx0,
+                "S": limit_h - by1,
+                "N": by0,
+            }[side]
+        return (limit_w - (bx1 - bx0)) if side in ("E", "W") \
+            else (limit_h - (by1 - by0))
 
     def _over_true_ceiling(i):
         if bounds[i] is None:
@@ -1180,8 +1266,7 @@ def _expand_to_target(work, bounds, door_reqs, eps, target,
             moved = False
             for side in sides:
                 bx0, by0, bx1, by1 = _bbox(work)
-                gap = (limit_w - (bx1 - bx0)) if side in ("E", "W") \
-                    else (limit_h - (by1 - by0))
+                gap = side_gap(side)
                 if gap <= 0.05:
                     continue
                 if side == "E":
@@ -1193,6 +1278,12 @@ def _expand_to_target(work, bounds, door_reqs, eps, target,
                 else:
                     idxs = [i for i, r in enumerate(work) if r[1] <= by0 + eps]
                 if not idxs:
+                    continue
+                # Advancing a whole side changes every boundary room on it.
+                # If a fixed core is one of those rooms, that direction is
+                # unavailable; exact-fill can spend the deficit on the
+                # opposite/free side instead (SW grows north/east).
+                if any(i in locked for i in idxs):
                     continue
                 advance = min([gap] + [_side_growth_limit(work, stage_bounds, i,
                                                           side, stage_allow)
@@ -1213,7 +1304,7 @@ def _expand_to_target(work, bounds, door_reqs, eps, target,
                 if (_rects_overlap(work, eps)
                         or _void_metrics(work)[0] > base_notch + eps
                         or not _doors_ok(work, door_reqs, eps)
-                        or not _within_limits(work, plot_limits, eps)):
+                        or not fits_plot(work)):
                     work[:] = snapshot
                     continue
                 for i in idxs:
@@ -1230,6 +1321,12 @@ def _expand_to_target(work, bounds, door_reqs, eps, target,
     # ── B-D. exact fill ─────────────────────────────────────────────────────
     def deficits():
         x0, y0, x1, y1 = _bbox(work)
+        if fixed_frame:
+            # A normalized fixed plan can be short on either side.  Sum the
+            # missing strips per axis; side_gap/reach_lines decide where each
+            # strip must be placed.
+            return (max(0.0, x0) + max(0.0, limit_w - x1),
+                    max(0.0, y0) + max(0.0, limit_h - y1))
         return limit_w - (x1 - x0), limit_h - (y1 - y0)
 
     def reach_lines(stage_bounds):
@@ -1238,16 +1335,27 @@ def _expand_to_target(work, bounds, door_reqs, eps, target,
         outward growth cannot overlap; the stage invariant check below is
         the belt to this suspenders."""
         moved = False
-        for axis in ("w", "h"):
+        # Fixed plans can have a missing strip on any free side.  Ordinary
+        # plans preserve the legacy east/south expansion policy.
+        passes = (("E", "w"), ("S", "h"), ("W", "w"), ("N", "h")) \
+            if fixed_frame else (("E", "w"), ("S", "h"))
+        for side, axis in passes:
             dw, dh = deficits()
-            gap = dw if axis == "w" else dh
+            gap = side_gap(side) if fixed_frame else (dw if axis == "w" else dh)
             if gap <= 0.02:
                 continue
             bx0, by0, bx1, by1 = _bbox(work)
-            line = (bx0 + limit_w) if axis == "w" else (by0 + limit_h)
+            if fixed_frame:
+                line = {"E": limit_w, "W": 0.0,
+                        "S": limit_h, "N": 0.0}[side]
+            else:
+                line = (bx0 + limit_w) if axis == "w" else (by0 + limit_h)
             members = [i for i, r in enumerate(work)
-                       if (r[2] >= bx1 - eps if axis == "w"
-                           else r[3] >= by1 - eps)]
+                       if i not in locked
+                       if ((r[2] >= bx1 - eps) if side == "E" else
+                           (r[0] <= bx0 + eps) if side == "W" else
+                           (r[3] >= by1 - eps) if side == "S" else
+                           (r[1] <= by0 + eps))]
 
             def stage_headroom(i):
                 b = stage_bounds[i]
@@ -1263,19 +1371,28 @@ def _expand_to_target(work, bounds, door_reqs, eps, target,
                 else:
                     tw, th = _axis_ceilings(stage_bounds[i], x1 - x0, y1 - y0,
                                             aspect_floors=False)
-                if axis == "w":
+                if side == "E":
                     new_edge = min(line, x0 + tw)
                     delta = new_edge - x1
                     candidate = (x0, y0, new_edge, y1)
-                else:
+                elif side == "W":
+                    new_edge = max(line, x1 - tw)
+                    delta = x0 - new_edge
+                    candidate = (new_edge, y0, x1, y1)
+                elif side == "S":
                     new_edge = min(line, y0 + th)
                     delta = new_edge - y1
                     candidate = (x0, y0, x1, new_edge)
+                else:
+                    new_edge = max(line, y1 - th)
+                    delta = y0 - new_edge
+                    candidate = (x0, new_edge, x1, y1)
                 if delta <= 0.02:
                     continue
                 work[i] = candidate
                 actions.setdefault(i, []).append(
-                    "grew %.1f ft to reach the plot edge" % delta)
+                    "grew %.1f ft toward %s to reach the plot edge"
+                    % (delta, side))
                 moved = True
         return moved
 
@@ -1315,12 +1432,13 @@ def _expand_to_target(work, bounds, door_reqs, eps, target,
         reach_lines(stage_bounds)
         for _ in range(8):
             if not _absorb_pass(work, stage_bounds, eps, actions,
-                                allowances=stage_allowances(stage_bounds)):
+                                allowances=stage_allowances(stage_bounds),
+                                locked=locked):
                 break
         if (_rects_overlap(work, eps)
                 or _void_metrics(work)[1] > eps
                 or not _doors_ok(work, door_reqs, eps)
-                or not _within_limits(work, plot_limits, eps)):
+                or not fits_plot(work)):
             work[:] = snapshot
             actions.clear()
             actions.update(action_snapshot)
@@ -1347,12 +1465,12 @@ def _expand_to_target(work, bounds, door_reqs, eps, target,
             reach_lines(stage_bounds)
             for _ in range(8):
                 if not _absorb_pass(work, stage_bounds, eps, actions,
-                                    allowances=None):
+                                    allowances=None, locked=locked):
                     break
             if (_rects_overlap(work, eps)
                     or _void_metrics(work)[1] > eps
                     or not _doors_ok(work, door_reqs, eps)
-                    or not _within_limits(work, plot_limits, eps)):
+                    or not fits_plot(work)):
                 # This rung is given back, but the ladder is NOT abandoned: a
                 # greedy absorb can seal a notch into an interior hole at one
                 # release level and not at the next, and stopping here would
@@ -1374,10 +1492,13 @@ def _expand_to_target(work, bounds, door_reqs, eps, target,
     if slack_rooms is not None:
         if release_baseline is not None:
             for i, (before, after) in enumerate(zip(release_baseline, work)):
+                if i in locked:
+                    continue
                 if any(abs(a - b) > 0.02 for a, b in zip(before, after)):
                     slack_rooms.add(i)
         for i in range(len(work)):
-            if i not in entry_over and _over_true_ceiling(i):
+            if (i not in locked and i not in entry_over
+                    and _over_true_ceiling(i)):
                 slack_rooms.add(i)
 
     fbx0, fby0, fbx1, fby1 = _bbox(work)
@@ -1404,7 +1525,7 @@ def _fill_priority(b):
 
 
 def _shift_overcap_walls(work, bounds, door_reqs, eps, actions, rounds=24,
-                         exact_fill=False, slack_rooms=None):
+                         exact_fill=False, slack_rooms=None, locked=None):
     """Shift shared walls off over-ceiling rooms into full-span neighbours.
 
     For every room past its area or span ceiling: find a wall that exactly
@@ -1415,11 +1536,12 @@ def _shift_overcap_walls(work, bounds, door_reqs, eps, actions, rounds=24,
     Returns True when anything moved.
     """
     moved_any = False
+    locked = set(locked or ())
     touch = eps * 10
     for _ in range(rounds):
         moved = False
         for i, (x0, y0, x1, y1) in enumerate(work):
-            if bounds[i] is None:
+            if i in locked or bounds[i] is None:
                 continue
             w, h = x1 - x0, y1 - y0
             tw, th = _axis_ceilings(bounds[i], w, h, aspect_floors=False)
@@ -1461,6 +1583,10 @@ def _shift_overcap_walls(work, bounds, door_reqs, eps, actions, rounds=24,
                         if min(x1, a1) - max(x0, a0) > touch:
                             nbrs.append(j)
                 if not nbrs:
+                    continue
+                # A shared-wall shift resizes every room on both sides.  A
+                # fixed neighbour therefore makes this wall immovable.
+                if any(j in locked for j in nbrs):
                     continue
                 # joint coverage of the wall run
                 if side in ("E", "W"):
@@ -1573,7 +1699,8 @@ def _room_snapshot(rects, names):
 def postprocess_plan(rects, names, options=None, edges=None,
                      user_min_w=None, user_min_h=None,
                      user_max_w=None, user_max_h=None,
-                     user_min_a=None, user_max_a=None):
+                     user_min_a=None, user_max_a=None,
+                     fixed_indices=None):
     """Post-process one plan. Returns (new_rects, report).
 
     rects  : [(x0, y0, x1, y1), ...] axis-aligned, non-overlapping, feet.
@@ -1586,6 +1713,8 @@ def postprocess_plan(rects, names, options=None, edges=None,
     tolerance = float(opts["tolerance"])
     work = [tuple(map(float, r)) for r in rects]
     start = list(work)
+    locked = {int(i) for i in (fixed_indices or ())
+              if 0 <= int(i) < len(work)}
     bounds = build_bounds(names, opts, user_min_w, user_min_h,
                           user_max_w, user_max_h,
                           user_min_a, user_max_a)
@@ -1618,11 +1747,17 @@ def postprocess_plan(rects, names, options=None, edges=None,
     # A plan that ALREADY overflows the plot (the engine's expand fallback) is
     # not cut down here - trimming it to the cap would break room minimums -
     # so the cap is applied from whichever extent is larger.
-    plot_limits = _oriented(_dim_pair(opts, "plot_width", "plot_height"), work)
-    if plot_limits is not None:
+    raw_plot_limits = _dim_pair(opts, "plot_width", "plot_height")
+    # A fixed room establishes an absolute plot frame.  Re-orienting 30x40 to
+    # 40x30 based on a compact candidate's aspect would move an SW/SE core off
+    # the physical boundary, so fixed plans use the caller's axes verbatim.
+    plot_limits = (raw_plot_limits if locked
+                   else _oriented(raw_plot_limits, work))
+    if plot_limits is not None and not locked:
         plot_limits = (max(plot_limits[0], bbox_before[2] - bbox_before[0]),
                        max(plot_limits[1], bbox_before[3] - bbox_before[1]))
-    target = _oriented(_dim_pair(opts, "target_width", "target_height"), work)
+    raw_target = _dim_pair(opts, "target_width", "target_height")
+    target = raw_target if locked else _oriented(raw_target, work)
 
     # -- phase 1: in-tile repair (only meaningful on a gapless tiling) -------
     notch0, hole0 = _void_metrics(work)
@@ -1644,17 +1779,26 @@ def postprocess_plan(rects, names, options=None, edges=None,
         # only rectangle available and stands in for it.
         growth_limits = target if target is not None else plot_limits
         fits_plot = (growth_limits is not None
-                     and _within_limits(candidate, growth_limits, eps))
+                     and ((_within_frame(candidate, growth_limits, eps)
+                           if locked else
+                           _within_limits(candidate, growth_limits, eps))))
         grew_too_much = (
             ((cand_bbox[2] - cand_bbox[0])
              > (bbox_before[2] - bbox_before[0]) * growth
              or (cand_bbox[3] - cand_bbox[1])
              > (bbox_before[3] - bbox_before[1]) * growth)
             and not fits_plot)
-        if grew_too_much:
+        fixed_moved = any(
+            any(abs(a - b) > eps
+                for a, b in zip(candidate[i], start[i]))
+            for i in locked)
+        if fixed_moved:
+            note("repair rolled back (would move or resize a fixed room)")
+        elif grew_too_much:
             note("repair rolled back (would grow the plan"
                  " footprint beyond the allowed margin)")
-        elif not _within_limits(candidate, plot_limits, eps):
+        elif not ((_within_frame(candidate, plot_limits, eps) if locked else
+                   _within_limits(candidate, plot_limits, eps))):
             note("repair rolled back (would push the plan outside the plot)")
         elif (_rects_overlap(candidate, eps)
                 or not _doors_ok(candidate, door_reqs, eps)
@@ -1689,7 +1833,7 @@ def postprocess_plan(rects, names, options=None, edges=None,
             snapshot = list(work)
             action_snapshot = copy.deepcopy(actions)
             if _trim_pass(work, bounds, names, door_reqs, eps, tolerance,
-                          actions, allowances=allowances):
+                          actions, allowances=allowances, locked=locked):
                 why = None
                 if _rects_overlap(work, eps) \
                         or not _doors_ok(work, door_reqs, eps):
@@ -1707,11 +1851,13 @@ def postprocess_plan(rects, names, options=None, edges=None,
             snapshot = list(work)
             action_snapshot = copy.deepcopy(actions)
             if _absorb_pass(work, bounds, eps, actions,
-                            allowances=allowances):
+                            allowances=allowances, locked=locked):
                 if (_rects_overlap(work, eps)
                         or _void_metrics(work)[1] > eps
                         or not _doors_ok(work, door_reqs, eps)
-                        or not _within_limits(work, plot_limits, eps)):
+                        or not ((_within_frame(work, plot_limits, eps)
+                                 if locked else
+                                 _within_limits(work, plot_limits, eps)))):
                     work[:] = snapshot
                     actions.clear()
                     actions.update(action_snapshot)
@@ -1755,7 +1901,8 @@ def postprocess_plan(rects, names, options=None, edges=None,
     if (opts["prefer_rectangle"] or opts["exact_fill"]) and gapless_before:
         rectangle_restored, reclose_slack_used, trims_reverted = \
             _close_notches(work, bounds, door_reqs, eps, opts, actions,
-                           allowances, plot_limits, rect_state, rect_actions)
+                           allowances, plot_limits, rect_state, rect_actions,
+                           locked=locked)
         if rectangle_restored:
             note("outline reclosed to a rectangle"
                  + (" (a room was allowed past its ceiling to do it)"
@@ -1780,9 +1927,12 @@ def postprocess_plan(rects, names, options=None, edges=None,
                                    target, plot_limits, actions, allowances,
                                    slack_rooms=fill_slack_rooms,
                                    exact_fill=bool(opts["exact_fill"]),
-                                   escalation=fill_escalation)
+                                   escalation=fill_escalation,
+                                   locked=locked)
         if filled[0] > 0.05 or filled[1] > 0.05:
             note("grown %.1f x %.1f ft to fill the plot" % filled)
+        if _snap_to_target(work, target, eps, locked, actions=actions):
+            note("outer edge snapped onto the plot")
 
         # -- phase 6: rebalance inside the filled plot -----------------------
         # An exact fill fixes the TOTAL area, and the tiling decides who holds
@@ -1795,10 +1945,41 @@ def postprocess_plan(rects, names, options=None, edges=None,
         # construction, bbox untouched. Conservative on purpose: only walls a
         # single neighbour spans entirely move, doors are re-checked per
         # shift, and a shift is capped by the neighbour's own ceilings.
+        # Rebalancing is lower priority than an exact envelope.  Treat it as
+        # its own transaction: a wall shift can shrink an entry-overcap toilet
+        # below a user/NBC floor, and the old end-of-function quality gate then
+        # reverted the *successful fill as well*, recreating the empty strip.
+        # Keep the fill and give back only the optional redistribution when it
+        # introduces a new non-released regression or touches a fixed room.
+        rebalance_start = list(work)
+        rebalance_actions = copy.deepcopy(actions)
+        rebalance_slack = set(fill_slack_rooms)
         if _shift_overcap_walls(work, bounds, door_reqs, eps, actions,
                                 exact_fill=bool(opts["exact_fill"]),
-                                slack_rooms=fill_slack_rooms):
-            note("room sizes rebalanced inside the filled plot")
+                                slack_rooms=fill_slack_rooms,
+                                locked=locked):
+            rebalance_vec = [_quality_vector(r, b)
+                             for r, b in zip(work, bounds)]
+            rebalance_regressed = any(
+                i not in fill_slack_rooms
+                and any((not before) and after
+                        for before, after in zip(vec_before[i],
+                                                 rebalance_vec[i]))
+                for i in range(len(names)))
+            fixed_changed = any(
+                any(abs(a - b) > eps
+                    for a, b in zip(work[i], start[i]))
+                for i in locked)
+            if rebalance_regressed or fixed_changed:
+                work[:] = rebalance_start
+                actions.clear()
+                actions.update(rebalance_actions)
+                fill_slack_rooms.clear()
+                fill_slack_rooms.update(rebalance_slack)
+                note("room-size rebalance rolled back (would break a hard"
+                     " floor or fixed room)")
+            else:
+                note("room sizes rebalanced inside the filled plot")
 
         if fill_slack_rooms:
             over_now = _over_ceiling_rooms(work, bounds, names)
@@ -1885,7 +2066,8 @@ def postprocess_plan(rects, names, options=None, edges=None,
         "over_ceiling_rooms": (_over_ceiling_rooms(work, bounds, names)
                                if reclose_slack_used or trims_reverted
                                or fill_slack_rooms else []),
-        "plot_fit": _within_limits(work, plot_limits, eps),
+        "plot_fit": ((_within_frame(work, plot_limits, eps) if locked else
+                      _within_limits(work, plot_limits, eps))),
         "filled_toward_plot": [round(filled[0], 2), round(filled[1], 2)],
         # True when phase 5 had to climb the exact-fill escalation ladder
         # (enforce_plot): room limits were released past their NBC ceilings so
@@ -1971,10 +2153,11 @@ def postprocess_ui_output(ui, nodes_list, edges_list, options, plan_count,
     (reports, summary_note).
 
     `plan_validator(plan) -> bool`, when given, re-checks a mutated plan
-    against caller-side guarantees (e.g. cardinal pins, which are verified
-    BEFORE this runs and could be broken by a room growing into the strip
-    between a pinned room and its side). A plan that fails validation is
-    restored to its pre-processing geometry and reported unchanged.
+    against caller-side guarantees (e.g. cardinal pins or fixed-room geometry,
+    which are verified BEFORE this runs and could be broken by a room growing
+    into the strip between a pinned room and its side). A plan that fails
+    validation is restored to its pre-processing geometry and reported
+    unchanged.
     """
     plans = ui.get_output_data()
     names = [node["label"] for node in nodes_list]
@@ -1982,6 +2165,10 @@ def postprocess_ui_output(ui, nodes_list, edges_list, options, plan_count,
                   if e is not None and len(e) >= 2
                   and str(e[2] if len(e) > 2 else "black").lower() != "red"]
     params = getattr(ui, "min_dim_inputs", None)
+    fixed_specs = (getattr(params, "get_fixed_rooms", lambda: [])()
+                   if params is not None else []) or []
+    fixed_indices = {int(spec["room"]) for spec in fixed_specs
+                     if isinstance(spec, dict) and "room" in spec}
 
     def col(getter):
         if params is None:
@@ -2044,7 +2231,8 @@ def postprocess_ui_output(ui, nodes_list, edges_list, options, plan_count,
             rects, names, options, edges=door_edges,
             user_min_w=user_min_w, user_min_h=user_min_h,
             user_max_w=user_max_w, user_max_h=user_max_h,
-            user_min_a=user_min_a, user_max_a=user_max_a)
+            user_min_a=user_min_a, user_max_a=user_max_a,
+            fixed_indices=fixed_indices)
         if report["changed"]:
             saved = (plan.final_traversal, plan.room_width, plan.room_height,
                      plan.area,
@@ -2068,7 +2256,7 @@ def postprocess_ui_output(ui, nodes_list, edges_list, options, plan_count,
                 report = dict(report)
                 report["changed"] = False
                 report["phase_notes"] = list(report.get("phase_notes", [])) + [
-                    "all changes reverted (would break a verified cardinal pin)"]
+                    "all changes reverted (would break a verified geometric constraint)"]
                 report["issues_after"] = report["issues_before"]
                 report["score_after"] = report["score_before"]
         reports.append(report)

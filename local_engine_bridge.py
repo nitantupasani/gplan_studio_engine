@@ -1,8 +1,10 @@
 """Local engine bridge for gplan-building-designer development.
 
-Serves the two endpoints the designer frontend needs, calling the LOCAL
-GPLAN engine synchronously - no Django/Celery/Redis required. Lets you test
-engine changes (e.g. cardinal constraints) end-to-end before deploying.
+Serves the endpoints the designer frontend needs with no Django, Celery, or
+Redis. Floorplan generation is queued on one local worker so POST returns
+promptly and GET polling can expose cumulative progress before completion.
+This lets you test engine changes (e.g. cardinal constraints) end-to-end
+before deploying.
 
 Run:      python GPLAN/local_engine_bridge.py          (from GPLAN_Revamp root)
           -> http://localhost:8027
@@ -10,14 +12,14 @@ Frontend: GPLAN_LOCAL_ENGINE=1 npm run dev             (designer repo)
           vite proxies /api and /users here instead of api.gplan.in.
 
 Endpoints:
-    POST /api/generate/<shape>       run Documents.get_floorplans, return task id
+    POST /api/generate/<shape>       queue Documents.get_floorplans, return task id
     POST /api/postprocess/floorplans NBC post-processing, synchronous 200
     POST /api/allocate               area-budget allocation, synchronous 200
     GET  /api/structural/options/    structural capability discovery, sync 200
     POST /api/structural/layout/     structural placement, synchronous 200
     POST /api/structural/check/      re-check an edited model, synchronous 200
     POST /api/structural/design/     full structural pipeline, task id (fake async)
-    GET  /api/task/<task_id>/        return the stored result
+    GET  /api/task/<task_id>/        return PENDING/PROGRESS/final stored state
     POST /users/auth/token/refresh/  dummy token so the frontend auth flow passes
     POST /api/v1/authentication/login/  same
 
@@ -27,9 +29,12 @@ the bare one, and a POST body does not survive an APPEND_SLASH redirect.
 """
 import os
 import sys
+import copy
+import concurrent.futures
 import json
 import uuid
 import base64
+import socket
 import threading
 import traceback
 
@@ -41,8 +46,28 @@ from GPLAN.source.inputgraph import InputGraph
 
 app = Flask(__name__)
 
+BRIDGE_HOST = "127.0.0.1"
+BRIDGE_PORT = 8027
+BRIDGE_CAPABILITIES = [
+    "fixed_rooms_v1",
+    "fixed_anchor_sw",
+    "structural_layout_v1",
+    "structural_design_v1",
+]
+
 _results = {}
 _results_lock = threading.Lock()
+# GPLAN temporarily replaces process-global builtins.print while generating.
+# A single worker preserves the old serialized execution model while allowing
+# the Flask request thread to return a task id immediately.
+_generation_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix="gplan-generation")
+
+
+@app.get("/api/local-bridge/health/")
+def local_bridge_health():
+    """Compatibility probe used by the designer before selecting this bridge."""
+    return jsonify({"status": "ok", "capabilities": BRIDGE_CAPABILITIES})
 
 
 def _fake_jwt():
@@ -381,15 +406,51 @@ def generate_multi_ptpg():
     return jsonify({"task_id": task_id, "status": "started"}), 202
 
 
-@app.post("/api/generate/<shape>")
-def generate(shape):
-    task_id = str(uuid.uuid4())
+def _run_floorplan_generation(task_id, shape, kwargs):
+    """Run one queued generation and publish Celery-shaped progress."""
+    sequence = 0
+    requested = int(kwargs.get("count") or 0)
+
+    def publish_progress(partial_result):
+        nonlocal sequence
+        try:
+            # Round-trip through JSON before exposing the snapshot. This both
+            # detaches it from engine mutation and enforces the bridge's wire
+            # contract (no numpy values, graph objects, NaN, or callbacks).
+            partial = json.loads(json.dumps(
+                copy.deepcopy(partial_result), allow_nan=False))
+            documents = partial.get("response", {}).get("Documents", {})
+            floorplans = documents.get("floorPlans")
+            if not isinstance(floorplans, list) or not floorplans:
+                return
+            ready = len(floorplans)
+            documents["count"] = ready
+            sequence += 1
+            result = {
+                "partial": True,
+                "complete": False,
+                "provisional": bool(partial.get("provisional", True)),
+                "progress": {
+                    "sequence": sequence,
+                    "ready": ready,
+                    "requested": requested,
+                },
+                "message": partial.get("message", ""),
+                "response": partial["response"],
+            }
+            with _results_lock:
+                _results[task_id] = {
+                    "task_id": task_id,
+                    "status": "PROGRESS",
+                    "result": result,
+                }
+        except Exception:
+            # A progress transport failure must not fail generation.
+            return
+
     try:
-        kwargs = _prepare(request.get_json(force=True), shape)
-        print(f"[bridge] {shape}: nodes={len(kwargs['nodes_list'])} "
-              f"edges={len(kwargs['edges_list'])} "
-              f"cardinal={kwargs['cardinal_constraints']}")
-        floorplans, message = Documents.get_floorplans(**kwargs)
+        floorplans, message = Documents.get_floorplans(
+            **kwargs, progress_callback=publish_progress)
         result = {"status": "SUCCESS", "message": message,
                   "response": floorplans.to_dict()}
         print(f"[bridge] {shape}: done - "
@@ -399,6 +460,29 @@ def generate(shape):
         result = {"status": "FAILURE", "error": {"message": str(exc)}}
     with _results_lock:
         _results[task_id] = result
+
+
+@app.post("/api/generate/<shape>")
+def generate(shape):
+    task_id = str(uuid.uuid4())
+    with _results_lock:
+        _results[task_id] = {
+            "task_id": task_id,
+            "status": "PENDING",
+            "result": None,
+        }
+    try:
+        kwargs = _prepare(request.get_json(force=True), shape)
+        print(f"[bridge] {shape}: nodes={len(kwargs['nodes_list'])} "
+              f"edges={len(kwargs['edges_list'])} "
+              f"cardinal={kwargs['cardinal_constraints']}")
+        _generation_executor.submit(
+            _run_floorplan_generation, task_id, shape, kwargs)
+    except Exception as exc:
+        traceback.print_exc()
+        with _results_lock:
+            _results[task_id] = {
+                "status": "FAILURE", "error": {"message": str(exc)}}
     return jsonify({"task_id": task_id, "status": "started"}), 202
 
 
@@ -412,4 +496,15 @@ def task(task_id):
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8027, debug=False)
+    # Werkzeug enables address reuse for quick restarts. On Windows that can
+    # allow an old and a new development bridge to listen on the same port,
+    # randomly routing requests to different engine checkouts. Refuse to start
+    # while any listener is already present so test results are deterministic.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.25)
+        if probe.connect_ex((BRIDGE_HOST, BRIDGE_PORT)) == 0:
+            raise SystemExit(
+                "[bridge] port 8027 is already in use. Stop the stale local "
+                "engine bridge before starting this checkout."
+            )
+    app.run(host=BRIDGE_HOST, port=BRIDGE_PORT, debug=False)
