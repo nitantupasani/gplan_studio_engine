@@ -818,6 +818,41 @@ def _absorb_pass(rects, bounds, eps, actions, allowances=None, locked=None):
 # phase 4: reclose the outline / phase 5: grow to the plot
 # ---------------------------------------------------------------------------
 
+def _snap_to_target(work, target, eps, locked=None, snap_tol=0.05, actions=None):
+    """Close a sub-tolerance shortfall between the plan extent and the target.
+
+    The legacy LP emits three-decimal coordinates, so a tiling can arrive at
+    29.988 of a 30 ft target. The growth above reads that as already at the
+    plot (it works to `eps`), yet the plan ships 0.012 ft short and every
+    exact-extent consumer (the fixed-room frame check, reports, the client's
+    fill verdict) sees 29.99. Stretch every room on that outer edge the last
+    fraction onto the target; an edge a locked room sits on is left alone.
+    Returns True when anything moved.
+    """
+    if target is None or not work:
+        return False
+    locked = set(locked or ())
+    bx0, by0, bx1, by1 = _bbox(work)
+    moved = False
+    for axis, extent, goal in ((0, bx1 - bx0, float(target[0])),
+                               (1, by1 - by0, float(target[1]))):
+        short = goal - extent
+        if short <= eps or short > snap_tol:
+            continue
+        edge = bx1 if axis == 0 else by1
+        on_edge = [i for i, r in enumerate(work) if abs(r[2 + axis] - edge) <= eps]
+        if not on_edge or any(i in locked for i in on_edge):
+            continue
+        for i in on_edge:
+            r = list(work[i])
+            r[2 + axis] = edge + short
+            work[i] = tuple(r)
+            if actions is not None:
+                actions.setdefault(i, []).append("snapped onto the plot edge")
+        moved = True
+    return moved
+
+
 def _relaxed_bounds(bounds, slack):
     """Copy of `bounds` with the SPAN and AREA ceilings widened by `slack`.
 
@@ -1896,6 +1931,8 @@ def postprocess_plan(rects, names, options=None, edges=None,
                                    locked=locked)
         if filled[0] > 0.05 or filled[1] > 0.05:
             note("grown %.1f x %.1f ft to fill the plot" % filled)
+        if _snap_to_target(work, target, eps, locked, actions=actions):
+            note("outer edge snapped onto the plot")
 
         # -- phase 6: rebalance inside the filled plot -----------------------
         # An exact fill fixes the TOTAL area, and the tiling decides who holds

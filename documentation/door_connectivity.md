@@ -103,6 +103,75 @@ The property of adjacency and non adjacency of the rooms (nodes) are depicted us
 
 : Number of floorplans to generate 
 
+### Progressive results (2026-09-02)
+
+Python callers may pass an optional `progress_callback` to
+`Documents.get_floorplans`. The callable receives one argument with the same
+JSON-safe document shape used by the terminal result:
+
+```json
+{
+  "provisional": true,
+  "message": "Generating Multiple Door connectivity floorplan. 1 floorplan(s) ready.",
+  "response": {
+    "Documents": {
+      "documentID": "...",
+      "name": "...",
+      "count": 1,
+      "floorPlans": [[{"name": "Living Room", "walls": []}]]
+    }
+  }
+}
+```
+
+The callback is observational and backward compatible. Omitting it preserves
+the existing call and return contract; an exception raised by it is ignored and
+cannot fail generation. The callable itself never enters an HTTP request,
+Celery arguments, or a cache key.
+
+No raw solver graph is published. Each early fixed-room candidate is copied,
+then passes rectangularization, fixed geometry and anchor validation, cardinal
+validation, NBC post-processing, and the hard exact-fill gate. Preview work is
+bounded: publish the first valid plan, then refresh at four and at an
+eight-plan maximum. Finalization is cached and stops once that window is full,
+so progress does not re-run the full terminal batch. The snapshot is explicitly
+`provisional: true`: a later, better-ranked candidate may reorder or replace a
+preview plan, and clients must replace the whole snapshot rather than append
+it. The terminal result and ordering remain authoritative.
+
+For other door-connectivity paths, the safe fallback publishes cumulative
+prefixes during final serialization. Those paths therefore support the same
+wire contract, but do not yet reduce the solver wait. This limitation avoids
+duplicating rotation, expand, and top-up work solely for progress.
+On the 2026-09-02 non-fixed variant of the captured eight-room request, a
+0.5-second local poll first observed serialization progress at 19.12 s and
+terminal success at 20.22 s. Treat that route as contract compatibility, not
+general early streaming, until its rotation and top-up families gain their own
+bounded safe hooks.
+
+HTTP remains polling based, with no websocket. The Django worker and local
+bridge wrap the engine snapshot in a progress task result:
+
+```json
+{
+  "task_id": "...",
+  "status": "PROGRESS",
+  "result": {
+    "partial": true,
+    "complete": false,
+    "provisional": true,
+    "progress": {"sequence": 2, "ready": 1, "requested": 30},
+    "message": "...",
+    "response": {"Documents": {"count": 1, "floorPlans": [[{"name": "Living Room"}]]}}
+  }
+}
+```
+
+The local bridge queues floorplan requests on one background worker. POST
+returns `202` immediately; GET exposes `PENDING`, then zero or more `PROGRESS`
+states, then the unchanged final `SUCCESS` shape. The single worker is required
+because the legacy engine temporarily changes process-global print behavior.
+
 `nodes : array[node]`
 
 : An array of node objects (structure below) representing each "node" in the graph
@@ -251,6 +320,32 @@ ordinary room maxima may still follow their documented relaxation ladders; a
 fixed node never does. If the fixed dimensions/anchor cannot be realised (for
 example, two overlapping rooms both demand the same corner), the response contains no
 invalid fallback plan and its message says the fixed-room constraints are hard.
+
+Yield (2026-09-02). Three things decide how many topologies survive a fixed
+corner room, all in `api.py`:
+
+- `build_cardinal_ring` now searches every cyclic room order exhaustively for
+  briefs up to 12 rooms (`_ring_orders_exhaustive`) and, when fixed rooms are
+  present, ranks the valid orders by whether the fixed room's two ring
+  neighbours can share its row or column (`_ring_neighbour_score`: height
+  band containing the fixed height, width band containing the fixed width,
+  and the door host). The previous DFS-preorder family found no ring at all
+  for the shipped 2BHK brief, so the stair's boundary neighbour was whatever
+  the biconnectivity augmentation chose, a bedroom on every topology, and a
+  bedroom's 11 ft minimum can never sit in a 10 ft stair row.
+- `rectangularize_output` translates a locked room onto its anchored plan
+  edges before gap closing (`_anchor_locked_rects`). Min-dim aligns rooms to
+  the interior walls they share and leaves the outer strip for the fill to
+  grow into; a locked room cannot grow, so it came back 1-4 ft inside its
+  edge and the plan was dropped. The strip it vacates is next to an ordinary
+  room, which the fill closes.
+- The expand and top-up paths are skipped when fixed rooms exist
+  (`handlers.py`): they scale every room, so nothing they produce can pass
+  the fixed gate.
+
+Measured on the housing 2BHK brief (30 x 40 ft, 7 x 10 stair SW, 12 edges):
+3 plans before, all from the spanning-tree retry; 24 after, on the first
+attempt, every adjacency kept, every stair exact and anchored, 4 s.
 
 The returned fixed-room geometry is authoritative. A client must not uniformly
 scale or centre a generated variant after the engine returns it, because that

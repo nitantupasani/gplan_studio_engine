@@ -1969,7 +1969,25 @@ def handle_limits(ui, graph, drawGUI = False, gclass = None):
         print("Limit Exceeded")
         # show_warning(newCoordsInstance.error_message)
 
-def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
+def handle_door_connectivity(ui, graph, drawGUI=False, gclass=None,
+                             candidate_callback=None):
+    """Generate door-connectivity plans.
+
+    ``candidate_callback``, when supplied by the API layer, is an internal
+    progress hook with the shape ``(graph, sort_key, remaining_attempts)``.
+    It sees only solved PTPG candidates, and any exception it raises is
+    ignored so observing progress can never change generation.
+    """
+
+    def notify_candidate(candidate, sort_key, remaining_attempts):
+        if candidate_callback is None:
+            return
+        try:
+            candidate_callback(candidate, sort_key, remaining_attempts)
+        except Exception:
+            # Progress is best effort and must never affect the solver.
+            pass
+
     if not graph.is_connected():#Check if the graph is connected or not
                 connect_graph.one_connected(graph.matrix)
     # Check for edge intersections
@@ -2215,11 +2233,23 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
             # the expanded catalogue never duplicates a fitting plan.
             fitted_topologies = set()
 
+            # Upper bound on future candidates for the progress collector.
+            # Count every topology, not merely floorplan_per_bdy_limit: failed
+            # solves do not advance that limit and could make every entry in a
+            # boundary group get tried. Skipped tail entries are removed from
+            # the budget at the end of each group.
+            remaining_topology_attempts = sum(
+                len(group) for group in graph.graph_list_by_bdy)
+
             for bdy_itr in range(len(graph.graph_list_by_bdy)):
                 bdy_fplans = 0
+                attempted_in_boundary = 0
                 for rel_itr in range(len(graph.graph_list_by_bdy[bdy_itr])):
                     if bdy_fplans >= graph.floorplan_per_bdy_limit:
                         break
+                    attempted_in_boundary += 1
+                    remaining_topology_attempts = max(
+                        0, remaining_topology_attempts - 1)
                     # print("Trying floorplan number", i + 1,
                     #       "to see if minimum dimension floorplan can be constructed.")
                     graph.graph_list.append(graph.graph_list_by_bdy[bdy_itr][rel_itr])#may cause issues later might need to deepcopy
@@ -2317,6 +2347,10 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         areas_mapping.append(((boundArea - area_sum,area_sum),i))
                         # graph.graph_list[i].area = area_sum
                         graph.graph_list[i].final_traversal = inputgraph.get_final_traversal(graph.graph_list[i])
+                        notify_candidate(
+                            graph.graph_list[i],
+                            (boundArea - area_sum, area_sum),
+                            remaining_topology_attempts)
                         if min_area < 0 or area_sum < min_area:
                             min_graph = i
                             min_area = area_sum
@@ -2333,6 +2367,20 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                         i = i-1
                         graph.graph_list.pop()
                         original_graph_list.pop()
+                        notify_candidate(
+                            None, None, remaining_topology_attempts)
+
+                # Once the per-boundary success cap is reached, the unvisited
+                # tail can no longer displace an already-seen candidate.
+                skipped = (len(graph.graph_list_by_bdy[bdy_itr])
+                           - attempted_in_boundary)
+                remaining_topology_attempts = max(
+                    0, remaining_topology_attempts - skipped)
+                notify_candidate(None, None, remaining_topology_attempts)
+
+            # Final progress tick before batch composition. The bounded API
+            # preview may already be full, in which case this is a no-op.
+            notify_candidate(None, None, 0)
 
             if allow_rotation :
                 print("Rotation is allowed duplicating all floorplans")
@@ -2467,9 +2515,16 @@ def handle_door_connectivity(ui, graph, drawGUI = False, gclass = None):
                     ui._set_multiple_output_found(1)
 
             fitted_count = len(ui.get_output_data()) if floorplan_found else 0
-            need_expand = not floorplan_found
+            # A fixed room is exact by contract; the expand and top-up paths
+            # scale every room, so their plans can never pass the fixed gate
+            # and only cost time (measured: 197 of 208 plans on a fixed-stair
+            # 2BHK, all discarded later). Fitting plans are the whole answer.
+            fixed_present = bool(getattr(getattr(ui, "min_dim_inputs", None),
+                                         "get_fixed_rooms", lambda: [])())
+            need_expand = not floorplan_found and not fixed_present
             topup = (enforce_plot and floorplan_found and multiple_door == 1
-                     and fitted_count < ENFORCE_PLOT_TOPUP_TARGET)
+                     and fitted_count < ENFORCE_PLOT_TOPUP_TARGET
+                     and not fixed_present)
             if need_expand or topup:
                 if need_expand:
                     print("No floorplan found which satisfies the minimum dimensions input by user.")

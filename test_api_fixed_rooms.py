@@ -326,3 +326,101 @@ def test_fixed_band_must_be_exact():
         assert "equal positive width min/max" in str(exc)
     else:
         raise AssertionError("a non-equality fixed width was accepted")
+
+
+# ---------------------------------------------------------------------------
+# the housing 2BHK brief with the mandatory south-west stair (2026-09-02)
+# ---------------------------------------------------------------------------
+
+_HOUSING_2BHK_REQUEST = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "test_api_fixed_rooms_housing_2bhk.json")
+
+
+def _housing_2bhk_kwargs():
+    """The exact request the housing page sends for a 2BHK on a 30 x 40 ft
+    plot with the 7 x 10 ft stair core anchored SW (captured 2026-09-02)."""
+    import json
+    from local_engine_bridge import _prepare
+
+    with open(_HOUSING_2BHK_REQUEST, "r") as handle:
+        payload = json.load(handle)
+    return payload, _prepare(payload, "door_connectivity")
+
+
+def test_ring_builder_finds_the_full_2bhk_ring_and_a_row_compatible_neighbour():
+    """The DFS-preorder family found no ring for the 12-edge brief, so the
+    stair ran unringed and its boundary neighbour was whatever biconnectivity
+    chose (a bedroom, whose 11 ft minimum can never share a 10 ft stair row).
+    The exhaustive search finds both valid orders and picks the one whose
+    stair neighbours can tile: the Kitchen (8-13 ft tall) beside the stair,
+    the Living Room (its door host) above it."""
+    from GPLAN.api import (_ring_orders_exhaustive, build_cardinal_ring,
+                           fixed_cardinal_pairs)
+
+    payload, kwargs = _housing_2bhk_kwargs()
+    nodes = payload["nodes"]
+    edges = kwargs["edges_list"]
+    fixed = normalize_fixed_rooms(nodes, dict(kwargs["dim_inputs"]), True)
+    pairs = fixed_cardinal_pairs(fixed)
+    labels = [node["label"] for node in nodes]
+    n = len(nodes)
+    adjset = {i: set() for i in range(n)}
+    for edge in edges:
+        adjset[int(edge[0])].add(int(edge[1]))
+        adjset[int(edge[1])].add(int(edge[0]))
+    pins = {}
+    for node, direction in pairs:
+        pins.setdefault(node, set()).add(direction)
+
+    orders = _ring_orders_exhaustive(n, adjset, edges, pins)
+    assert len(orders) == 2, orders
+
+    ring = build_cardinal_ring(n, edges, pairs, nodes_list=nodes, fixed_rooms=fixed)
+    assert ring is not None, "the full brief has a valid ring; None starved the stair of it"
+    _ring_edges, coords = ring
+    order = sorted(range(n), key=lambda v: math.atan2(coords[v][1] - 0.5, coords[v][0] - 0.5) % (2 * math.pi))
+    stair = labels.index("Staircase")
+    k = order.index(stair)
+    neighbours = {labels[order[k - 1]], labels[order[(k + 1) % n]]}
+    assert neighbours == {"Kitchen", "Living Room"}, [labels[v] for v in order]
+
+
+def test_housing_2bhk_sw_stair_yields_a_catalogue_with_every_adjacency_kept():
+    """Before: 3 plans, all from the spanning-tree retry (adjacencies dropped).
+    After: the full graph tiles around the anchored stair on the first attempt,
+    every plan keeps the stair exactly at 7 x 10 in the plot's south-west
+    corner and fills the 30 x 40 ft plot; no relaxation, no dropped plans."""
+    _payload, kwargs = _housing_2bhk_kwargs()
+    response, message = Documents.get_floorplans(**kwargs)
+    plans = response.to_dict()["Documents"]["floorPlans"]
+    assert len(plans) >= 20, (len(plans), message)
+    assert "relaxed" not in message, message
+    assert "dropped because hard fixed-room" not in message, message
+    for plan in plans:
+        stair = next(room for room in plan if room["name"] == "Staircase")
+        sx0, sy0, sx1, sy1 = _room_rect(stair)
+        assert abs((sx1 - sx0) - 7) <= 0.05
+        assert abs((sy1 - sy0) - 10) <= 0.05
+        assert abs(sx0) <= 0.05 and abs(sy1 - 40) <= 0.05, (sx0, sy1)
+        px0, py0, px1, py1 = _plan_rect(plan)
+        assert abs(px0) <= 0.05 and abs(py0) <= 0.05
+        assert abs(px1 - 30) <= 0.05 and abs(py1 - 40) <= 0.05, (px1, py1)
+
+
+def test_anchor_translation_moves_a_recessed_lock_only_into_free_space():
+    from GPLAN.api import _anchor_locked_rects
+
+    spec = [{"room": 1, "width": 7.0, "height": 10.0, "anchor": "SW",
+             "directions": (2, 3), "bottom": 40.0}]
+    # stair recessed 3 ft from the west edge, nothing beside it: moves to x=0
+    rects = [(0.0, 0.0, 20.0, 30.0), (3.0, 30.0, 10.0, 40.0), (10.0, 30.0, 20.0, 40.0)]
+    moved = _anchor_locked_rects(rects, spec, 0.01)
+    assert moved[1] == (0.0, 30.0, 7.0, 40.0)
+    assert moved[0] == rects[0] and moved[2] == rects[2]
+    # the west spot is taken: the lock stays where it is
+    rects = [(0.0, 0.0, 20.0, 30.0), (3.0, 30.0, 10.0, 40.0), (0.0, 30.0, 3.0, 40.0)]
+    assert _anchor_locked_rects(rects, spec, 0.01)[1] == (3.0, 30.0, 10.0, 40.0)
+    # an expanded (scaled) lock is never translated
+    rects = [(0.0, 0.0, 20.0, 30.0), (3.0, 30.0, 11.8, 40.0)]
+    assert _anchor_locked_rects(rects, spec, 0.01)[1] == (3.0, 30.0, 11.8, 40.0)

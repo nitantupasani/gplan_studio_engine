@@ -39,6 +39,75 @@ again after rectangularization and post-processing. All side and corner presets
 `left = 0`, `top = 0`; `SW` means `left = 0`, `bottom = plot height` in the
 normalized plot frame, in addition to direct boundary contact.
 
+## Yield: why a corner stair produced 3 plans and how that was fixed (2026-09-02)
+
+The `is_fixed` contract rejects every topology that cannot land the room
+exactly, so yield depends on the topologies offered. Measured on the housing
+2BHK (8 rooms, 12 edges, 30 x 40 ft, 7 x 10 ft stair anchored SW): 208
+topologies dimensioned, 0 anchored; the engine fell back to a spanning tree
+(196 topologies, 2 anchored) and returned 3 plans with adjacencies dropped.
+Two causes, both in `api.py`:
+
+1. `build_cardinal_ring` returned None for the full brief (its DFS-preorder
+   family missed both valid orders), so no ring was applied and the stair's
+   boundary neighbour came from biconnectivity augmentation: a bedroom, whose
+   11 ft minimum cannot share the stair's 10 ft row in any rectangular tiling.
+   The ring search is now exhaustive for briefs up to 12 rooms and ranks
+   orders by the fixed room's neighbour compatibility (the Kitchen, 8-13 ft
+   tall, beside the stair; the Living Room, its door host, above).
+2. The min-dim placement leaves a locked room recessed from its edge (it
+   aligns rooms to shared interior walls and leaves the outer strip to the gap
+   fill, which may not grow a lock). `rectangularize_output` now translates
+   the lock onto its anchored edges first; the vacated strip closes normally.
+
+With both, the same brief returns 24 plans on the first attempt, every
+adjacency kept, every stair exact in the plot corner, in 4 s instead of 12.
+The expand / top-up paths are skipped when fixed rooms exist: scaled plans
+can never pass the fixed gate.
+
+## Progressive fixed-room yield (2026-09-02)
+
+The fixed-room route is the first engine path that can publish plans before
+the complete topology pool has finished. A preserved frontend-through-bridge
+probe was run before this behavior changed: the housing 2BHK, 30 x 40 ft plot,
+south-west 7 x 10 ft stair, and a request for 60 returned 24 terminal plans in
+4.68 s; housing kept its existing eight-plan window. Every kept plan was
+30 x 40 ft and the stair remained at `(0, 30)`, size 7 x 10 ft. The live bridge
+fingerprint was `st-51004ac98ebe9b4a`.
+
+`Documents.get_floorplans(..., progress_callback=callable)` now exposes
+bounded, final-style JSON previews on that route. The handler reports a solved
+candidate and its normal terminal sort key, but the API never exposes that
+internal graph. It deep-copies selected candidates and runs each copy through
+the same rectangular, anchored fixed-room, cardinal, postprocess, and
+exact-fill acceptance gates used by the terminal result. It publishes the
+first valid plan, refreshes at four, and stops progress-only finalization once
+the preview contains eight. Results are cached so no candidate is finalized
+twice solely for progress.
+
+Every preview carries `provisional: true`. It is a replacement snapshot, not
+an append-only promise: a later topology may rank ahead of, reorder, or evict a
+preview plan. That trade is explicit because proving immutable terminal
+membership required finishing nearly the whole topology pool and made the
+first partial slower than the old terminal result. Every plan is nevertheless
+geometrically valid at emission; the terminal batch and ordering are unchanged
+and authoritative.
+
+The captured housing 2BHK automated test fingerprints every preview geometry
+against its terminal batch, verifies the 30 x 40 ft frame and south-west stair
+on every snapshot, and reruns the request without a callback to prove terminal
+plan selection and ordering are unchanged. That fixture currently retains all
+preview geometries, but callers must follow the general provisional contract.
+Callback exceptions are injected in the same test and may not fail generation.
+
+Post-change local measurements on the captured request: direct warmed calls
+finished in 4.860 s with the callback and 4.375 s without it (11.1% overhead),
+with callback milestones at 0.704 s for one plan and 1.860 s for eight. A real
+Flask test-client poll every 0.5 s observed one plan at 1.05 s, eight at 2.09 s,
+and the unchanged 24-plan success at 6.28 s; every observed preview passed the
+7 x 10 ft south-west stair check. Absolute cold timings vary, so the paired
+same-process comparison is the overhead measurement.
+
 ## Hard geometric invariant
 
 Let `P` be the plot, `F` fixed occupied spaces, `V` reserved voids, and `M`

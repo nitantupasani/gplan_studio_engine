@@ -7,7 +7,9 @@ A running example is available.
 """
 from GPLAN.source.inputgraph import InputGraph
 import GPLAN.pythongui.gui as gui
+import copy
 import math
+import time
 import uuid
 
 from GPLAN.handlers import *
@@ -338,7 +340,116 @@ def _ring_order_satisfies(order, pins):
     return False
 
 
-def build_cardinal_ring(nodecnt, edges_list, cardinal_pairs):
+def _ring_orders_exhaustive(nodecnt, adjset, edges_list, pins,
+                            max_orders=48, max_steps=60000):
+    """Every cyclic room order (node 0 first, one orientation per cycle) whose
+    requested edges are non-crossing chords and whose pins admit an N,E,S,W
+    arc split. Backtracking with incremental crossing pruning; bounded by
+    `max_steps` so a dense brief degrades to the DFS family below instead of
+    stalling. Small briefs (8-12 rooms) are exhausted in milliseconds.
+
+    The DFS-preorder family alone missed both valid orders of the shipped
+    2BHK brief (12 edges), so a fixed stair ran with no ring at all and its
+    boundary neighbours fell to the biconnectivity augmentation, which put a
+    bedroom in the stair's 10 ft row on every topology.
+    """
+    if nodecnt < 3 or nodecnt > 12:
+        return []
+    edges = [(int(e[0]), int(e[1])) for e in edges_list if int(e[0]) != int(e[1])]
+    found = []
+    order = [0]
+    pos = {0: 0}
+    steps = [0]
+
+    def chords():
+        out = []
+        for a, b in edges:
+            if a in pos and b in pos:
+                lo, hi = (pos[a], pos[b]) if pos[a] < pos[b] else (pos[b], pos[a])
+                if hi - lo > 1 and not (lo == 0 and hi == nodecnt - 1):
+                    out.append((lo, hi))
+        return out
+
+    def new_chord_crosses(li):
+        all_chords = chords()
+        for lo, hi in all_chords:
+            if hi != li:
+                continue
+            for a, b in all_chords:
+                if (a, b) == (lo, hi):
+                    continue
+                if len({a, b, lo, hi}) == 4 and (a < lo < b < hi or lo < a < hi < b):
+                    return True
+        return False
+
+    def rec():
+        if len(found) >= max_orders or steps[0] > max_steps:
+            return
+        steps[0] += 1
+        if len(order) == nodecnt:
+            if _ring_order_satisfies(order, pins):
+                rev = [0] + order[1:][::-1]
+                if tuple(order) <= tuple(rev):
+                    found.append(list(order))
+            return
+        for v in range(1, nodecnt):
+            if v in pos:
+                continue
+            order.append(v)
+            pos[v] = len(order) - 1
+            if not new_chord_crosses(pos[v]):
+                rec()
+            order.pop()
+            del pos[v]
+
+    rec()
+    return found
+
+
+def _ring_neighbour_score(order, adjset, nodes_list, fixed_rooms):
+    """How well the ring neighbours of each fixed room can share its row or
+    column. A fixed room's two ring neighbours become its south/west (or
+    east/north) wall companions; at least one must be able to take the fixed
+    room's exact height (same row) or width (same column) or no rectangular
+    tiling can close around it, and a neighbour the brief already joins to
+    the fixed room (its door host) keeps that door on the boundary."""
+    if not fixed_rooms or not nodes_list:
+        return 0
+    total = len(order)
+    pos = dict((v, i) for i, v in enumerate(order))
+
+    def band(index, axis):
+        node = nodes_list[index] if 0 <= index < len(nodes_list) else None
+        spec = node.get(axis) if isinstance(node, dict) else None
+        if not isinstance(spec, dict):
+            return None
+        try:
+            return float(spec.get("min")), float(spec.get("max"))
+        except (TypeError, ValueError):
+            return None
+
+    score = 0
+    for spec in fixed_rooms:
+        room = spec["room"]
+        if room not in pos:
+            continue
+        neighbours = (order[pos[room] - 1], order[(pos[room] + 1) % total])
+        row_ok = col_ok = hosts = 0
+        for v in neighbours:
+            hb = band(v, "height")
+            wb = band(v, "width")
+            if hb is not None and hb[0] - 1e-6 <= spec["height"] <= hb[1] + 1e-6:
+                row_ok += 1
+            if wb is not None and wb[0] - 1e-6 <= spec["width"] <= wb[1] + 1e-6:
+                col_ok += 1
+            if v in adjset.get(room, ()):
+                hosts += 1
+        score += 3 * min(1, row_ok + col_ok) + row_ok + col_ok + hosts
+    return score
+
+
+def build_cardinal_ring(nodecnt, edges_list, cardinal_pairs, nodes_list=None,
+                        fixed_rooms=None):
     """Planar outer-ring augmentation making every cardinal pin boundary-capable.
 
     A generated floorplan's boundary is the outer face of the planar embedding
@@ -470,7 +581,26 @@ def build_cardinal_ring(nodecnt, edges_list, cardinal_pairs):
                 return found
         return None
 
-    order = combos(0, [], [500])
+    order = None
+    if fixed_rooms:
+        # every valid order is known: take the one whose ring neighbours can
+        # actually tile around the fixed rooms, ties to the lowest order
+        exhaustive = _ring_orders_exhaustive(nodecnt, adjset, edges_list, pins)
+        if exhaustive:
+            order = min(
+                exhaustive,
+                key=lambda cand: (-_ring_neighbour_score(cand, adjset, nodes_list, fixed_rooms),
+                                  tuple(cand)),
+            )
+    if order is None:
+        # pin-only briefs keep the DFS-preorder ring they always had; the
+        # exhaustive search only steps in where that family finds no ring at
+        # all (a strict gain: the pinned room used to run unringed)
+        order = combos(0, [], [500])
+    if order is None:
+        exhaustive = _ring_orders_exhaustive(nodecnt, adjset, edges_list, pins)
+        if exhaustive:
+            order = min(exhaustive, key=tuple)
     if order is None:
         return None
     ring_edges = []
@@ -487,7 +617,8 @@ def build_cardinal_ring(nodecnt, edges_list, cardinal_pairs):
 
 
 def apply_cardinal_ring(graph, nodecnt, edges_list, cardinal_pairs,
-                        non_adj_edge_list=None):
+                        non_adj_edge_list=None, nodes_list=None,
+                        fixed_rooms=None):
     """Adds the cardinal outer ring to graph (matrix + coordinates) in place.
 
     Ring edges are engine augmentation, not user adjacencies - they are added
@@ -498,7 +629,8 @@ def apply_cardinal_ring(graph, nodecnt, edges_list, cardinal_pairs,
     """
     if not cardinal_pairs or non_adj_edge_list:
         return False
-    ring = build_cardinal_ring(nodecnt, edges_list, cardinal_pairs)
+    ring = build_cardinal_ring(nodecnt, edges_list, cardinal_pairs,
+                               nodes_list=nodes_list, fixed_rooms=fixed_rooms)
     if ring is None:
         return False
     ring_edges, coords = ring
@@ -1228,6 +1360,58 @@ def _is_gapless(rects, eps):
     return abs(total - bounds_area) <= bounds_area * 1e-3
 
 
+def _anchor_locked_rects(rects, fixed_rooms, eps):
+    """Move each locked room onto its anchored edges of the plan bbox.
+
+    The min-dim placement aligns rooms to the interior walls they share and
+    leaves the outer strip for the gap-closing pass to grow into; a locked
+    room cannot grow, so it came back 1-4 ft inside its west or south edge
+    with nothing beside it and the whole plan was dropped. Translating the
+    locked rectangle (never resizing it) onto the edge leaves the strip it
+    vacated next to an ordinary room, which the fill closes. Skipped when the
+    room is not at its exact size (an expanded plan) or the spot is occupied.
+    """
+    if not fixed_rooms or not rects:
+        return rects
+    rects = list(rects)
+    bx0 = min(r[0] for r in rects)
+    by0 = min(r[1] for r in rects)
+    bx1 = max(r[2] for r in rects)
+    by1 = max(r[3] for r in rects)
+    for spec in fixed_rooms:
+        i = spec["room"]
+        if i < 0 or i >= len(rects):
+            continue
+        x0, y0, x1, y1 = rects[i]
+        w, h = x1 - x0, y1 - y0
+        if abs(w - spec["width"]) > 0.05 or abs(h - spec["height"]) > 0.05:
+            continue
+        nx0, ny0 = x0, y0
+        directions = spec.get("directions", ())
+        if 3 in directions:
+            nx0 = bx0
+        if 1 in directions:
+            nx0 = bx1 - w
+        if 0 in directions:
+            ny0 = by0
+        if 2 in directions:
+            ny0 = by1 - h
+        if abs(nx0 - x0) <= eps and abs(ny0 - y0) <= eps:
+            continue
+        moved = (nx0, ny0, nx0 + w, ny0 + h)
+        blocked = False
+        for j, other in enumerate(rects):
+            if j == i:
+                continue
+            if (min(moved[2], other[2]) - max(moved[0], other[0]) > eps
+                    and min(moved[3], other[3]) - max(moved[1], other[1]) > eps):
+                blocked = True
+                break
+        if not blocked:
+            rects[i] = moved
+    return rects
+
+
 def _rects_satisfy_fixed(rects, fixed_rooms, tolerance=0.05):
     if not fixed_rooms:
         return True
@@ -1288,6 +1472,8 @@ def rectangularize_output(ui, fixed_rooms=None):
                 rects = None
                 break
             rects.append(rect)
+        if rects is not None and fixed_rooms:
+            rects = _anchor_locked_rects(rects, fixed_rooms, eps)
         if (rects is None or _rects_overlap(rects, eps)
                 or not _rects_satisfy_fixed(rects, fixed_rooms)):
             continue
@@ -1682,6 +1868,377 @@ def spanning_tree_edges(edges_list, nodecnt):
     return tree
 
 
+def _serialize_graph_plan(plan_graph, nodes_list):
+    """Serialize one finalized graph plan with the terminal wire contract."""
+    rooms = []
+    floorplan_data = plan_graph.final_traversal
+    name_coord = plan_graph.name_coords
+    area = plan_graph.area
+    widths = plan_graph.room_width
+    heights = plan_graph.room_height
+    for index, room_data in enumerate(floorplan_data):
+        x1 = room_data[0][0]
+        y1 = room_data[0][1]
+        wall_values = []
+        for point_index in range(1, len(room_data)):
+            x2 = room_data[point_index][0]
+            y2 = room_data[point_index][1]
+            wall_values.append(Wall(str(uuid.uuid4()), x1, y1, x2, y2))
+            x1 = x2
+            y1 = y2
+        wall_values.append(
+            Wall(str(uuid.uuid4()), x1, y1, room_data[0][0], room_data[0][1]))
+        room = Room(
+            str(uuid.uuid4()), nodes_list[index]["label"],
+            nodes_list[index]["color"], wall_values,
+            circular_coordinates=room_data,
+            name_coord=name_coord[index], area=area[index],
+            width=widths[index], height=heights[index])
+        rooms.append(room.to_dict())
+    return rooms
+
+
+def _wire_plan_key(plan):
+    """Geometry identity that ignores the random room and wall UUIDs."""
+    keyed = []
+    for room in plan:
+        polygon = room.get("circular_coordinates") or []
+        keyed.append((
+            str(room.get("name", "")),
+            tuple((round(float(point[0]), 5), round(float(point[1]), 5))
+                  for point in polygon),
+        ))
+    return tuple(keyed)
+
+
+def _metric_shortfalls(floorplan_data, nodes_list, edges_list, overlap_floor):
+    shortfalls = []
+    for edge in edges_list or []:
+        try:
+            a, b = int(edge[0]), int(edge[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if max(a, b) >= len(floorplan_data) or max(a, b) >= len(nodes_list):
+            continue
+        shared = _shared_wall_length(floorplan_data[a], floorplan_data[b])
+        if shared + 1e-6 < overlap_floor:
+            shortfalls.append({
+                "a": a,
+                "b": b,
+                "a_name": nodes_list[a]["label"],
+                "b_name": nodes_list[b]["label"],
+                "shared_wall_ft": round(shared, 2),
+            })
+    return shortfalls
+
+
+def _plot_fit_report(floorplan_data, plot_width, plot_height):
+    xs = [point[0] for polygon in floorplan_data for point in polygon]
+    ys = [point[1] for polygon in floorplan_data for point in polygon]
+    plan_width = (max(xs) - min(xs)) if xs else 0.0
+    plan_height = (max(ys) - min(ys)) if ys else 0.0
+    eps = 0.05
+    return {
+        "fits": (plan_width <= plot_width + eps
+                 and plan_height <= plot_height + eps),
+        "plan_width": round(plan_width, 2),
+        "plan_height": round(plan_height, 2),
+        "plot_width": plot_width,
+        "plot_height": plot_height,
+        "overflow_width": round(max(0.0, plan_width - plot_width), 2),
+        "overflow_height": round(max(0.0, plan_height - plot_height), 2),
+    }
+
+
+def _publish_progress_snapshot(callback, response, message, ready_count):
+    """Publish one JSON-safe prefix using the normal Documents wire shape."""
+    if not callable(callback) or ready_count <= 0:
+        return
+    try:
+        documents = copy.deepcopy(response.to_dict()["Documents"])
+        ready = min(int(ready_count), len(documents.get("floorPlans") or []))
+        documents["count"] = ready
+        documents["floorPlans"] = (documents.get("floorPlans") or [])[:ready]
+        for field in ("postprocess", "adjacency_shortfalls", "plot_fit"):
+            if isinstance(documents.get(field), list):
+                documents[field] = documents[field][:ready]
+        callback({
+            "provisional": True,
+            "message": message,
+            "response": {"Documents": documents},
+        })
+    except Exception:
+        # Serialization progress is observational and best effort.
+        return
+
+
+class _DoorProgressCollector:
+    """Finalize a bounded provisional preview during topology solving.
+
+    The handler reports candidates while it walks the topology pool, but none
+    crosses this boundary in that raw form. Each candidate is deep-copied and
+    put through the same rectilinear, fixed-room, cardinal, postprocess and
+    exact-fill gates as the terminal batch. The preview is deliberately capped
+    at eight plans and stops doing progress-only work once that window is full.
+    Later candidates may outrank an emitted plan, so every snapshot is marked
+    provisional and clients replace the whole window rather than append it.
+    """
+
+    def __init__(self, callback, ui, nodes_list, edges_list, fixed_rooms,
+                 cardinal_pairs, postprocess_enabled, postprocess_options,
+                 dim_inputs, document_id, name, count, limit):
+        self.callback = callback
+        self.ui = ui
+        self.nodes_list = nodes_list
+        self.edges_list = edges_list
+        self.fixed_rooms = fixed_rooms
+        self.cardinal_pairs = list(cardinal_pairs or [])
+        self.postprocess_enabled = bool(postprocess_enabled)
+        self.postprocess_options = postprocess_options
+        self.dim_inputs = dim_inputs
+        self.document_id = document_id
+        self.name = name
+        self.requested_count = int(count)
+        self.cap = max(0, min(int(count), int(limit)))
+        self.preview_cap = min(self.cap, 8)
+        # Raw solved candidates are retained only until the bounded preview is
+        # full. Finalization results are cached by sequence so a candidate is
+        # never rectangularized or postprocessed twice solely for progress.
+        self.entries = []
+        self.finalized = {}
+        self.published = {}
+        self.sequence = 0
+        self.last_signature = None
+        self.last_emit_at = 0.0
+
+        self.disclose_metric = True
+        self.overlap_floor = 2.8
+        if isinstance(postprocess_options, dict):
+            try:
+                requested = float(
+                    postprocess_options.get("min_door_overlap", 2.0) or 2.0)
+            except (TypeError, ValueError):
+                requested = 2.0
+            self.overlap_floor = max(self.overlap_floor, requested)
+
+        self.disclose_plot_fit = (
+            isinstance(dim_inputs, dict)
+            and bool(dim_inputs.get("enforce_plot"))
+            and float(dim_inputs.get("plot_width") or 0) > 0
+            and float(dim_inputs.get("plot_height") or 0) > 0)
+        self.plot_width = (
+            float(dim_inputs.get("plot_width") or 0)
+            if self.disclose_plot_fit else 0.0)
+        self.plot_height = (
+            float(dim_inputs.get("plot_height") or 0)
+            if self.disclose_plot_fit else 0.0)
+
+    def set_cardinal_pairs(self, cardinal_pairs):
+        self.cardinal_pairs = list(cardinal_pairs or [])
+
+    def reset_for_retry(self, cardinal_pairs):
+        """Start a cardinal retry after the previous pass yielded no plans."""
+        self.cardinal_pairs = list(cardinal_pairs or [])
+        self.entries = []
+        self.finalized = {}
+        self.published = {}
+        self.sequence = 0
+        self.last_signature = None
+        self.last_emit_at = 0.0
+
+    def _finalize(self, candidate, sort_key):
+        plan = copy.deepcopy(candidate)
+        progress_ui = copy.copy(self.ui)
+        progress_ui._set_output_data([plan])
+        progress_ui.set_message("")
+        # The terminal append helper mainly computes display label positions.
+        # Seed those cheaply here; rectangularization rewrites every surviving
+        # position to the final room center before serialization.
+        if len(getattr(plan, "name_coords", []) or []) < len(
+                plan.final_traversal):
+            plan.name_coords = [
+                [float(poly[0][0]), float(poly[0][1])]
+                for poly in plan.final_traversal]
+
+        rectangularize_output(progress_ui, self.fixed_rooms)
+        if self.fixed_rooms:
+            align_output_by_fixed(progress_ui, self.fixed_rooms)
+        plans = progress_ui.get_output_data()
+        if len(plans) != 1:
+            return None
+        plan = plans[0]
+        if (self.cardinal_pairs
+                and not plan_satisfies_cardinal(plan, self.cardinal_pairs)):
+            return None
+        if self.fixed_rooms and not plan_satisfies_fixed(plan, self.fixed_rooms):
+            return None
+
+        # Preserve a rejected postprocess/exact-fill result in the finalization
+        # cache. The preview scanner can then skip it without repeating the
+        # expensive production gates on every refresh milestone.
+        entry = {
+            "sort_key": tuple(sort_key),
+            "sequence": self.sequence,
+            "plan": None,
+            "postprocess": None,
+            "shortfalls": None,
+            "plot_fit": None,
+        }
+
+        report = None
+        if self.postprocess_enabled:
+            from GPLAN.source.postprocessing.postprocess import postprocess_ui_output
+
+            validator = None
+            if self.cardinal_pairs or self.fixed_rooms:
+                validator = (
+                    lambda item:
+                    (not self.cardinal_pairs
+                     or plan_satisfies_cardinal(item, self.cardinal_pairs))
+                    and plan_satisfies_fixed(item, self.fixed_rooms))
+            reports, _note = postprocess_ui_output(
+                progress_ui, self.nodes_list, self.edges_list,
+                self.postprocess_options, 1, plan_validator=validator)
+            report = reports[0] if reports else None
+            plan = progress_ui.get_output_data()[0]
+
+            exact_fill_enabled = not (
+                isinstance(self.postprocess_options, dict)
+                and self.postprocess_options.get("exact_fill") is False)
+            hard_fixed_fill = (
+                self.fixed_rooms and exact_fill_enabled
+                and bool(self.dim_inputs.get("enforce_plot"))
+                and float(self.dim_inputs.get("plot_width") or 0) > 0
+                and float(self.dim_inputs.get("plot_height") or 0) > 0)
+            if (hard_fixed_fill
+                    and not plan_fills_plot_exactly(
+                        plan, float(self.dim_inputs["plot_width"]),
+                        float(self.dim_inputs["plot_height"]))):
+                return entry
+
+        serialized = _serialize_graph_plan(plan, self.nodes_list)
+        shortfalls = _metric_shortfalls(
+            plan.final_traversal, self.nodes_list, self.edges_list,
+            self.overlap_floor)
+        fit = (
+            _plot_fit_report(
+                plan.final_traversal, self.plot_width, self.plot_height)
+            if self.disclose_plot_fit else None)
+        entry.update({
+            "geometry_key": _wire_plan_key(serialized),
+            "plan": serialized,
+            "postprocess": report,
+            "shortfalls": shortfalls,
+            "plot_fit": fit,
+        })
+        return entry
+
+    def candidate(self, candidate, sort_key, remaining_attempts):
+        """Accept one raw handler candidate, or a progress-only tick."""
+        try:
+            # Once eight fully gated previews exist, later callbacks are true
+            # no-ops. This keeps terminal latency close to the legacy path.
+            if (candidate is None or sort_key is None
+                    or len(self.published) >= self.preview_cap):
+                return
+            self.sequence += 1
+            self.entries.append({
+                "candidate": candidate,
+                "sort_key": tuple(sort_key),
+                "sequence": self.sequence,
+            })
+
+            seen = len(self.entries)
+            target = 1 if seen < 4 else (4 if seen < 8 else 8)
+            target = min(target, self.preview_cap)
+            if len(self.published) < target:
+                self._refresh_preview(target)
+        except Exception:
+            # Progress is best effort. It must never change terminal generation.
+            return
+
+    def _refresh_preview(self, target):
+        ranked = sorted(
+            self.entries,
+            key=lambda item: (item["sort_key"], item["sequence"]))
+        preview = []
+        for raw in ranked:
+            sequence = raw["sequence"]
+            if sequence not in self.finalized:
+                finalized = self._finalize(
+                    raw["candidate"], raw["sort_key"])
+                if finalized is not None:
+                    finalized["sequence"] = sequence
+                self.finalized[sequence] = finalized
+            entry = self.finalized[sequence]
+            if entry is not None and entry["plan"] is not None:
+                preview.append(entry)
+            if len(preview) >= target:
+                break
+        self.published = {item["sequence"]: item for item in preview}
+        # Emit only the deliberate 1, 4 and 8 milestones. When invalid raw
+        # candidates make a target fill gradually, do not serialize and ship
+        # every intermediate size (2, 3, 5, 6, 7).
+        should_emit = (
+            len(preview) >= target
+            or (self.last_signature is None and len(preview) > 0))
+        if should_emit:
+            self._emit(force=True)
+
+    def _snapshot(self):
+        ranked = sorted(
+            self.published.values(),
+            key=lambda item: (item["sort_key"], item["sequence"]))
+        documents = {
+            "documentID": self.document_id,
+            "name": self.name,
+            "count": len(ranked),
+            "floorPlans": [item["plan"] for item in ranked],
+        }
+        ptpg_graph = (
+            self.ui.get_ptpg_graph()
+            if hasattr(self.ui, "get_ptpg_graph") else None)
+        if ptpg_graph:
+            documents["ptpg_graph"] = ptpg_graph
+        if self.postprocess_enabled:
+            documents["postprocess"] = [
+                item["postprocess"] for item in ranked]
+        if self.disclose_metric:
+            documents["adjacency_shortfalls"] = [
+                item["shortfalls"] for item in ranked]
+        if self.disclose_plot_fit:
+            documents["plot_fit"] = [item["plot_fit"] for item in ranked]
+        return {
+            "provisional": True,
+            "message": (
+                "Generating Multiple Door connectivity floorplan. "
+                + str(len(ranked)) + " floorplan(s) ready."),
+            "response": {"Documents": documents},
+        }
+
+    def _emit(self, force=False):
+        ready = len(self.published)
+        signature = tuple(
+            item["sequence"] for item in sorted(
+                self.published.values(),
+                key=lambda item: (item["sort_key"], item["sequence"])))
+        if ready == 0 or signature == self.last_signature:
+            return
+        now = time.monotonic()
+        if not force and now - self.last_emit_at < 0.75:
+            return
+        snapshot = self._snapshot()
+        # Advance the throttle before invoking user code. A failing callback
+        # must not be hammered with the same large snapshot on every solver
+        # tick, and its failure still must not affect generation.
+        self.last_signature = signature
+        self.last_emit_at = now
+        try:
+            self.callback(copy.deepcopy(snapshot))
+        except Exception:
+            return
+
+
 class Documents:
     def __init__(self, hasMore, offset, documentID, name, count):
         self.hasMore = hasMore
@@ -1741,7 +2298,7 @@ class Documents:
 
     @staticmethod
     def get_floorplans(starting_from: int, count: int, caller, nodes_list: list, graph: InputGraph, rectangular: bool, corridor=False,
-                         dimensioned = False, dimensionedCirculation = False, minDimEnabled = False, removeAddCirculation = False, publicEnabled = False, nonAdj = False, normalize_const=40, limit=FLOORPLAN_LIMIT, corridor_thickness=None,documentID=None, name=None,circulationEnabled = 0, dim_inputs={},edges_list=[], non_adj_edge_list=[], cardinal_constraints=[], postProcessEnabled=False, postprocess_options=None):
+                         dimensioned = False, dimensionedCirculation = False, minDimEnabled = False, removeAddCirculation = False, publicEnabled = False, nonAdj = False, normalize_const=40, limit=FLOORPLAN_LIMIT, corridor_thickness=None,documentID=None, name=None,circulationEnabled = 0, dim_inputs={},edges_list=[], non_adj_edge_list=[], cardinal_constraints=[], postProcessEnabled=False, postprocess_options=None, progress_callback=None):
         original_print = builtins.print
 
         def null_print(*args, **kwargs):
@@ -1790,6 +2347,9 @@ class Documents:
             count = 1
         nodes_data = []
         response = []
+        # Optional, best-effort observer. Legacy callers omit it and retain
+        # the exact synchronous behavior and return shape.
+        progress_collector = None
         if count == 1:
             if caller == 'lshape':
                 ui.set_letter("L Shape")
@@ -1844,7 +2404,8 @@ class Documents:
                                                    len(nodes_list)),
                     hard_cardinal_pairs)
                 apply_cardinal_ring(graph, len(nodes_list), edges_list,
-                                    graph.cardinal_constraints, non_adj_edge_list)
+                                    graph.cardinal_constraints, non_adj_edge_list,
+                                    nodes_list=nodes_list, fixed_rooms=fixed_rooms)
                 handle_door_connectivity(ui, graph)
                 if fixed_rooms:
                     align_output_by_fixed(ui, fixed_rooms)
@@ -1875,6 +2436,19 @@ class Documents:
                 cardinal_pairs = merge_cardinal_pairs(requested_cardinal_pairs,
                                                        hard_cardinal_pairs)
                 graph.cardinal_constraints = cardinal_pairs
+                # Fixed-room catalogues are the bounded early-preview path:
+                # their solver disables rotation and both expand/top-up, so a
+                # small fully gated window can be produced without tracing
+                # later candidate families. Other request shapes publish only
+                # serialization-time prefixes below.
+                if (callable(progress_callback) and fixed_rooms
+                        and minDimEnabled
+                        and int(dim_inputs.get("optimal_floorplan", 1) or 0) == 1):
+                    progress_collector = _DoorProgressCollector(
+                        progress_callback, ui, nodes_list, edges_list,
+                        fixed_rooms, cardinal_pairs, postProcessEnabled,
+                        postprocess_options, dim_inputs, documentID, name,
+                        count, limit)
                 if not non_adj_edge_list and not fixed_rooms:
                     # One-connected graphs (two wings joined by one cut-vertex
                     # room) compose better as stacked component duals than
@@ -1918,11 +2492,18 @@ class Documents:
                             response.floorplans = new_plans
                             response.postprocess = pp_reports
                             message += pp_note
+                        _publish_progress_snapshot(
+                            progress_callback, response, message,
+                            len(response.floorplans))
                         builtins.print = original_print
                         return response, message
                 apply_cardinal_ring(graph, len(nodes_list), edges_list,
-                                    cardinal_pairs, non_adj_edge_list)
-                handle_door_connectivity(ui, graph)
+                                    cardinal_pairs, non_adj_edge_list,
+                                    nodes_list=nodes_list, fixed_rooms=fixed_rooms)
+                handle_door_connectivity(
+                    ui, graph,
+                    candidate_callback=(progress_collector.candidate
+                                        if progress_collector else None))
                 original_plans = list(ui.get_output_data())
                 # Capture ui's message AFTER the gapless pass: that pass emits
                 # its own warnings (a room pushed past its maximum to close a
@@ -1986,8 +2567,18 @@ class Documents:
                         retry_graph.cardinal_constraints = attempt_cardinal
                         apply_cardinal_ring(retry_graph, len(nodes_list),
                                             attempt_edges, attempt_cardinal,
-                                            non_adj_edge_list)
-                        handle_door_connectivity(ui, retry_graph)
+                                            non_adj_edge_list,
+                                    nodes_list=nodes_list, fixed_rooms=fixed_rooms)
+                        if progress_collector:
+                            # This block is entered only when the preceding
+                            # cardinal gate retained zero plans, so no prior
+                            # externally published plan can be retracted.
+                            progress_collector.reset_for_retry(
+                                attempt_cardinal)
+                        handle_door_connectivity(
+                            ui, retry_graph,
+                            candidate_callback=(progress_collector.candidate
+                                                if progress_collector else None))
                         retry_original = list(ui.get_output_data())
                         rectangularize_output(ui, fixed_rooms)
                         if fixed_rooms:
@@ -2132,67 +2723,31 @@ class Documents:
         fit_plot_h = float(dim_inputs.get("plot_height") or 0) if disclose_plot_fit else 0.0
         plot_fit_reports = []
 
-        for index in range(min(min(len(outputData), limit),count)):
-            rooms = []
+        if disclose_metric:
+            response.adjacency_shortfalls = adjacency_shortfalls
+        if disclose_plot_fit:
+            response.plot_fit = plot_fit_reports
+
+        serialization_count = min(min(len(outputData), limit), count)
+        for index in range(serialization_count):
             floorplanData = outputData[index].final_traversal
-            name_coord = outputData[index].name_coords
-            area = outputData[index].area
-            widths = outputData[index].room_width
-            heights = outputData[index].room_height
-            k = 0
-            for roomData in floorplanData:
-                room = None
-                x1 = roomData[0][0]
-                y1 = roomData[0][1]
-                wallValues = []
-                for i in range(1, len(roomData)):
-                    x2 = roomData[i][0]
-                    y2 = roomData[i][1]
-                    wall = Wall(str(uuid.uuid4()), x1, y1, x2, y2)
-                    wallValues.append(wall)
-                    x1 = x2
-                    y1 = y2
-                wallValues.append(Wall(str(uuid.uuid4()), x1, y1, roomData[0][0], roomData[0][1]))
-                room = Room(str(uuid.uuid4()), nodes_list[k]["label"], nodes_list[k]["color"], wallValues,
-                            circular_coordinates=roomData,name_coord = name_coord[k],area=area[k],width = widths[k],height = heights[k])  # To add handling of node index starting from 0 then 1 then 2. It should be a unique no and GPLAN should map
-                k = k + 1
-                rooms.append(room)
-            response.append_floorplan(rooms)
+            response.floorplans.append(
+                _serialize_graph_plan(outputData[index], nodes_list))
 
             if disclose_metric:
-                shortfalls = []
-                for e in edges_list or []:
-                    try:
-                        a, b = int(e[0]), int(e[1])
-                    except (TypeError, ValueError, IndexError):
-                        continue
-                    if max(a, b) >= len(floorplanData) or max(a, b) >= len(nodes_list):
-                        continue
-                    shared = _shared_wall_length(floorplanData[a], floorplanData[b])
-                    if shared + 1e-6 < overlap_floor:
-                        shortfalls.append({
-                            "a": a, "b": b,
-                            "a_name": nodes_list[a]["label"],
-                            "b_name": nodes_list[b]["label"],
-                            "shared_wall_ft": round(shared, 2),
-                        })
-                adjacency_shortfalls.append(shortfalls)
+                adjacency_shortfalls.append(_metric_shortfalls(
+                    floorplanData, nodes_list, edges_list, overlap_floor))
 
             if disclose_plot_fit:
-                xs = [pt[0] for poly in floorplanData for pt in poly]
-                ys = [pt[1] for poly in floorplanData for pt in poly]
-                plan_w = (max(xs) - min(xs)) if xs else 0.0
-                plan_h = (max(ys) - min(ys)) if ys else 0.0
-                eps = 0.05
-                plot_fit_reports.append({
-                    "fits": plan_w <= fit_plot_w + eps and plan_h <= fit_plot_h + eps,
-                    "plan_width": round(plan_w, 2),
-                    "plan_height": round(plan_h, 2),
-                    "plot_width": fit_plot_w,
-                    "plot_height": fit_plot_h,
-                    "overflow_width": round(max(0.0, plan_w - fit_plot_w), 2),
-                    "overflow_height": round(max(0.0, plan_h - fit_plot_h), 2),
-                })
+                plot_fit_reports.append(_plot_fit_report(
+                    floorplanData, fit_plot_w, fit_plot_h))
+
+            ready = index + 1
+            if (progress_collector is None and callable(progress_callback)
+                    and (ready == 1 or ready % 4 == 0
+                         or ready == serialization_count)):
+                _publish_progress_snapshot(
+                    progress_callback, response, message, ready)
 
         if disclose_metric:
             response.adjacency_shortfalls = adjacency_shortfalls
@@ -2654,3 +3209,37 @@ class Documents:
             return multi_ptpg_pipeline.run(request_data)
         finally:
             builtins.print = original_print
+
+    # -----------------------------------------------------------------
+    # structural module (documentation/structural_api.md)
+    #
+    # These thin delegations keep every structural rule in
+    # GPLAN/structural/api.py while exposing the same Documents facade used by
+    # the bridge and production backends. Imports stay inside the methods so
+    # floorplan generation remains available if a structural dependency is
+    # unavailable.
+    # -----------------------------------------------------------------
+
+    @staticmethod
+    def layout_structure(payload, **options):
+        """Place the structural grid and unsized members for a plan."""
+        from GPLAN.structural.api import run_layout
+        return run_layout(payload, **options)
+
+    @staticmethod
+    def design_structure(payload, **options):
+        """Run placement, loading, analysis, member design, and quantities."""
+        from GPLAN.structural.api import run_design
+        return run_design(payload, **options)
+
+    @staticmethod
+    def check_structure(payload, **options):
+        """Re-check a structural model without moving its elements."""
+        from GPLAN.structural.api import run_check
+        return run_check(payload, **options)
+
+    @staticmethod
+    def structural_options():
+        """Return the structural engine's supported systems and limits."""
+        from GPLAN.structural.api import run_options
+        return run_options()
