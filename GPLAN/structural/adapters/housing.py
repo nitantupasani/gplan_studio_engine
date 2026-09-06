@@ -29,13 +29,14 @@ dropped on the whole plot in, because its own face tracer drops the boundary
 cycle. A region key is the more specific address and is matched first; a carrier
 then takes the face that IS its polygon.
 
-Walls come only from drawn geometry: the plot boundary (exterior, 0.75 ft),
-`segments` and shape edges (interior, `wallDisplay.interiorWallFt`), plus the
-interior walls of a placed unit plan. A region-to-region border that carries no
-drawn wall is NOT a wall (open plan is a real answer here). Collinear runs are
-merged once at a 115 mm centreline tolerance, so a span drawn twice becomes one
-wall; a placed plan's own boundary is therefore carried by the enclosing region
-walls rather than doubled beside them.
+Walls come from drawn geometry—the plot boundary (exterior, 0.75 ft), `segments`
+and shape edges (interior, `wallDisplay.interiorWallFt`)—plus a placed unit
+plan. An undressed plan contributes its shared interior edges; a dressed plan
+also contributes its room-union exterior, including user-edited recesses. A
+region-to-region border that carries no drawn or plan wall is NOT a wall (open
+plan is a real answer here). Collinear candidates are endpoint-split and merged
+once at a 115 mm centreline tolerance, so duplicate spans collapse without an
+exterior role leaking onto an adjoining interior-only span.
 
 Nothing is placed anonymously and no fallback is silent: every assumption lands
 on the model's disclosure ladder with a registry code.
@@ -161,6 +162,20 @@ NAME_OCCUPANCY = (
     ("void", Occupancy.VOID),
     ("shaft", Occupancy.VOID),
 )
+
+# DetailedFloorplan RoomKind -> Occupancy. A dressed plan carries this stable
+# semantic key beside its display name; names remain the fallback for older
+# generated placements and custom rooms.
+DETAILED_ROOM_OCCUPANCY = {
+    "living": Occupancy.HABITABLE,
+    "bedroom": Occupancy.HABITABLE,
+    "dining": Occupancy.HABITABLE,
+    "study": Occupancy.HABITABLE,
+    "kitchen": Occupancy.KITCHEN,
+    "bath": Occupancy.BATH,
+    "balcony": Occupancy.BALCONY,
+    "utility": Occupancy.UTILITY,
+}
 
 #: The primary boundary's stack id.
 PRIMARY_STACK = "primary"
@@ -1011,10 +1026,12 @@ def _merge_candidates(candidates, storey):
     """Collinear runs within 115 mm of one centreline become one WallLine.
 
     Merging is what stops a span drawn twice (a placed plan's edge over the
-    region wall that already carries it) from becoming two walls. The merged run
-    keeps the strongest role present (exterior beats core beats party beats
-    interior) and the thickest section, so absorbing an interior duplicate can
-    never demote a boundary wall.
+    region wall that already carries it) from becoming two walls. Runs are
+    first split at every candidate endpoint: the strongest role present
+    (exterior beats core beats party beats interior) applies only to the span it
+    actually covers. Equal-role, equal-section neighbours are then rejoined,
+    so absorbing an interior duplicate can never demote a boundary wall or
+    spread a different adjoining span's section along it.
     """
     walls = []  # type: List[WallLine]
     for orient in ("h", "v"):
@@ -1034,23 +1051,59 @@ def _merge_candidates(candidates, storey):
                 key=lambda c: (-_ROLE_PRIORITY.get(c["role"], 0), -(c["s1"] - c["s0"]), c["pos"]),
             )[0]
             pos = lead["pos"]
+            cuts = []  # type: List[float]
+            for value in sorted([edge for cand in cluster for edge in (cand["s0"], cand["s1"])]):
+                if not cuts or value - cuts[-1] > JOIN_TOL_M:
+                    cuts.append(value)
             runs = []  # type: List[Dict[str, Any]]
-            for cand in sorted(cluster, key=lambda c: (c["s0"], c["s1"])):
-                if runs and cand["s0"] <= runs[-1]["s1"] + JOIN_TOL_M:
+            for index in range(len(cuts) - 1):
+                s0, s1 = cuts[index], cuts[index + 1]
+                if s1 - s0 <= JOIN_TOL_M:
+                    continue
+                covering = [
+                    cand for cand in cluster
+                    if cand["s0"] <= s0 + JOIN_TOL_M and cand["s1"] >= s1 - JOIN_TOL_M
+                ]
+                if not covering:
+                    continue
+                # Drawn housing geometry owns an overlapping wall's structural
+                # role and section. A detailed unit calls every edge on its own
+                # envelope "exterior", but that same edge can be an interior
+                # shape/corridor wall or a core in the enclosing housing plan.
+                # Detail-derived candidates remain authoritative where an edit
+                # created a new recess and no drawn wall covers the span.
+                authoritative = [cand for cand in covering if not cand.get("detail_derived")]
+                role_candidates = authoritative or covering
+                strongest = sorted(
+                    role_candidates,
+                    key=lambda c: (
+                        -_ROLE_PRIORITY.get(c["role"], 0),
+                        -(c["s1"] - c["s0"]),
+                        c["pos"],
+                        c["source"],
+                    ),
+                )[0]
+                role = strongest["role"]
+                thickness = max(cand["t"] for cand in role_candidates)
+                sources = set(cand["source"] for cand in covering)
+                if (
+                    runs
+                    and role == runs[-1]["role"]
+                    and abs(thickness - runs[-1]["t"]) <= 1e-12
+                    and s0 <= runs[-1]["s1"] + JOIN_TOL_M
+                ):
                     run = runs[-1]
-                    run["s1"] = max(run["s1"], cand["s1"])
-                    run["t"] = max(run["t"], cand["t"])
-                    run["sources"].add(cand["source"])
-                    if _ROLE_PRIORITY.get(cand["role"], 0) > _ROLE_PRIORITY.get(run["role"], 0):
-                        run["role"] = cand["role"]
+                    run["s1"] = s1
+                    run["t"] = max(run["t"], thickness)
+                    run["sources"].update(sources)
                 else:
                     runs.append(
                         {
-                            "s0": cand["s0"],
-                            "s1": cand["s1"],
-                            "t": cand["t"],
-                            "role": cand["role"],
-                            "sources": set([cand["source"]]),
+                            "s0": s0,
+                            "s1": s1,
+                            "t": thickness,
+                            "role": role,
+                            "sources": sources,
                         }
                     )
             for run in runs:
@@ -1137,11 +1190,7 @@ def _attach_openings(walls, pending):
         best = None  # type: Optional[Tuple[float, WallLine, float, float]]
         for wall in walls:
             orient, pos, s0, s1 = _wall_axis_of(wall)
-            if orient != spec["orient"]:
-                continue
-            if abs(pos - spec["pos"]) > MERGE_TOL_M:
-                continue
-            if spec["centre"] < s0 - JOIN_TOL_M or spec["centre"] > s1 + JOIN_TOL_M:
+            if not _opening_on_wall(wall, spec):
                 continue
             width = min(spec["width"], max(s1 - s0 - 2.0 * JOIN_TOL_M, 0.0))
             if width <= 0.0:
@@ -1174,6 +1223,17 @@ def _attach_openings(walls, pending):
         for index, opening in enumerate(wall.openings):
             opening.id = opening_id(wall.id, index)
     return (placed, dropped)
+
+
+def _opening_on_wall(wall, spec):
+    # type: (WallLine, Dict[str, Any]) -> bool
+    """Whether an anchored opening targets this merged wall run."""
+    orient, pos, s0, s1 = _wall_axis_of(wall)
+    return (
+        orient == spec["orient"]
+        and abs(pos - spec["pos"]) <= MERGE_TOL_M
+        and s0 - JOIN_TOL_M <= spec["centre"] <= s1 + JOIN_TOL_M
+    )
 
 
 def _overlaps_existing(wall, offset, width):
@@ -1287,17 +1347,250 @@ def _unblocked_rectangles(x, y, width, height, exclusions):
     ]
 
 
-def _place_generated(region, generated, storey, interior_t, exclusions=()):
-    # type: (Dict[str, Any], Dict[str, Any], int, float, Sequence[Tuple[float, float, float, float]]) -> Dict[str, Any]
+def _polygon_parts(geometry):
+    # type: (Any) -> List[Polygon]
+    """Non-trivial Polygon members of a Shapely result, in stable order."""
+    if geometry is None or geometry.is_empty:
+        return []
+    if geometry.geom_type == "Polygon":
+        parts = [geometry]
+    elif geometry.geom_type in ("MultiPolygon", "GeometryCollection"):
+        parts = []
+        for child in geometry.geoms:
+            parts += _polygon_parts(child)
+    else:
+        return []
+    return sorted(
+        [part for part in parts if part.area > JOIN_TOL_M * JOIN_TOL_M],
+        key=lambda part: (part.bounds[0], part.bounds[1], part.bounds[2], part.bounds[3]),
+    )
+
+
+def _subtract_exclusions(polygon, exclusions):
+    # type: (Polygon, Sequence[Tuple[float, float, float, float]]) -> Any
+    blockers = []
+    for x, y, width, height in exclusions:
+        if width <= JOIN_TOL_M or height <= JOIN_TOL_M:
+            continue
+        blockers.append(Polygon([(x, y), (x + width, y), (x + width, y + height), (x, y + height)]))
+    if not blockers:
+        return polygon
+    return polygon.difference(unary_union(blockers))
+
+
+def _rectilinear_room_loops(polygon):
+    # type: (Polygon) -> List[List[Tuple[float, float]]]
+    """RoomPoly loops for a possibly holed rectilinear polygon.
+
+    RoomPoly carries one loop and cannot encode holes. Most detailed rooms,
+    including L shapes, have no hole and retain their exact outline. Only a
+    nested exclusion wholly inside a room needs deterministic rectangle pieces;
+    their structural wall candidates are derived from the polygon boundary
+    separately, so the tiling seams never become phantom walls.
+    """
+    if not polygon.interiors:
+        loop = _normalize_loop(list(polygon.exterior.coords)[:-1])
+        return [loop] if len(loop) >= 4 and _shoelace_area(loop) > JOIN_TOL_M ** 2 else []
+
+    rings = [polygon.exterior] + list(polygon.interiors)
+    xs = sorted(set(round(point[0], 9) for ring in rings for point in ring.coords))
+    ys = sorted(set(round(point[1], 9) for ring in rings for point in ring.coords))
+    strips = []  # type: List[Tuple[float, float, float, float]]
+    for row in range(len(ys) - 1):
+        top, bottom = ys[row], ys[row + 1]
+        if bottom - top <= JOIN_TOL_M:
+            continue
+        run_start = None  # type: Optional[float]
+        for column in range(len(xs) - 1):
+            left, right = xs[column], xs[column + 1]
+            filled = right - left > JOIN_TOL_M and polygon.covers(
+                Point(0.5 * (left + right), 0.5 * (top + bottom))
+            )
+            if filled and run_start is None:
+                run_start = left
+            if (not filled or column == len(xs) - 2) and run_start is not None:
+                run_end = left if not filled else right
+                if run_end - run_start > JOIN_TOL_M:
+                    strips.append((run_start, top, run_end, bottom))
+                run_start = None
+
+    merged = []  # type: List[Tuple[float, float, float, float]]
+    for left, top, right, bottom in strips:
+        previous = next(
+            (
+                index for index, item in enumerate(merged)
+                if abs(item[0] - left) <= JOIN_TOL_M
+                and abs(item[2] - right) <= JOIN_TOL_M
+                and abs(item[3] - top) <= JOIN_TOL_M
+            ),
+            None,
+        )
+        if previous is None:
+            merged.append((left, top, right, bottom))
+        else:
+            old = merged[previous]
+            merged[previous] = (old[0], old[1], old[2], bottom)
+    return [
+        _normalize_loop([(left, top), (right, top), (right, bottom), (left, bottom)])
+        for left, top, right, bottom in merged
+    ]
+
+
+def _geometry_candidates(geometry, thickness, role, source):
+    # type: (Any, float, WallRole, str) -> List[Dict[str, Any]]
+    """Detail-derived wall candidates, never on decomposition seams."""
+    candidates = []
+    for polygon in _polygon_parts(geometry):
+        for ring in [polygon.exterior] + list(polygon.interiors):
+            loop = list(ring.coords)[:-1]
+            for index in range(len(loop)):
+                candidate = _candidate(
+                    loop[index], loop[(index + 1) % len(loop)], thickness, role, source
+                )
+                if candidate is not None:
+                    candidate["detail_derived"] = True
+                    candidates.append(candidate)
+    return candidates
+
+
+def _place_detailed_rooms(
+    detail, region, storey, scale, off_x, off_y, exterior_t, interior_t, exclusions
+):
+    # type: (Dict[str, Any], Dict[str, Any], int, float, float, float, float, float, Sequence[Tuple[float, float, float, float]]) -> Tuple[List[RoomPoly], List[Dict[str, Any]], List[str]]
+    """Map DetailedFloorplan rooms, including rectilinear outlines, to metres."""
+    rooms = []  # type: List[RoomPoly]
+    candidates = []  # type: List[Dict[str, Any]]
+    unknown = []  # type: List[str]
+    raw_polygons = []  # type: List[Polygon]
+    ordered = sorted(
+        [room for room in (detail.get("rooms") or []) if isinstance(room, dict)],
+        key=lambda room: (
+            _num(room.get("x")),
+            _num(room.get("y")),
+            str(room.get("name") or ""),
+            str(room.get("id") or ""),
+        ),
+    )
+    for index, raw in enumerate(ordered):
+        x, y = _num(raw.get("x")), _num(raw.get("y"))
+        width, height = _num(raw.get("width")), _num(raw.get("height"))
+        if width <= 0.0 or height <= 0.0:
+            continue
+        outline = raw.get("outline")
+        if isinstance(outline, (list, tuple)) and len(outline) >= 4:
+            local = [
+                (_num(point[0]), _num(point[1]))
+                for point in outline
+                if isinstance(point, (list, tuple)) and len(point) >= 2
+            ]
+        else:
+            local = [(x, y), (x + width, y), (x + width, y + height), (x, y + height)]
+        mapped = [(off_x + _m(point[0]) * scale, off_y + _m(point[1]) * scale) for point in local]
+        polygon = _shapely_polygon(_normalize_loop(mapped))
+        if polygon is None:
+            continue
+        raw_polygons.append(polygon)
+        geometry = _subtract_exclusions(polygon, exclusions)
+        source = "%s-%s" % (region["id"], str(raw.get("id") or "r%d" % index))
+        candidates += _geometry_candidates(geometry, interior_t, WallRole.INTERIOR, source)
+        loops = []  # type: List[List[Tuple[float, float]]]
+        for part in _polygon_parts(geometry):
+            loops += _rectilinear_room_loops(part)
+        name = str(raw.get("name") or "Room %d" % (index + 1))
+        kind = str(raw.get("kind") or "").strip().lower()
+        occupancy = DETAILED_ROOM_OCCUPANCY.get(kind)
+        known = occupancy is not None
+        if occupancy is None:
+            occupancy, known = _occupancy_for_name(name)
+        for piece_index, loop in enumerate(loops):
+            piece_source = source if len(loops) == 1 else "%s-p%d" % (source, piece_index)
+            element = room_id(storey, piece_source)
+            if not known:
+                unknown.append(element)
+            rooms.append(
+                RoomPoly(
+                    id=element,
+                    storey=storey,
+                    name=name,
+                    occupancy=occupancy,
+                    polygon=loop,
+                    area_m2=_shoelace_area(loop),
+                    unit_id=region["id"],
+                    interior_unknown=False,
+                    source=str(raw.get("id") or piece_source),
+                )
+            )
+    # `deriveWalls` classifies a room edge as exterior when the union of all
+    # rooms has empty space on its far side. Do this BEFORE core subtraction:
+    # a fixed stair void is a CORE wall, not a new exterior facade. The
+    # per-room candidates above retain every shared/interior edge; role
+    # priority upgrades only the union outline (including a genuine recess).
+    if raw_polygons:
+        candidates += _geometry_candidates(
+            unary_union(raw_polygons), exterior_t, WallRole.EXTERIOR, region["id"] + "-detail-outline"
+        )
+    return (rooms, candidates, unknown)
+
+
+def _detailed_openings(detail, scale, off_x, off_y, region_id):
+    # type: (Dict[str, Any], float, float, float, str) -> List[Dict[str, Any]]
+    """Map dressed door/window centres onto the same fitted plan frame."""
+    specs = []
+    groups = (
+        ("doors", OpeningKind.DOOR, ASSUMED_DOOR_WIDTH_M),
+        ("windows", OpeningKind.WINDOW, ASSUMED_WINDOW_WIDTH_M),
+    )
+    for key, default_kind, default_width in groups:
+        records = sorted(
+            [record for record in (detail.get(key) or []) if isinstance(record, dict)],
+            key=lambda record: (
+                _num(record.get("x")),
+                _num(record.get("y")),
+                str(record.get("id") or ""),
+            ),
+        )
+        for record in records:
+            orient = str(record.get("orientation") or "h").lower()
+            if orient not in ("h", "v"):
+                continue
+            x = off_x + _m(record.get("x")) * scale
+            y = off_y + _m(record.get("y")) * scale
+            width = _m(record.get("width") if record.get("width") is not None else m_to_ft(default_width)) * scale
+            if width <= JOIN_TOL_M:
+                continue
+            kind = default_kind
+            if key == "doors":
+                if record.get("entrance"):
+                    kind = OpeningKind.ENTRY
+                elif record.get("opening"):
+                    kind = OpeningKind.OPENING
+            specs.append(
+                {
+                    "orient": orient,
+                    "pos": x if orient == "v" else y,
+                    "centre": y if orient == "v" else x,
+                    "width": width,
+                    "kind": kind,
+                    "provenance": Provenance.DRESSED,
+                    "sill": _m(record.get("sillFt")) if record.get("sillFt") is not None else None,
+                    "head": _m(record.get("headFt")) if record.get("headFt") is not None else None,
+                    "source": "%s/%s" % (region_id, str(record.get("id") or key)),
+                }
+            )
+    return specs
+
+
+def _place_generated(region, generated, storey, exterior_t, interior_t, exclusions=()):
+    # type: (Dict[str, Any], Dict[str, Any], int, float, float, Sequence[Tuple[float, float, float, float]]) -> Dict[str, Any]
     """Translate a selected UnitFloorplan into floor coordinates.
 
-    The plan is authored in its OWN `floorWidth` x `floorHeight` frame (feet,
-    y-down, undressed), which the client's `housingUnitForApi` FLOORS from the
-    polygon it was asked for, so that frame is not (genW, genH) whenever the
-    region is fractional. The frame is what the plan's placements are measured
-    in, so it is the frame this scales and centres against, exactly as both
-    client renderers do; `genW`/`genH` are the size the plan was ASKED for and
-    serve only the staleness verdict.
+    A dressed plan is authored in its detailedPlan `width` x `height` frame;
+    an undressed one uses `floorWidth` x `floorHeight`. Both are feet, y-down.
+    The client's `housingUnitForApi` FLOORS the undressed frame from the polygon
+    it was asked for, so that frame is not (genW, genH) whenever the region is
+    fractional. The selected frame is what the room geometry is measured in,
+    so it is what this scales and centres against, exactly as the client
+    renderer does; `genW`/`genH` remain the staleness reference.
 
     A single UNIFORM factor `min(bw/plan_w, bh/plan_h)` (never anisotropic, the
     standing client rule) fits the frame to the region and the residual is
@@ -1306,15 +1599,29 @@ def _place_generated(region, generated, storey, interior_t, exclusions=()):
     stale.
     """
     plan = _select_plan(generated)
-    out = {"rooms": [], "candidates": [], "doors": [], "stale": False, "plan_id": None, "unknown_names": []}
+    out = {
+        "rooms": [],
+        "candidates": [],
+        "doors": [],
+        "assumed_doors": 0,
+        "dressed_room_ids": [],
+        "stale": False,
+        "plan_id": None,
+        "unknown_names": [],
+    }
     if plan is None:
         return out
     out["plan_id"] = str(plan.get("id") or "")
 
+    detail = plan.get("detailedPlan")
+    if not isinstance(detail, dict) or not isinstance(detail.get("rooms"), list) or not detail.get("rooms"):
+        detail = None
     gen_w = _m(generated.get("genW") if generated.get("genW") is not None else plan.get("floorWidth"))
     gen_h = _m(generated.get("genH") if generated.get("genH") is not None else plan.get("floorHeight"))
-    plan_w = _m(plan.get("floorWidth") if plan.get("floorWidth") is not None else generated.get("genW"))
-    plan_h = _m(plan.get("floorHeight") if plan.get("floorHeight") is not None else generated.get("genH"))
+    raw_plan_w = detail.get("width") if detail is not None and _num(detail.get("width")) > 0.0 else plan.get("floorWidth")
+    raw_plan_h = detail.get("height") if detail is not None and _num(detail.get("height")) > 0.0 else plan.get("floorHeight")
+    plan_w = _m(raw_plan_w if raw_plan_w is not None else generated.get("genW"))
+    plan_h = _m(raw_plan_h if raw_plan_h is not None else generated.get("genH"))
     # A carrier matched by containment (a core notched the plot face) keeps the
     # plan in the frame it was authored for: the carrier loop, not the notched
     # face, or a core on a full plot edge would shrink the whole plan.
@@ -1329,6 +1636,17 @@ def _place_generated(region, generated, storey, interior_t, exclusions=()):
     off_x = bx + 0.5 * (bw - plan_w * scale)
     off_y = by + 0.5 * (bh - plan_h * scale)
     out["stale"] = stale
+
+    if detail is not None:
+        rooms, candidates, unknown = _place_detailed_rooms(
+            detail, region, storey, scale, off_x, off_y, exterior_t, interior_t, exclusions
+        )
+        out["rooms"] = rooms
+        out["candidates"] = candidates
+        out["unknown_names"] = unknown
+        out["doors"] = _detailed_openings(detail, scale, off_x, off_y, region["id"])
+        out["dressed_room_ids"] = [room.id for room in rooms]
+        return out
 
     rects = []  # type: List[Tuple[str, float, float, float, float]]
     for index, placement in enumerate(
@@ -1373,6 +1691,7 @@ def _place_generated(region, generated, storey, interior_t, exclusions=()):
             out["candidates"].append(candidate)
     names = dict((room.id, room.name) for room in out["rooms"])
     out["doors"] = _assume_doors(rects, shared, names)
+    out["assumed_doors"] = len(out["doors"])
     return out
 
 
@@ -1459,8 +1778,8 @@ def _assume_doors(rects, shared, names):
     return doors
 
 
-def _assume_windows(walls, rooms):
-    # type: (List[WallLine], List[RoomPoly]) -> List[Dict[str, Any]]
+def _assume_windows(walls, rooms, dressed_room_ids=()):
+    # type: (List[WallLine], List[RoomPoly], Sequence[str]) -> List[Dict[str, Any]]
     """One 1.2 m window mid-run on every exterior wall of a lit room.
 
     Off by default (finding 10): the orchestrator turns it on when the target
@@ -1468,9 +1787,10 @@ def _assume_windows(walls, rooms):
     instead of an empty wall. Requires `room_ids`, so it runs after the sides
     are assigned.
     """
+    dressed = set(dressed_room_ids)
     lit = set()
     for room in rooms:
-        if room.occupancy in (Occupancy.HABITABLE, Occupancy.KITCHEN):
+        if room.id not in dressed and room.occupancy in (Occupancy.HABITABLE, Occupancy.KITCHEN):
             lit.add(room.id)
     specs = []
     for wall in sorted(walls, key=lambda w: w.id):
@@ -1916,6 +2236,7 @@ def _build_stack_model(design, stack, options, resolved_regions, all_stacks):
 
         rooms = []  # type: List[RoomPoly]
         pending = []  # type: List[Dict[str, Any]]
+        dressed_room_ids = set()
         for region in regions:
             if region["core"] is not None:
                 rooms.append(_core_room(region, storey))
@@ -1928,6 +2249,7 @@ def _build_stack_model(design, stack, options, resolved_regions, all_stacks):
                     region,
                     generated,
                     storey,
+                    exterior_t,
                     interior_t,
                     _nested_face_boxes(region, regions),
                 )
@@ -1935,7 +2257,8 @@ def _build_stack_model(design, stack, options, resolved_regions, all_stacks):
                 rooms += placed["rooms"]
                 candidates += placed["candidates"]
                 pending += placed["doors"]
-                assumed_doors += len(placed["doors"])
+                dressed_room_ids.update(placed["dressed_room_ids"])
+                assumed_doors += placed["assumed_doors"]
                 unknown_rooms += placed["unknown_names"]
                 if placed["stale"]:
                     stale.append("%s/%s" % (region["id"], placed["plan_id"] or "plan"))
@@ -1951,13 +2274,40 @@ def _build_stack_model(design, stack, options, resolved_regions, all_stacks):
         if storey == 0 and entry_point is not None:
             spec = _entry_spec(walls, entry_point, ft_to_m(ENTRY_WIDTH_FT))
             if spec is not None:
-                pending.append(spec)
-        window_specs = _assume_windows(walls, rooms) if options["assume_windows"] else []
+                # Housing has one plot-level entrance source of truth. A
+                # detailed plan may mark its own leaf `entrance` on that SAME
+                # exterior wall; the plot marker wins there. Entrances on an
+                # internal Mix/unit carrier are different physical openings
+                # and must survive.
+                entry_wall = next(
+                    (wall for wall in walls if _opening_on_wall(wall, spec)), None
+                )
+                if entry_wall is not None:
+                    pending = [
+                        item for item in pending
+                        if item["kind"] != OpeningKind.ENTRY
+                        or not _opening_on_wall(entry_wall, item)
+                    ]
+                pending.insert(0, spec)
+        window_specs = (
+            _assume_windows(walls, rooms, dressed_room_ids)
+            if options["assume_windows"] else []
+        )
         _placed, dropped = _attach_openings(walls, pending + window_specs)
         assumed_windows += len(window_specs) - len(
-            [spec for spec in dropped if spec["kind"] == OpeningKind.WINDOW]
+            [
+                spec for spec in dropped
+                if spec["kind"] == OpeningKind.WINDOW
+                and spec["provenance"] == Provenance.ASSUMED_MID_WALL
+            ]
         )
-        dropped_doors += len([spec for spec in dropped if spec["kind"] != OpeningKind.WINDOW])
+        dropped_doors += len(
+            [
+                spec for spec in dropped
+                if spec["kind"] != OpeningKind.WINDOW
+                or spec["provenance"] == Provenance.DRESSED
+            ]
+        )
 
         model.walls += walls
         model.rooms += rooms
@@ -2117,15 +2467,15 @@ def _disclose(model, stale, unmatched, unknown_rooms, unknown_regions, unknown_c
     if assumed_doors:
         model.add_warning(
             "W_DOOR_ASSUMED",
-            "%d door(s) were assumed mid-wall at %.2f m; housing unit plans are stored "
-            "undressed and carry none" % (assumed_doors, ASSUMED_DOOR_WIDTH_M),
+            "%d door(s) were assumed mid-wall at %.2f m; their undressed housing "
+            "unit plan(s) carried none" % (assumed_doors, ASSUMED_DOOR_WIDTH_M),
             (),
             stage=stage,
         )
     if dropped_doors:
         model.add_warning(
             "W_DOOR_UNMAPPED",
-            "%d assumed opening(s) found no wall line to sit on and were dropped" % dropped_doors,
+            "%d opening(s) found no wall line to sit on and were dropped" % dropped_doors,
             (),
             stage=stage,
         )

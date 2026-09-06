@@ -305,10 +305,10 @@ def _core_shape(shape_id, core_id, kind, x, y, w, h):
     return {"id": shape_id, "points": _rect(x, y, w, h), "core": {"id": core_id, "kind": kind}}
 
 
-def _generated(gen_w, gen_h, placements, plan_id="pl-1", plan_w=None, plan_h=None):
+def _generated(gen_w, gen_h, placements, plan_id="pl-1", plan_w=None, plan_h=None, detailed=None):
     plan_w = gen_w if plan_w is None else plan_w
     plan_h = gen_h if plan_h is None else plan_h
-    return {
+    content = {
         "generated": {
             "requestedType": "1BHK",
             "builtType": "1BHK",
@@ -329,6 +329,9 @@ def _generated(gen_w, gen_h, placements, plan_id="pl-1", plan_w=None, plan_h=Non
             ],
         }
     }
+    if detailed is not None:
+        content["generated"]["plans"][0]["detailedPlan"] = detailed
+    return content
 
 
 def test_two_built_plots_give_two_models_and_plot_id_filters_to_one():
@@ -773,6 +776,364 @@ def test_a_generated_plan_is_translated_by_its_region_origin():
         pytest.approx((16.0, 15.0, 14.0, 7.0), abs=FT_TOL),
     ]
     assert "W_STALE_GENERATED" not in _codes(model)
+
+
+def test_detailed_plan_geometry_overrides_placements_and_maps_its_door():
+    """An inline wall edit lives only in detailedPlan; structure must read it."""
+    detail = {
+        "id": "detail-1",
+        "source": "api",
+        "width": 18,
+        "height": 20,
+        "exteriorWall": 0.75,
+        "interiorWall": 0.4,
+        "rooms": [
+            {"id": "living", "name": "Living Room", "kind": "living", "x": 0, "y": 0, "width": 9, "height": 20},
+            {"id": "kitchen", "name": "Kitchen", "kind": "kitchen", "x": 9, "y": 0, "width": 9, "height": 20},
+        ],
+        "doors": [
+            {"id": "door-1", "orientation": "v", "x": 9, "y": 10, "width": 3}
+        ],
+        "windows": [],
+        "furniture": [],
+    }
+    floor = _floor(0, "Ground", _rect(0, 0, 18, 20))
+    floor["boundaryContent"] = _generated(
+        18,
+        20,
+        [("Living Room", 0, 0, 12, 20), ("Kitchen", 12, 0, 6, 20)],
+        detailed=detail,
+    )
+    model = housing.from_housing(_design([floor]))[0]
+
+    placed = sorted([room for room in model.rooms if room.unit_id], key=lambda room: room.name)
+    assert [_rect_ft(room) for room in placed] == [
+        pytest.approx((9.0, 0.0, 9.0, 20.0), abs=FT_TOL),
+        pytest.approx((0.0, 0.0, 9.0, 20.0), abs=FT_TOL),
+    ]
+    interior = [_wall_ft(wall) for wall in model.walls if wall.role == WallRole.INTERIOR]
+    assert any(
+        abs(x1 - 9.0) < FT_TOL and abs(x2 - 9.0) < FT_TOL
+        for x1, _y1, x2, _y2 in interior
+    )
+    assert not any(
+        abs(x1 - 12.0) < FT_TOL and abs(x2 - 12.0) < FT_TOL
+        for x1, _y1, x2, _y2 in interior
+    ), "stale placements must not leak their old shared wall into structure"
+    doors = _openings(model, OpeningKind.DOOR)
+    assert len(doors) == 1
+    wall, opening = doors[0]
+    assert _wall_ft(wall) == pytest.approx((9.0, 0.0, 9.0, 20.0), abs=FT_TOL)
+    assert m_to_ft(opening.width_m) == pytest.approx(3.0, abs=FT_TOL)
+    assert opening.provenance == Provenance.DRESSED
+    assert "W_DOOR_ASSUMED" not in _codes(model)
+
+
+def test_detailed_plan_dimensions_are_the_frame_for_edited_room_geometry():
+    detail = {
+        "id": "detail-resized",
+        "source": "api",
+        "width": 18,
+        "height": 20,
+        "exteriorWall": 0.75,
+        "interiorWall": 0.4,
+        "rooms": [
+            {"id": "living", "name": "Living Room", "kind": "living", "x": 0, "y": 0, "width": 18, "height": 20}
+        ],
+        "doors": [],
+        "windows": [],
+        "furniture": [],
+    }
+    floor = _floor(0, "Ground", _rect(0, 0, 18, 20))
+    floor["boundaryContent"] = _generated(
+        18,
+        20,
+        [("Living Room", 0, 0, 12, 20)],
+        plan_w=12,
+        plan_h=20,
+        detailed=detail,
+    )
+    model = housing.from_housing(_design([floor]))[0]
+    room = next(room for room in model.rooms if room.unit_id)
+    assert _rect_ft(room) == pytest.approx((0.0, 0.0, 18.0, 20.0), abs=FT_TOL)
+    assert "W_STALE_GENERATED" not in _codes(model)
+
+
+def test_detailed_plan_preserves_an_l_room_outline_and_its_reflex_walls():
+    detail = {
+        "id": "detail-l",
+        "source": "api",
+        "width": 12,
+        "height": 10,
+        "exteriorWall": 0.75,
+        "interiorWall": 0.4,
+        "rooms": [
+            {
+                "id": "living-l",
+                "name": "Living Room",
+                "kind": "living",
+                "x": 0,
+                "y": 0,
+                "width": 12,
+                "height": 10,
+                "outline": [[0, 0], [12, 0], [12, 4], [6, 4], [6, 10], [0, 10]],
+            },
+            {"id": "bed", "name": "Bedroom", "kind": "bedroom", "x": 6, "y": 4, "width": 6, "height": 6},
+        ],
+        "doors": [],
+        "windows": [],
+        "furniture": [],
+    }
+    floor = _floor(0, "Ground", _rect(0, 0, 12, 10))
+    floor["boundaryContent"] = _generated(
+        12, 10, [("Living Room", 0, 0, 12, 10)], detailed=detail
+    )
+    model = housing.from_housing(_design([floor]))[0]
+
+    living = next(room for room in model.rooms if room.name == "Living Room")
+    assert [(m_to_ft(x), m_to_ft(y)) for x, y in living.polygon] == pytest.approx(
+        [(0, 0), (12, 0), (12, 4), (6, 4), (6, 10), (0, 10)], abs=FT_TOL
+    )
+    assert living.area_m2 == pytest.approx(ft_to_m(1.0) ** 2 * 84.0)
+    interior = [_wall_ft(wall) for wall in model.walls if wall.role == WallRole.INTERIOR]
+    assert any(wall == pytest.approx((6.0, 4.0, 6.0, 10.0), abs=FT_TOL) for wall in interior)
+    assert any(wall == pytest.approx((6.0, 4.0, 12.0, 4.0), abs=FT_TOL) for wall in interior)
+    assert model.validate() == []
+
+
+def test_detailed_room_union_marks_a_recess_as_exterior_wall():
+    detail = {
+        "id": "detail-recess",
+        "source": "api",
+        "width": 12,
+        "height": 10,
+        "exteriorWall": 0.75,
+        "interiorWall": 0.4,
+        "rooms": [
+            {
+                "id": "living-recess",
+                "name": "Living Room",
+                "kind": "living",
+                "x": 0,
+                "y": 0,
+                "width": 12,
+                "height": 10,
+                "outline": [[0, 0], [12, 0], [12, 4], [8, 4], [8, 10], [0, 10]],
+            }
+        ],
+        "doors": [],
+        "windows": [],
+        "furniture": [],
+    }
+    floor = _floor(0, "Ground", _rect(0, 0, 12, 10))
+    floor["boundaryContent"] = _generated(
+        12, 10, [("Living Room", 0, 0, 12, 10)], detailed=detail
+    )
+    model = housing.from_housing(_design([floor]))[0]
+
+    exterior = [_wall_ft(wall) for wall in model.walls if wall.role == WallRole.EXTERIOR]
+    assert any(wall == pytest.approx((8.0, 4.0, 8.0, 10.0), abs=FT_TOL) for wall in exterior)
+    assert any(wall == pytest.approx((8.0, 4.0, 12.0, 4.0), abs=FT_TOL) for wall in exterior)
+
+
+def test_detailed_wall_role_splits_where_an_exterior_run_becomes_shared():
+    """One collinear room edge may be facade first and party wall second."""
+    detail = {
+        "id": "detail-mixed-role",
+        "source": "api",
+        "width": 10,
+        "height": 10,
+        "exteriorWall": 0.75,
+        "interiorWall": 0.4,
+        "rooms": [
+            {"id": "living", "name": "Living Room", "kind": "living", "x": 0, "y": 0, "width": 10, "height": 5},
+            {"id": "bed", "name": "Bedroom", "kind": "bedroom", "x": 5, "y": 5, "width": 5, "height": 5},
+        ],
+        "doors": [],
+        "windows": [],
+        "furniture": [],
+    }
+    floor = _floor(0, "Ground", _rect(0, 0, 10, 10))
+    floor["boundaryContent"] = _generated(
+        10, 10, [("Living Room", 0, 0, 10, 10)], detailed=detail
+    )
+    model = housing.from_housing(_design([floor]))[0]
+
+    middle = sorted(
+        (wall.role, _wall_ft(wall))
+        for wall in model.walls
+        if abs(m_to_ft(wall.a[1]) - 5.0) < FT_TOL
+        and abs(m_to_ft(wall.b[1]) - 5.0) < FT_TOL
+    )
+    assert middle == [
+        (WallRole.EXTERIOR, pytest.approx((0.0, 5.0, 5.0, 5.0), abs=FT_TOL)),
+        (WallRole.INTERIOR, pytest.approx((5.0, 5.0, 10.0, 5.0), abs=FT_TOL)),
+    ]
+
+
+def test_drawn_shape_role_wins_over_its_detailed_unit_envelope():
+    """A Mix unit's carrier borders the plot interior, not the weather."""
+    detail = {
+        "id": "detail-shape",
+        "source": "api",
+        "width": 12,
+        "height": 10,
+        "exteriorWall": 0.75,
+        "interiorWall": 0.4,
+        "rooms": [
+            {"id": "living", "name": "Living Room", "kind": "living", "x": 0, "y": 0, "width": 12, "height": 10}
+        ],
+        "doors": [],
+        "windows": [],
+        "furniture": [],
+    }
+    shape = {
+        "id": "shape-unit",
+        "points": _rect(10, 5, 12, 10),
+        "content": _generated(12, 10, [], detailed=detail),
+    }
+    floor = _floor(0, "Ground", _rect(0, 0, 30, 20), shapes=[shape])
+    model = housing.from_housing(_design([floor]))[0]
+
+    carrier_walls = [wall for wall in model.walls if "shape-unit" in (wall.source or "")]
+    assert len(carrier_walls) == 4
+    assert all(wall.role == WallRole.INTERIOR for wall in carrier_walls)
+    assert all(
+        m_to_ft(wall.thickness_m) == pytest.approx(1.0 / 3.0, abs=FT_TOL)
+        for wall in carrier_walls
+    )
+
+
+def test_dressed_windows_suppress_assumptions_and_plot_entry_wins_once():
+    detail = {
+        "id": "detail-openings",
+        "source": "api",
+        "width": 10,
+        "height": 10,
+        "exteriorWall": 0.75,
+        "interiorWall": 0.4,
+        "rooms": [
+            {"id": "living", "name": "Living Room", "kind": "living", "x": 0, "y": 0, "width": 10, "height": 10}
+        ],
+        "doors": [
+            {"id": "unit-entry", "orientation": "h", "x": 5, "y": 10, "width": 3, "entrance": True}
+        ],
+        "windows": [
+            {"id": "north-window", "orientation": "h", "x": 5, "y": 0, "width": 3, "sillFt": 3, "headFt": 7}
+        ],
+        "furniture": [],
+    }
+    floor = _floor(0, "Ground", _rect(0, 0, 10, 10))
+    floor["boundaryContent"] = _generated(
+        10, 10, [("Living Room", 0, 0, 10, 10)], detailed=detail
+    )
+    model = housing.from_housing(_design([floor], entry=[5, 10]), assume_windows=True)[0]
+
+    entries = _openings(model, OpeningKind.ENTRY)
+    assert len(entries) == 1
+    assert entries[0][1].provenance == Provenance.ENTRY_POINT
+    windows = _openings(model, OpeningKind.WINDOW)
+    assert len(windows) == 1
+    assert windows[0][1].provenance == Provenance.DRESSED
+    assert m_to_ft(windows[0][1].width_m) == pytest.approx(3.0, abs=FT_TOL)
+    assert "W_ASSUMED_OPENINGS" not in _codes(model)
+    assert "W_DOOR_UNMAPPED" not in _codes(model)
+
+
+def test_plot_entry_does_not_delete_a_detailed_internal_unit_entry():
+    detail = {
+        "id": "detail-unit-entry",
+        "source": "api",
+        "width": 12,
+        "height": 10,
+        "exteriorWall": 0.75,
+        "interiorWall": 0.4,
+        "rooms": [
+            {"id": "living", "name": "Living Room", "kind": "living", "x": 0, "y": 0, "width": 12, "height": 10}
+        ],
+        "doors": [
+            {"id": "unit-entry", "orientation": "h", "x": 6, "y": 10, "width": 3, "entrance": True}
+        ],
+        "windows": [],
+        "furniture": [],
+    }
+    shape = {
+        "id": "shape-unit",
+        "points": _rect(10, 5, 12, 10),
+        "content": _generated(12, 10, [], detailed=detail),
+    }
+    floor = _floor(0, "Ground", _rect(0, 0, 30, 20), shapes=[shape])
+    model = housing.from_housing(_design([floor], entry=[15, 20]))[0]
+
+    entries = _openings(model, OpeningKind.ENTRY)
+    assert len(entries) == 2
+    assert sorted(opening.provenance for _wall, opening in entries) == [
+        Provenance.DRESSED,
+        Provenance.ENTRY_POINT,
+    ]
+    dressed_wall = next(wall for wall, opening in entries if opening.provenance == Provenance.DRESSED)
+    assert dressed_wall.role == WallRole.INTERIOR
+    assert _wall_ft(dressed_wall) == pytest.approx((10.0, 15.0, 22.0, 15.0), abs=FT_TOL)
+    assert "W_DOOR_UNMAPPED" not in _codes(model)
+
+
+def test_unmapped_dressed_window_is_disclosed_instead_of_silently_lost():
+    detail = {
+        "id": "detail-floating-window",
+        "source": "api",
+        "width": 10,
+        "height": 10,
+        "exteriorWall": 0.75,
+        "interiorWall": 0.4,
+        "rooms": [
+            {"id": "living", "name": "Living Room", "kind": "living", "x": 0, "y": 0, "width": 10, "height": 10}
+        ],
+        "doors": [],
+        "windows": [
+            {"id": "floating", "orientation": "h", "x": 5, "y": 5, "width": 3}
+        ],
+        "furniture": [],
+    }
+    floor = _floor(0, "Ground", _rect(0, 0, 10, 10))
+    floor["boundaryContent"] = _generated(10, 10, [], detailed=detail)
+    model = housing.from_housing(_design([floor]))[0]
+
+    assert _openings(model, OpeningKind.WINDOW) == []
+    assert "W_DOOR_UNMAPPED" in _codes(model)
+
+
+def test_detailed_stair_room_is_still_carved_out_by_its_fixed_core():
+    core = _core_shape("shape-core", "core-stairs", "stairs", 0, 6, 4, 4)
+    detail = {
+        "id": "detail-core",
+        "source": "api",
+        "width": 10,
+        "height": 10,
+        "exteriorWall": 0.75,
+        "interiorWall": 0.4,
+        "rooms": [
+            {"id": "living", "name": "Living Room", "kind": "living", "x": 0, "y": 0, "width": 10, "height": 6},
+            {"id": "stair", "name": "Staircase", "kind": "other", "x": 0, "y": 6, "width": 4, "height": 4},
+            {"id": "bed", "name": "Bedroom", "kind": "bedroom", "x": 4, "y": 6, "width": 6, "height": 4},
+        ],
+        "doors": [],
+        "windows": [],
+        "furniture": [],
+    }
+    floor = _floor(0, "Ground", _rect(0, 0, 10, 10), shapes=[core])
+    floor["boundaryContent"] = _generated(
+        10,
+        10,
+        [("Living Room", 0, 0, 10, 6), ("Staircase", 0, 6, 4, 4), ("Bedroom", 4, 6, 6, 4)],
+        detailed=detail,
+    )
+    model = housing.from_housing(_design([floor]))[0]
+
+    assert sorted(room.name for room in model.rooms) == ["Bedroom", "Living Room", "stairs"]
+    assert len([room for room in model.rooms if room.occupancy == Occupancy.STAIR]) == 1
+    assert sum(room.area_m2 for room in model.rooms) == pytest.approx(ft_to_m(1.0) ** 2 * 100.0)
+    assert "W_CORE_UNIT_OVERLAP" not in _codes(model)
+    assert model.validate() == []
 
 
 def test_a_stale_generated_plan_is_uniformly_rescaled_and_centred():

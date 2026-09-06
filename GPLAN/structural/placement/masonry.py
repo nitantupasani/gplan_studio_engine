@@ -979,6 +979,7 @@ class _StoreyGrid:
         from shapely.geometry import Point
 
         self.storey = int(storey)
+        self.model = model
         self.walls = list(walls)
         xs = set()
         ys = set()
@@ -1217,6 +1218,42 @@ class _CoverResult:
     seeded: List[str]
 
 
+def _low_rise_housing(model: StructuralModel) -> bool:
+    return getattr(model.source, "value", model.source) == "housing" and 1 <= len(model.storeys) <= 3
+
+
+def _housing_role_split_groups(model: StructuralModel, candidates: Sequence[WallLine]) -> List[List[WallLine]]:
+    """Contiguous real-wall pieces whose architectural roles differ.
+
+    Housing preserves the true extent of a core wall instead of leaking that
+    role onto the adjacent interior run. A greedy single-ID promotion can then
+    miss a continuous bearing line. Only already-eligible candidate walls are
+    grouped, with their original IDs, roles, sections and openings intact.
+    """
+    if not _low_rise_housing(model):
+        return []
+    lines = {}
+    for wall in candidates:
+        axis = _axis_of(wall)
+        if axis is not None:
+            orient, pos, lo, hi = axis
+            # Exact centrelines, not merely nearby parallel wall guides.
+            lines.setdefault((wall.storey, orient, pos), []).append((lo, hi, wall))
+    groups = []
+    for key in sorted(lines):
+        chain, end = [], None
+        for lo, hi, wall in sorted(lines[key], key=lambda row: (row[0], row[1], row[2].id)):
+            if chain and lo > end + _ETA:
+                if len(chain) > 1 and len({item.role for item in chain}) > 1:
+                    groups.append(chain)
+                chain = []
+            chain.append(wall)
+            end = hi if len(chain) == 1 else max(end, hi)
+        if len(chain) > 1 and len({item.role for item in chain}) > 1:
+            groups.append(chain)
+    return groups
+
+
 def _cover_storey(
     grid: _StoreyGrid,
     walls: Sequence[WallLine],
@@ -1300,6 +1337,26 @@ def _cover_storey(
             )
             if best is None or score > best[0]:
                 best = (score, candidate, trial_panels, trial_bad)
+        if best is None and _low_rise_housing(grid.model):
+            grouped = None
+            for group in _housing_role_split_groups(grid.model, candidates):
+                trial = bearing + [wall.id for wall in group]
+                trial_panels = grid.panels(_support_lines(walls, trial, extra))
+                trial_bad = _badness(trial_panels, cap)
+                if trial_bad >= bad:
+                    continue
+                score = (float(bad[0] - trial_bad[0]), float(bad[1] - trial_bad[1]),
+                         float(bad[2] - trial_bad[2]), sum(wall.length_m() for wall in group))
+                if grouped is None or score > grouped[0]:
+                    grouped = (score, group, trial_panels, trial_bad)
+            if grouped is not None:
+                promoted_ids = sorted(wall.id for wall in grouped[1])
+                bearing.extend(promoted_ids)
+                panels, bad = grouped[2], grouped[3]
+                candidates = [wall for wall in candidates if wall.id not in set(promoted_ids)]
+                trace.append("storey %d: promoted contiguous eligible Housing wall pieces %s together"
+                             % (grid.storey, ", ".join(promoted_ids)))
+                continue
         if best is None:
             break
         bearing.append(best[1].id)

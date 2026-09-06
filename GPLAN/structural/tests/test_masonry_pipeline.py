@@ -408,7 +408,10 @@ def test_seismic_demand_uses_the_bands_the_placer_actually_built(auto_full):
         if row["element_id"] == "wall-s0-h-0-0@s0"
     )
     shear = next(row for row in wall["checks"] if row["name"] == "shear")
-    assert shear["demand"] == pytest.approx(0.02329)
+    # Correctly separate core/interior wall pieces change diaphragm stiffness
+    # allocation: 42.899146701 direct + 7.123621549 torsional kN over
+    # 228.6 * 9144 mm2 gives 0.023930693 MPa (six-decimal wire rounding).
+    assert shear["demand"] == pytest.approx(0.023931)
 
 
 def test_essential_importance_is_resolved_once_for_placement_loads_and_design(
