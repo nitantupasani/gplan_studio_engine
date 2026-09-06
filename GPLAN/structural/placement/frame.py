@@ -56,7 +56,11 @@ fixture dead-ends in hard errors the catalogue never intended for it.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import copy
+import hashlib
+import json
+import math
+from dataclasses import dataclass, field, replace
 from fractions import Fraction
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
@@ -98,9 +102,12 @@ from ..model import (
     wall_axis,
 )
 from .cores import CoreBeam, CorePlan, ShaftWall, StairSlab, frame_core_openings, plan_cores
+from .housing_variants import near_wall as _housing_near_wall
+from ..design_reuse import EngineeringCache, _exact
 
 SCORE_VERSION = "frame-1"
 ECONOMY_SCORE_VERSION = "frame-economy-1"
+_HOUSING_SEARCH_CACHE = EngineeringCache(limit=6)
 
 # Catalogue constants (not user parameters).
 REFUSE_CANTILEVER_M = 2.5
@@ -403,6 +410,11 @@ class _CorridorRec:
 
 class _View:
     """Deterministic mm view of the model the placement passes share."""
+
+    def housing_wall_allowed(self, x_mm: int, y_mm: int, storeys: Sequence[int]) -> bool:
+        return self.params.housing_column_variant is None or all(
+            _housing_near_wall(self.model, s, _m(x_mm), _m(y_mm)) for s in storeys
+        )
 
     def __init__(self, model: StructuralModel, grid: AxisGrid, params: FrameParams):
         self.model = model
@@ -883,6 +895,8 @@ class _ColumnState:
             exists = _existing_storeys(self.view, x, y)
             if not exists:
                 continue
+            if not self.view.housing_wall_allowed(x, y, exists):
+                continue
             key = (x, y)
             moved = _Cand(x, y, cand.anchor, cand.origin, slide_axis=cand.slide_axis)
             if key in prepared:
@@ -1020,6 +1034,8 @@ class _ColumnState:
             if self.view.door_conflicts(nx, ny, exists):
                 continue
             if self.view.corridor_strictly_inside(nx, ny, exists, self.snap_wall_mm) is not None:
+                continue
+            if not self.view.housing_wall_allowed(nx, ny, exists):
                 continue
             if horizontal:
                 mates = sorted(a.x_mm for a in self.accepted if abs(a.y_mm - ny) <= _ON_LINE_TOL_MM)
@@ -1276,6 +1292,14 @@ class _ColumnState:
                         count = -(-gap // self.cap_mm) - 1
                         for step in range(1, count + 1):
                             station = coords[i] + _round_ratio(step * gap, count + 1)
+                            if self.view.params.housing_column_variant in ("toward_start", "toward_end"):
+                                shift = -300 if self.view.params.housing_column_variant == "toward_start" else 300
+                                # Shift the whole even sequence within its end
+                                # bay slack. Never create an over-cap end bay or
+                                # a sub-bay below the hard merge floor.
+                                base_gap = gap // (count + 1)
+                                slack = max(0, min(base_gap - MERGE_FLOOR_MM, self.cap_mm - base_gap - 1))
+                                station += max(-slack, min(slack, shift))
                             station = self._snap_station(axis, storey, station)
                             point = (axis.pos_mm, station) if vertical else (station, axis.pos_mm)
                             if point not in seen:
@@ -1466,6 +1490,9 @@ def enforce_continuity(
                 continue
             if view.corridor_strictly_inside(nx, ny, range(0, stack.top + 1), state.snap_wall_mm) is not None:
                 continue
+            exists = _existing_storeys(view, nx, ny)
+            if not view.housing_wall_allowed(nx, ny, exists):
+                continue
             mates_ok = True
             for a in kept:
                 cross = abs((a.y_mm - ny) if horizontal else (a.x_mm - nx))
@@ -1480,7 +1507,7 @@ def enforce_continuity(
             stack.slid_mm = d
             stack.slide_dir = "x" if horizontal else "y"
             stack.x_mm, stack.y_mm = nx, ny
-            stack.exists = _existing_storeys(view, nx, ny)
+            stack.exists = exists
             stack.base = 0
             stack.notes.append("slid %d mm along %s" % (d, stack.slide_dir))
             stack.axis_x = _axis_at(view.grid.x_axes, nx, _AXIS_MATCH_TOL_MM)
@@ -2472,6 +2499,8 @@ class _Framer:
             if any(max(abs(s.x_mm - x), abs(s.y_mm - y)) < MERGE_FLOOR_MM for s in self.stacks):
                 continue  # the 1.2 m floor binds promoted columns too
             exists = _existing_storeys(view, x, y)
+            if not view.housing_wall_allowed(x, y, exists):
+                continue
             stack = _Stack(
                 x_mm=x,
                 y_mm=y,
@@ -3866,10 +3895,313 @@ class FrameResult:
 # ---------------------------------------------------------------------------
 
 
-def run_frame_placement(
+class _HousingEditRejected(Exception):
+    """An optional search edit cannot pass the unchanged placement guards."""
+
+
+def _housing_required(stack, state=None):
+    return bool(
+        stack.anchor or stack.origin in ("core", "corner", "corridor_proj")
+        or stack.tie_keys or stack.corridor_pair_keys
+        or any(axis is not None and axis.source.value in ("party", "corridor", "core")
+               for axis in (stack.axis_x, stack.axis_y))
+        or (state is not None and state.on_core_edge(stack.x_mm, stack.y_mm))
+    )
+
+
+def _housing_geometry(columns):
+    return tuple(sorted((c.x_mm, c.y_mm, tuple(c.exists)) for c in columns))
+
+
+def _housing_objective(columns, beams, min_span):
+    """All same-storey Euclidean pairs, including corridor/core exceptions.
+
+    Hard checks run separately first. Deficit, pair count, optional stacks,
+    coordinate-line count (regularity), final beam length, canonical geometry
+    give a total deterministic order. This is a bounded preliminary search.
+    """
+    ordered = sorted(columns, key=lambda c: (c.x_mm, c.y_mm))
+    deficits = []
+    for index, a in enumerate(ordered):
+        for b in ordered[index + 1:]:
+            if not set(a.exists).intersection(b.exists):
+                continue
+            distance = math.hypot(a.x_mm - b.x_mm, a.y_mm - b.y_mm) / 1000
+            if 0 < distance < min_span - 1e-9:
+                deficits.append(min_span - distance)
+    return (
+        round(sum(deficits), 6), len(deficits),
+        # A support does not become a new mandatory anchor merely because a
+        # trial puts it on a protected guide. Count the actual anchor/tie
+        # provenance so repositioning cannot game the optional-stack count.
+        sum(not (c.anchor or c.origin in ("core", "corner", "corridor_proj")
+                 or c.tie_keys or c.corridor_pair_keys) for c in ordered),
+        len({c.x_mm for c in ordered}) + len({c.y_mm for c in ordered}),
+        sum(b.span_mm for b in beams), _housing_geometry(ordered),
+    )
+
+
+def _housing_preflight(model, result, params):
+    """Use the production support topology before ranking a placed frame.
+
+    This does not replace loads, member design or the final API audits.
+    """
+    from ..analysis.takedown import AnalysisError, _build_runs, _topo_order
+    from .housing_variants import assess
+    written = result.write_back(copy.deepcopy(model))
+    audit = assess(written, params.min_span)
+    okay = result.valid and not result.report["errors"] and bool(result.columns)
+    okay = okay and not audit["off_wall_column_count"] and not audit["confirmed_room_intrusion_count"]
+    okay = okay and audit["room_assessment"] == "assessed"
+    maximum = 0.0
+    try:
+        for storey in written.storeys:
+            runs = _build_runs(written, storey.index, DisclosureLog())
+            beam_to_run = {beam.id: run for run in runs for beam in run.beams}
+            # Production takedown solves floor runs and base plinth ties in
+            # separate passes. They intentionally share coordinate run IDs.
+            _topo_order([run for run in runs if not run.plinth], beam_to_run)
+            _topo_order([run for run in runs if run.plinth], beam_to_run)
+            for run in runs:
+                if run.plinth:
+                    continue
+                maximum = max(maximum, max((hi - lo for lo, hi in run.spans), default=0.0))
+                for overhang in (run.overhang_left, run.overhang_right):
+                    if overhang and overhang[1] - overhang[0] > params.cantilever_cap + 1e-6:
+                        okay = False
+        okay = okay and maximum <= params.max_primary_span + 1e-6
+    except AnalysisError:
+        okay = False
+    return bool(okay), maximum
+
+
+def replay_housing_candidate(model, params, recipe, _force_secondary=(), search=None):
+    """Replay a searched recipe for an API-owned bounded engineering retry.
+
+    This is an internal seam, not a request parameter. The API retains its
+    actual request envelope and must repeat all full-design eligibility gates.
+    """
+    result = _run_frame_placement_once(
+        model, replace(params, housing_column_variant=recipe["seed"]), _force_secondary,
+        (set(tuple(point) for point in recipe["removed"]), tuple(tuple(point) for point in recipe["added"])),
+    )
+    result.params_echo = params.to_dict()
+    metadata = copy.deepcopy(search or {})
+    metadata.update(
+        selected_seed_variant=recipe["seed"], selected_removed=copy.deepcopy(recipe["removed"]),
+        selected_added=copy.deepcopy(recipe["added"]), operation=recipe.get("operation", "design_fallback"),
+        selected_rank=recipe.get("rank"),
+        objective=list(_housing_objective(result.columns, result.beams, params.min_span)[:5]),
+    )
+    result.metrics["housing_search"] = metadata
+    return result
+
+
+def housing_search_cache_diagnostics():
+    """Process-local operational evidence; never included in response metrics."""
+    counts = _HOUSING_SEARCH_CACHE.diagnostics()
+    out = {key: counts[key] for key in ("requests", "cache_hits", "cache_entries", "cache_limit", "in_flight")}
+    out["pool_computation_count"] = counts["expensive_design_invocation_count"]
+    return out
+
+
+def clear_housing_search_cache():
+    _HOUSING_SEARCH_CACHE.clear()
+
+
+def _housing_search_signature(model, params, engine_fingerprint):
+    state = {"version": "housing-placement-pool-1", "model": vars(model),
+             "params": vars(replace(params, housing_column_variant=None)), "engine": engine_fingerprint}
+    encoded = json.dumps(_exact(state), sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def run_frame_placement(model, params=None, _force_secondary=()):
+    params = params if params is not None else FrameParams()
+    if (params.housing_column_variant in ("balanced", "toward_start", "toward_end")
+            and 1 <= len(model.storeys) <= 3 and params.column_strategy == "wall_aligned"
+            and params.system == "rc_frame" and not _force_secondary):
+        # The source/data/rate fingerprint is owned by the API. Import lazily
+        # so omitted-variant placement retains its existing import behavior.
+        from ..api import structural_fingerprint
+        key = _housing_search_signature(model, params, structural_fingerprint())
+        pool = _HOUSING_SEARCH_CACHE.run(
+            key, lambda: _run_housing_placement_uncached(model, params, _return_pool=True),
+        )
+        return pool[params.housing_column_variant]
+    return _run_housing_placement_uncached(model, params, _force_secondary)
+
+
+def _run_housing_placement_uncached(model, params=None, _force_secondary=(), _return_pool=False):
+    """Preserve legacy placement, or search bounded low-rise Housing frames.
+
+    Three guide seeds, at most 8 bearing repairs, 8 paired-support repairs,
+    12 single-stack removals, 6 row/column subsets, 8 wall repositions, then remaining-budget greedy
+    removals. At most 48 complete frame evaluations and 128 finite-wall
+    stations. Every trial repeats all continuity/framing/panel repairs and
+    final warnings. No elapsed-time cutoff chooses a partial winner.
+    """
+    from .housing_variants import MIN_REPOSITION_MM, SEARCH_CANDIDATE_LIMIT, WALL_STATION_LIMIT, wall_station_pool
+    params = params if params is not None else FrameParams()
+    variants = ("balanced", "toward_start", "toward_end")
+    if (params.housing_column_variant not in variants or not 1 <= len(model.storeys) <= 3
+            or params.column_strategy != "wall_aligned" or params.system != "rc_frame"):
+        return _run_frame_placement_once(model, params, _force_secondary)
+
+    prior = model.meta.get("frame_placement", {}).get("metrics", {}).get("housing_search", {})
+    if _force_secondary and "selected_removed" in prior:
+        # Referral panel IDs belong to this exact chosen frame. Replaying the
+        # recipe repairs those panels; a fresh ranked search could choose a
+        # different frame and silently leave their referrals outstanding.
+        removed = tuple(tuple(point) for point in prior["selected_removed"])
+        added = tuple(tuple(point) for point in prior["selected_added"])
+        result = _run_frame_placement_once(
+            model, replace(params, housing_column_variant=prior["selected_seed_variant"]),
+            _force_secondary, (set(removed), added),
+        )
+        result.params_echo = params.to_dict()
+        result.metrics["housing_search"] = dict(prior)
+        result.metrics["housing_search"].update(
+            referral_frame_evaluation_count=1,
+            objective=list(_housing_objective(result.columns, result.beams, params.min_span)[:5]),
+        )
+        return result
+
+    records, seen_recipes, all_geometry = [], set(), set()
+    generated = 0
+
+    def evaluate(seed, removed=(), added=(), operation="seed"):
+        nonlocal generated
+        recipe = (seed, tuple(sorted(removed)), tuple(sorted(added)))
+        if recipe in seen_recipes or generated >= SEARCH_CANDIDATE_LIMIT:
+            return None
+        seen_recipes.add(recipe)
+        generated += 1
+        seed_params = replace(params, housing_column_variant=seed)
+        try:
+            result = _run_frame_placement_once(
+                model, seed_params, _force_secondary,
+                None if operation == "seed" else (set(removed), tuple(added)),
+            )
+        except _HousingEditRejected:
+            return None
+        safe, maximum = _housing_preflight(model, result, params)
+        geometry = _housing_geometry(result.columns)
+        all_geometry.add(geometry)
+        record = dict(result=result, seed=seed, removed=tuple(removed), added=tuple(added),
+                      operation=operation, safe=safe, maximum=maximum,
+                      objective=_housing_objective(result.columns, result.beams, params.min_span))
+        records.append(record)
+        return record
+
+    seeds = [evaluate(seed) for seed in variants]
+    # Equal final seeds need only one set of support edits. The engineering
+    # cache still uses full topology, not this column-layout identity.
+    parents = {}
+    for record in sorted(seeds, key=lambda row: (row["objective"], row["seed"])):
+        parents.setdefault(_housing_geometry(record["result"].columns), record)
+    buckets = {name: [] for name in ("bearing_repair", "bearing_pair", "remove", "subset", "reposition")}
+    for record in parents.values():
+        result = record["result"]
+        optional = [c for c in result.columns if not _housing_required(c)]
+        danger = set()
+        for beam in result.beams:
+            if beam.chain >= 3:
+                danger.update(beam.points_mm())
+        pool = wall_station_pool(model, result.grid, params.max_primary_span, danger)
+        occupied = {(c.x_mm, c.y_mm) for c in result.columns}
+
+        def propose(kind, removed, added=()):
+            removed = tuple(sorted(set(removed)))
+            added = tuple(sorted(set(added)))
+            trial = [c for c in result.columns if (c.x_mm, c.y_mm) not in removed]
+            for x, y in added:
+                if any(max(abs(c.x_mm - x), abs(c.y_mm - y)) < MERGE_FLOOR_MM for c in trial):
+                    return
+                exists = [s.index for s in model.storeys if result.grid.contains(s.index, x / 1000, y / 1000)]
+                if not exists or not all(_housing_near_wall(model, s, x / 1000, y / 1000) for s in exists):
+                    return
+                trial.append(_Stack(x, y, 0, "housing_search", exists, max(exists), min(exists), Fraction(0)))
+            objective = _housing_objective(trial, (), params.min_span)
+            buckets[kind].append((objective, record["seed"], removed, added))
+
+        for c in optional:
+            point = (c.x_mm, c.y_mm)
+            propose("remove", (point,))
+            for target in pool:
+                repairs_bearing = any(max(abs(target[0] - end[0]), abs(target[1] - end[1])) <= 1500 for end in danger)
+                if target in occupied or (not repairs_bearing and target[0] != c.x_mm and target[1] != c.y_mm):
+                    continue
+                distance = max(abs(target[0] - c.x_mm), abs(target[1] - c.y_mm))
+                if MIN_REPOSITION_MM <= distance <= 2000:
+                    propose("bearing_repair" if repairs_bearing else "reposition", (point,), (target,))
+                    if repairs_bearing:
+                        # Moving a near-end support onto a rear wall can leave
+                        # the original side run with an excessive overhang.
+                        # Keep an additional real-wall station on that run.
+                        backups = [station for station in pool if station not in occupied and station != target
+                                   and (station[0] == c.x_mm or station[1] == c.y_mm)
+                                   and MIN_REPOSITION_MM <= max(abs(station[0] - c.x_mm), abs(station[1] - c.y_mm)) <= 2000]
+                        for backup in sorted(backups)[:6]:
+                            propose("bearing_pair", (point,), (target, backup))
+        for target in sorted((danger & set(pool)) - occupied):
+            propose("bearing_repair", (), (target,))
+        for vertical in (True, False):
+            lines = {}
+            for c in optional:
+                lines.setdefault(c.x_mm if vertical else c.y_mm, []).append((c.x_mm, c.y_mm))
+            for points in lines.values():
+                if len(points) > 1:
+                    propose("subset", points)
+
+    for kind, quota in (("bearing_repair", 8), ("bearing_pair", 8), ("remove", 12), ("subset", 6), ("reposition", 8)):
+        unique = sorted(set(buckets[kind]))
+        for _, seed, removed, added in unique[:quota]:
+            evaluate(seed, removed, added, kind)
+    # Reconsider deletions on the strongest repaired frame. Compound support
+    # subsets can improve a layout even when the original merge pass retained
+    # each member. Remaining work is explicitly bounded, too.
+    survivors = [row for row in records if row["safe"]]
+    if survivors:
+        best = min(survivors, key=lambda row: (row["objective"], row["seed"]))
+        for column in sorted(best["result"].columns, key=lambda c: (c.x_mm, c.y_mm)):
+            if _housing_required(column) or best["added"]:
+                continue
+            removed = tuple(sorted(set(best["removed"]) | {(column.x_mm, column.y_mm)}))
+            trial = evaluate(best["seed"], removed, (), "compound_subset")
+            if trial is not None and trial["safe"] and trial["objective"] < best["objective"]:
+                best = trial
+
+    distinct = {}
+    for record in sorted((row for row in records if row["safe"]), key=lambda row: (row["objective"], row["seed"])):
+        distinct.setdefault(_housing_geometry(record["result"].columns), record)
+    ranked = list(distinct.values())
+    pool = {}
+    for requested_rank, variant in enumerate(variants):
+        selected_rank = requested_rank if requested_rank < len(ranked) else 0
+        chosen = ranked[selected_rank] if ranked else seeds[requested_rank]
+        result = copy.deepcopy(chosen["result"])
+        result.params_echo = replace(params, housing_column_variant=variant).to_dict()
+        result.metrics["housing_search"] = {
+            "version": "housing-search-1", "generated_candidate_count": generated,
+            "distinct_layout_count": len(ranked), "distinct_final_layout_count": len(all_geometry),
+            "candidate_limit": SEARCH_CANDIDATE_LIMIT, "wall_station_limit": WALL_STATION_LIMIT,
+            "minimum_reposition_mm": MIN_REPOSITION_MM, "selected_rank": selected_rank if ranked else None,
+            "selected_seed_variant": chosen["seed"], "operation": chosen["operation"],
+            "selected_removed": [list(point) for point in chosen["removed"]],
+            "selected_added": [list(point) for point in chosen["added"]],
+            "objective": list(chosen["objective"][:5]),
+            "assessment": "placement preflight only; full design and final API audits required",
+        }
+        pool[variant] = result
+    return pool if _return_pool else pool[params.housing_column_variant]
+
+
+def _run_frame_placement_once(
     model: StructuralModel,
     params: Optional[FrameParams] = None,
     _force_secondary: Sequence[str] = (),
+    _support_edit=None,
 ) -> FrameResult:
     """Axes -> cores -> columns -> continuity -> framing/panels loop -> score."""
     params = params if params is not None else FrameParams()
@@ -3885,6 +4217,19 @@ def run_frame_placement(
 
     view = _View(model, grid, params)
     stacks, state = place_columns(model, grid, core_plan, params, log, view)
+    if _support_edit is not None:
+        removed, added = _support_edit
+        stacks = [stack for stack in stacks if (stack.x_mm, stack.y_mm) not in removed or _housing_required(stack, state)]
+        state.accepted = stacks
+        for x, y in added:
+            new = state.process([_Cand(x, y, 0, "housing_search", no_snap=True)])
+            exact = [stack for stack in new if (stack.x_mm, stack.y_mm) == (x, y)]
+            if not exact or any(stack.chebyshev(exact[0]) < MERGE_FLOOR_MM for stack in stacks):
+                raise _HousingEditRejected()
+            stacks.append(exact[0])
+        for stack in stacks:
+            stack.axis_x = _axis_at(grid.x_axes, stack.x_mm, _AXIS_MATCH_TOL_MM)
+            stack.axis_y = _axis_at(grid.y_axes, stack.y_mm, _AXIS_MATCH_TOL_MM)
     stacks = enforce_continuity(view, stacks, state, params, log)
     state.accepted = stacks
 
@@ -3977,14 +4322,7 @@ def run_frame_placement(
     _assign_stack_ids(stacks)
     _assign_sizes(stacks, view, log)
 
-    for a, b in state.short_pairs:
-        log.add(
-            "W_SHORT_SPAN",
-            "columns %s and %s stand closer than the merge window to keep a span under the cap"
-            % (a.id, b.id),
-            [a.id, b.id],
-            stage=_STAGE_COLS,
-        )
+    _warn_final_short_spans(state, log)
     _validate_merge_floor(state, log)
     for stack in stacks:
         if stack.transfer:
@@ -4080,6 +4418,53 @@ def run_frame_placement(
         log=log,
     )
     return result
+
+
+def _warn_final_short_spans(state: _ColumnState, log: DisclosureLog) -> None:
+    """Disclose close final neighbours, including late beam-support promotions.
+
+    Grid gaps are not column gaps. Only adjacent centres on the same exact row
+    or column and an occupied shared storey qualify here. Report each pair once
+    across the building; corridor-edge and core-tie exceptions remain exempt.
+    Recomputing after feedback also avoids referring to a column later removed.
+    """
+    log.entries[:] = [entry for entry in log.entries
+                      if not (entry.code == "W_SHORT_SPAN" and entry.stage == _STAGE_COLS)]
+    pairs = {}  # type: Dict[Tuple[str, str], Tuple[_Stack, _Stack, int, List[int]]]
+    for storey in state.view.storeys:
+        active = [s for s in state.accepted if storey in s.exists and s.base <= storey <= s.top]
+        for vertical in (True, False):
+            lines = {}  # type: Dict[int, List[_Stack]]
+            for stack in active:
+                pos = stack.x_mm if vertical else stack.y_mm
+                lines.setdefault(pos, []).append(stack)
+            for pos in sorted(lines):
+                line = sorted(lines[pos], key=lambda s: (s.y_mm if vertical else s.x_mm, s.id))
+                for a, b in zip(line, line[1:]):
+                    gap = (b.y_mm - a.y_mm) if vertical else (b.x_mm - a.x_mm)
+                    if gap <= 0 or gap >= state.min_span_mm or state._waived_pair(a, b):
+                        continue
+                    key = tuple(sorted((a.id, b.id)))
+                    if key not in pairs:
+                        pairs[key] = (a, b, gap, [])
+                    if storey not in pairs[key][3]:
+                        pairs[key][3].append(storey)
+    guarded = {tuple(sorted((a.id, b.id))) for a, b in state.short_pairs}
+    for key in sorted(pairs):
+        a, b, gap, storeys = pairs[key]
+        reason = ""
+        if key in guarded:
+            reason = "; retained to keep a neighbouring span within the requested cap"
+        elif a.origin == "promoted" or b.origin == "promoted":
+            reason = "; retained after beam-support repair"
+        log.add(
+            "W_SHORT_SPAN",
+            "columns %s and %s have retained centres %d mm apart on storey indices %s, "
+            "below the preferred min_span %d mm%s"
+            % (a.id, b.id, gap, ",".join(str(s) for s in storeys), state.min_span_mm, reason),
+            list(key),
+            stage=_STAGE_COLS,
+        )
 
 
 def _validate_merge_floor(state: _ColumnState, log: DisclosureLog) -> None:

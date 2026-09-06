@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-STRUCTURAL_SCHEMA_VERSION = "structural-1.0"
+STRUCTURAL_SCHEMA_VERSION = "structural-1.1"
 
 # api-backend validates the major prefix only; minor bumps are additive.
 STRUCTURAL_SCHEMA_MAJOR = "structural-1"

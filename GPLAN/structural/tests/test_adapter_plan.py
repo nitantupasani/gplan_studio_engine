@@ -95,7 +95,7 @@ def openings_on(model, storey=0, kind=None):
 
 
 def test_model_shape_and_provenance(model):
-    assert model.schema_version == "structural-1.0"
+    assert model.schema_version == "structural-1.1"
     assert model.source == M.ModelSource.PLAN_JSON
     assert model.system == M.System.RC_FRAME
     assert model.id == "plan-0"

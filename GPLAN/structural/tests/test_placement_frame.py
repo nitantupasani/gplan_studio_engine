@@ -551,6 +551,7 @@ def test_corridor_edge_columns_do_not_raise_the_merge_floor():
     r = run_frame_placement(corridor_model())
     codes = {e.code for e in r.log.entries}
     assert "E_MERGE_FLOOR" not in codes
+    assert not [e for e in r.log.entries if e.code == "W_SHORT_SPAN" and e.stage == "placement.columns"]
 
 
 # ---------------------------------------------------------------------------
@@ -987,6 +988,48 @@ def test_economy_grid_is_untouched_by_the_junction_pass():
     assert len(r.columns) == 14
     if inside is not None:
         assert inside <= {(c.x_mm, c.y_mm) for c in r.columns}
+
+
+@pytest.mark.parametrize("storeys", [1, 2, 3])
+def test_economy_grid_discloses_close_columns_added_by_final_beam_repairs(storeys):
+    """Sparse axes can still acquire a short real bay during beam framing."""
+    with open(os.path.join(_FIXTURES, "plan_2bhk.json"), "r") as handle:
+        model = from_plan(json.load(handle), storeys=storeys)
+    result = run_frame_placement(model, FrameParams(column_strategy="economy_grid"))
+    columns = {(c.x_mm, c.y_mm): c for c in result.columns}
+    pair = [columns[(2438, 3962)], columns[(2438, 5791)]]
+    assert len(result.columns) == 14
+    assert all(c.origin == "promoted" for c in pair)
+    pair_ids = {c.id for c in pair}
+    entries = [
+        e for e in result.log.entries
+        if e.code == "W_SHORT_SPAN" and e.stage == "placement.columns" and set(e.element_ids) == pair_ids
+    ]
+    assert len(entries) == 1
+    assert "retained centres 1829 mm apart" in entries[0].message
+    assert "beam-support repair" in entries[0].message
+    assert "storey indices " + ",".join(str(s) for s in range(storeys)) in entries[0].message
+    assert all(
+        set(e.element_ids) <= {c.id for c in result.columns}
+        for e in result.log.entries if e.code == "W_SHORT_SPAN" and e.stage == "placement.columns"
+    )
+    assert result.valid is True
+
+
+def test_removed_short_bay_columns_are_absent_from_final_column_warnings():
+    model = M.StructuralModel(
+        id="short-bay-collapse", storeys=_storeys(1),
+        rooms=[_room(0, "floor", M.Occupancy.HABITABLE, 0, 0, 8, 4)],
+        walls=_box_walls(0, 0, 0, 8, 4) + [
+            _wall(0, "p1", (1.8, 0), (1.8, 4), INT, M.WallRole.INTERIOR),
+            _wall(0, "p2", (3.6, 0), (3.6, 4), INT, M.WallRole.INTERIOR),
+        ],
+    )
+    result = run_frame_placement(model)
+    assert len(result.columns) == 6
+    assert not any(c.x_mm == 1800 for c in result.columns)
+    assert any(e.code == "W_SHORT_SPAN" and e.stage == "grid.extract_axes" for e in result.log.entries)
+    assert not any(e.code == "W_SHORT_SPAN" and e.stage == "placement.columns" for e in result.log.entries)
 
 
 def test_metrics_block_is_canonical(plan_result, building_result):

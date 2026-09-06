@@ -1206,7 +1206,7 @@ def test_the_shipped_schema_file_is_a_real_draft_2020_12_document():
     with open(SCHEMA_PATH, "r") as handle:
         schema = json.load(handle)
     assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
-    assert schema["$id"].endswith("structural_response-1.0.json")
+    assert schema["$id"].endswith("structural_response-1.1.json")
     # every $ref resolves inside the document
     text = json.dumps(schema)
     for name in set(re.findall(r'"#/\$defs/([A-Za-z_]+)"', text)):

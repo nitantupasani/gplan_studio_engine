@@ -108,8 +108,8 @@ def envelope_shape(label, envelope, expect_status=None):
     check("%s Documents.structural is always a list" % label,
           isinstance(documents.get("structural"), list),
           str(type(documents.get("structural"))))
-    check("%s schema_version is structural-1.0" % label,
-          documents.get("schema_version") == "structural-1.0",
+    check("%s schema_version is structural-1.1" % label,
+          documents.get("schema_version") == "structural-1.1",
           str(documents.get("schema_version")))
     check("%s engine_fingerprint is stamped" % label,
           str(documents.get("engine_fingerprint", "")).startswith("st-"),

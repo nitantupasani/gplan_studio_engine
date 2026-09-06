@@ -66,7 +66,7 @@ discriminator is `source`, and exactly the block it names must be present.
 ```jsonc
 POST /api/structural/layout/
 {
-  "schema_version": "structural-1.0",   // optional; unknown MAJOR -> refused
+  "schema_version": "structural-1.1",   // optional; unknown MAJOR -> refused
   "source": "plan",                     // REQUIRED: plan | building | housing
 
   // exactly one of these three, matching source:
@@ -150,6 +150,150 @@ suffix. The response echoes the contract in `units`:
 `params.spans` accepts either `min_m`/`max_m` or `min_ft`/`max_ft`; the metric
 values are canonical and feet are converted on the way in.
 
+## Housing column alternatives: one to three total storeys
+
+Housing Structure can request separate deterministic layouts at the same chosen
+span cap. This is an opt-in addition; omitting the parameter preserves the
+existing plan, building and housing workflows.
+
+```jsonc
+{
+  "source": "housing",
+  "housing": { /* existing HousingDesign with 1, 2 or 3 total floors */ },
+  "plot_id": "primary",
+  "params": {
+    "system": "rc_frame",
+    "analysis_mode": "gravity_only",
+    "placement_strategy": "wall_aligned",
+    "housing_column_variant": "toward_start",
+    "spans": { "min_m": 2.5, "max_m": 5.0 }
+  },
+  "output": { "detail": "compact", "include_boq": true }
+}
+```
+
+`housing_column_variant` accepts `balanced`, `toward_start` or `toward_end`.
+The options endpoint publishes these values and their scope in
+`housing_column_variants`. Other sources, four total floors, another structural
+system, `code_complete`, or `economy_grid` reject this parameter. Ground counts
+as one storey. The span cap is never silently raised.
+
+The labels select the first, second and third distinct candidates from one
+deterministic search. Its three initial guide seeds retain the earlier combined,
+lower-wall and higher-wall choices. It then explores optional support removals,
+row or column subsets, real wall repositions and paired bearing repairs.
+Corners, core supports, corridor ties and party-wall anchors remain protected.
+Omitting the variant retains the earlier placement path; opting into `balanced`
+now requests the first ranked search candidate.
+
+Each distinct guide seed has at most 128 finite-wall stations, drawn from real
+endpoints, wall crossings, existing axes and admissible span stations. Optional
+repositions move at least 400 mm. Initial search evaluates at most 48 complete
+frames: three seeds, up to eight bearing repairs, eight paired repairs, twelve
+single removals, six support subsets and eight repositions, with remaining work
+available to compound removals. Canonical coordinates and fixed operation quotas
+determine the work; elapsed time never selects a partial winner.
+
+Every candidate repeats continuity, framing repair and final span warnings.
+Finite-wall and room assessment, physical BeamRun spans and supported framing
+depth gate placement selection. Surviving final frames are ordered by total
+close-pair deficit, close-pair count, optional stacks, coordinate-line regularity,
+total beam length and canonical geometry. The preferred 2.5 m spacing remains
+an objective, not a universal hard minimum. `W_SHORT_SPAN` concerns adjacent
+collinear final columns and retains its corridor/core-tie exceptions; the
+Euclidean crowding metrics include every unique same-storey stack pair.
+
+Placement preflight cannot establish member-design success. The selected frame
+enters the complete production design pipeline. A secondary-beam referral
+replays its exact selected support recipe. If final checks still fail, the
+engine tries the actual request's earlier wall-supported seed on fresh inputs
+once. Only a fully eligible fallback can replace the initial result. There are
+at most two candidate design attempts, each with the existing one referral
+re-pass, so at most four engineering-pass invocations before reuse. Both failed
+attempts remain disclosed if neither completes. Final column geometry determines
+distinctness after these repairs and fallbacks; fewer than three real layouts
+can therefore be returned under the three request labels.
+
+Every candidate, column slide and later beam-support promotion must keep the
+column center within 0.30 m of a finite eligible architectural wall segment on
+each storey where the column exists. Extended guide lines, railings and parapets
+do not satisfy this requirement. The final audit runs again before every
+gravity-design pass, including the bounded referral re-pass, and refuses any
+remaining off-wall column with `E_HOUSING_COLUMN_OFF_WALL`.
+
+Room intrusion is a separate assessment: a center strictly inside a known
+enclosed room polygon and more than 0.30 m from every eligible same-floor wall.
+Open parking, green, void, corridor, balcony and stair/lift circulation areas are
+exempt from the room-intrusion count, but still require wall alignment for these
+Housing variants. Their existing structural/door/core checks also apply. Unknown
+room internals are reported for the affected columns and cannot earn comparison
+eligibility. Confirmed room intrusions retain `E_HOUSING_ROOM_INTRUSION`.
+
+An opt-in entry includes `housing_layout`:
+
+| Field | Meaning |
+|---|---|
+| `variant`, `summary`, `axis_adjustments` | Requested variant, deterministic explanation and actual changed guide coordinates in metres. A different label does not imply different columns. |
+| `geometry_fingerprint` | SHA-256 of sorted final `(storey, x_m, y_m)` column centers rounded to millimetres. Use it to collapse identical column layouts. |
+| `column_stack_count`, `closest_column_centres_m` | Final support positions across the building and closest centers on a shared storey. |
+| `off_wall_column_count`, `off_wall_column_ids` | Number and IDs of final per-storey column instances more than 0.30 m from every finite eligible same-storey wall. Open or unknown room occupancy does not waive this check. |
+| `close_pair_count`, `close_pair_deficit_m` | Unique stack pairs closer than `min_span`, and sum of the missing distances to that preference. Uses straight-line center distance and includes intentional corridor/core exceptions; this is a crowding comparison, not a safety verdict. |
+| `room_intrusion_count` | Number of affected stacks when fully assessed; `null` if any column remains unassessed. |
+| `confirmed_room_intrusion_count`, `room_intrusion_column_ids` | Confirmed affected stacks and precise column IDs, even when another area is unassessed. |
+| `room_assessment`, `assessed_column_count`, `unassessed_column_ids`, `unassessed_storeys` | `assessed`, `partial` or `unassessed`, with the assessment scope. An unrelated unknown room does not unassess a known-room column. |
+| `wall_alignment_tolerance_m` | The disclosed 0.30 m allowance for near-wall centers. |
+| `physical_max_span_m`, `requested_max_span_m` | Final analyzed floor-beam span and the unchanged requested cap. Physical span stays `null` on placement-only or interrupted runs. |
+| `eligible`, `reasons` | Whether the fully calculated candidate satisfies wall alignment, room, span, member, referral, foundation and applicable quantity checks. A layout-only result is ineligible with `full_design_required`. |
+
+Search diagnostics use the existing extensible
+`structural_model.meta.frame_placement.metrics.housing_search` map and its
+placement-score mirrors. They distinguish generated placement candidates,
+distinct placement layouts, the two-attempt limit, actual design attempts,
+distinct final attempted layouts, eligible final layouts and checked fallback
+use. Placement counts never claim completed design eligibility. The returned
+`housing_layout` and `comparison_validity` apply to the selected final response.
+This adds diagnostic values within existing metadata; the schema remains
+`structural-1.1`.
+
+Final foundation and quantity blockers also enter the Housing eligibility gate
+and the bounded fallback decision. For example, completing every beam and column
+does not make a layout eligible when sized footings still overlap. Deliberately
+omitting BOQ output blocks cost comparison but does not by itself trigger a new
+engineering attempt or invalidate the engineering layout.
+
+An internal engineering cache reuses only an identical full-design signature.
+It includes exact unrounded SI architecture, member/support topology and IDs,
+storeys, loads, materials, analysis/code/span/rate inputs, every resolved and
+request/output option, and the source/data/schema engine fingerprint. Only the
+requested variant and explicit search provenance are excluded. Referral repair
+produces a new signature. The cache stores at most twelve completed engineering
+passes per Python process; concurrent identical passes share work, while other
+contexts proceed independently. Passes that raise exceptions are not reused.
+Completed identical-context results retain every check, including failures;
+final eligibility is recomputed for each response. Cached mutations are
+isolated, and quantities, reports, request hashes, option echoes,
+labels and responses are constructed freshly for each caller. No cost or pass
+result crosses different engineering contexts.
+
+The common placement pool has its own exact architecture/placement-parameter/
+engine key and at most six completed pools per process. It returns independent
+copies for each requested label, and referral recipe replay bypasses the pool
+cache. Neither cache spans worker processes, disk or Redis. Operational counters
+are available through `design_reuse.design_cache_diagnostics()` and
+`placement.frame.housing_search_cache_diagnostics()` for probes; they stay out of
+wire responses so response determinism does not depend on cache history.
+
+`comparison_validity` remains authoritative for cost ranking. In addition to
+its existing analysis, foundation, member and quantity checks, it rejects
+`housing_off_wall_columns`, `housing_room_intrusion` and
+`housing_room_assessment_incomplete`. Do not rank a
+layout by price before these checks, and do not equate fewer columns with lower
+cost. At least two distinct eligible final column layouts in the same comparison
+cohort are needed for a relative cost winner. Repeated layouts remain selectable
+and count once. Quantities and the completed subtotal determine cost; fewer
+supports alone never establish a lower price. These are bounded preliminary
+alternatives, not a global optimum or construction approval.
+
 ## The response
 
 Every response of every endpoint uses the engine envelope, and
@@ -168,12 +312,12 @@ Real output, 2BHK fixture, two storeys, elided where a list repeats:
   "message": "structural layout: rc_frame, 2 storeys, score 79",
   "disclaimer": "PRELIMINARY ENGINEERING NOTICE. ...",   // verbatim, always
   "response": { "Documents": {
-    "schema_version": "structural-1.0",
+    "schema_version": "structural-1.1",
     "engine_fingerprint": "st-9f0a...",   // schema + data table versions
     "batch_summary": {"plans": 1, "ok": 0, "warnings": 1, "refused": 0,
-                      "schema_version": "structural-1.0"},
+                      "schema_version": "structural-1.1"},
     "structural": [ {
-      "schema_version": "structural-1.0",
+      "schema_version": "structural-1.1",
       "engine_fingerprint": "st-9f0a...",
       "units": {"geometry": "ft", "sections": "mm", "forces": "kN",
                 "moments": "kNm", "loads": "kPa", "stresses": "MPa"},
@@ -235,7 +379,7 @@ Real output, 2BHK fixture, two storeys, elided where a list repeats:
       },
 
       "structural_model": {
-        "id": "plan-0", "schema_version": "structural-1.0", "source": "plan",
+        "id": "plan-0", "schema_version": "structural-1.1", "source": "plan",
         "system": "rc_frame", "fingerprint": "...",
         "units": { /* as above */ },
         "meta": {"adapter": "plan_json", "north": "-y", "plan_index": 0,
@@ -420,7 +564,7 @@ by name rather than serializing them twice:
       "blocked_elements": [ ... ], "warnings_summary": { ... },
       "bbs": { ... }, "boq": { ... },
       "trace_available": false,
-      "meta": {"report_version": "report-1", "schema_version": "structural-1.0",
+      "meta": {"report_version": "report-1", "schema_version": "structural-1.1",
                "generated_at": null},   // null unless output.generated_at was given
       "disclaimer": "PRELIMINARY ENGINEERING NOTICE. ..."
     }
@@ -439,7 +583,7 @@ the culture. `"ERROR"` means the pipeline itself could not run.
 { "status": "SUCCESS",
   "message": "structural check: PASS, 0 hard violation(s), 208 element check(s)",
   "response": { "Documents": { "structural": [ {
-    "schema_version": "structural-1.0", "engine_fingerprint": "st-...",
+    "schema_version": "structural-1.1", "engine_fingerprint": "st-...",
     "units": { ... }, "source": "model", "system": "rc_frame",
     "scope": "full",                    // or "placement"
     "verdict": "PASS",                  // PASS | FAIL
@@ -474,7 +618,7 @@ caller keeps the field name AND the notice:
   "message": "a plan carries no storey information, so storeys is required",
   "disclaimer": "PRELIMINARY ENGINEERING NOTICE. ...",
   "response": { "Documents": {
-    "schema_version": "structural-1.0", "engine_fingerprint": "st-...",
+    "schema_version": "structural-1.1", "engine_fingerprint": "st-...",
     "structural": [],
     "batch_summary": {"plans": 0, "ok": 0, "warnings": 0, "refused": 0, ...},
     "error": {"message": "a plan carries no storey information, so storeys is required",

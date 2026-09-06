@@ -228,6 +228,8 @@ REGISTRY = MappingProxyType(
         "E_FRAMING_DEPTH": (Severity.ERROR, "required framing depth cannot be accommodated"),
         "E_GRID_COARSE": (Severity.ERROR, "no admissible grid found within the span caps"),
         "E_SPAN_OVER_MAX": (Severity.ERROR, "span exceeds the maximum and cannot be subdivided"),
+        "E_HOUSING_ROOM_INTRUSION": (Severity.ERROR, "Housing alternative retains a column in a known enclosed room interior"),
+        "E_HOUSING_COLUMN_OFF_WALL": (Severity.ERROR, "Housing alternative retains a column farther than 0.30 m from a finite same-storey architectural wall"),
         "E_UNSUPPORTED_PANEL_EDGE": (
             Severity.ERROR,
             "panel edge lacks the masonry support required by its spanning action",

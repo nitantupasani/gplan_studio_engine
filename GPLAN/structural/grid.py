@@ -45,6 +45,7 @@ from .model import (
 # Structural caps from the placement catalogue; not user parameters.
 HARD_MAX_SPAN_M = 7.5
 COLUMN_MERGE_FLOOR_M = 1.2
+HOUSING_COLUMN_VARIANTS = ("balanced", "toward_start", "toward_end")
 SECONDARY_SPACING_BAND_M = (2.5, 3.5)
 
 # An inserted axis prefers a partition within this window over fresh air.
@@ -109,6 +110,9 @@ class FrameParams:
     tie_trigger: float = 3.6
     shaft_min_storeys: int = 4
     slab_t_max_mm: float = 150.0
+    # Appended to preserve positional construction of existing FrameParams.
+    # Opt-in, low-rise Housing variants; None preserves the existing placer.
+    housing_column_variant: Optional[str] = None
 
     def secondary_spacing_clamped(self) -> float:
         """Secondary centres inside the catalogue band [2.5, 3.5] m."""
@@ -124,7 +128,7 @@ class FrameParams:
         return max(float(self.slab_t_max_mm), RC_SLAB_MIN_THICKNESS_MM)
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
             "system": self.system,
             "column_strategy": str(self.column_strategy),
             "span_direction": self.span_direction,
@@ -141,6 +145,9 @@ class FrameParams:
             "shaft_min_storeys": int(self.shaft_min_storeys),
             "slab_t_max_mm": round(self.slab_t_max_floored_mm(), 6),
         }
+        if self.housing_column_variant is not None:
+            result["housing_column_variant"] = self.housing_column_variant
+        return result
 
 
 # ---------------------------------------------------------------------------
@@ -1341,6 +1348,31 @@ def extract_axes(model: StructuralModel, params: Optional[FrameParams] = None) -
         _axis_from_unit(unit, AxisDir.Y)
         for unit in _dedupe_positions(_cluster(y_units, fixed_tol_mm=merge_tol_mm))
     ]
+
+    if params.housing_column_variant in ("toward_start", "toward_end"):
+        # Only alternative positions already present in a merged ordinary-wall
+        # cluster are eligible. Outline, corridor, party and core anchors stay
+        # fixed. The span-control pass below validates the resulting gaps.
+        for axes in (x_axes, y_axes):
+            ordered = sorted(axes, key=lambda a: a.pos_mm)
+            originals = [a.pos_mm for a in ordered]
+            for index, axis in enumerate(ordered):
+                if axis.source != AxisSource.WALL:
+                    continue
+                choices = [
+                    c.pos_mm for c in axis.candidates
+                    if c.wall_id and abs(c.pos_mm - axis.pos_mm) <= merge_tol_mm
+                    and (index == 0 or c.pos_mm > originals[index - 1])
+                    and (index == len(ordered) - 1 or c.pos_mm < originals[index + 1])
+                ]
+                if choices:
+                    axis.pos_mm = min(choices) if params.housing_column_variant == "toward_start" else max(choices)
+        # Discard pre-variant weighted means. Inserted axes may prefer only
+        # real ordinary-wall positions still represented by this candidate set.
+        snap_pool = {
+            tag: sorted({c.pos_mm for axis in axes for c in axis.candidates if c.wall_id and c.source == AxisSource.WALL})
+            for tag, axes in (("x", x_axes), ("y", y_axes))
+        }
 
     _assign_extents(x_axes, [a.pos_mm for a in y_axes], footprints, storeys)
     _assign_extents(y_axes, [a.pos_mm for a in x_axes], footprints, storeys)

@@ -1130,7 +1130,7 @@ def test_the_emitted_report_has_exactly_the_documented_shape():
     assert isinstance(report["element_cards"], list)
     assert isinstance(report["disclosures"], list)
     assert isinstance(report["blocked_elements"], list)
-    assert report["meta"]["schema_version"] == "structural-1.0"
+    assert report["meta"]["schema_version"] == "structural-1.1"
     assert report["meta"]["report_version"] == R.REPORT_VERSION
     for card in report["element_cards"]:
         assert tuple(card.keys()) == R.CARD_KEYS

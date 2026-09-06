@@ -52,7 +52,7 @@ from .model import (
 )
 from .schema import STRUCTURAL_SCHEMA_MAJOR, STRUCTURAL_SCHEMA_VERSION, UNITS, validate_wire
 
-__version__ = "structural-1.0"
+__version__ = "structural-1.1"
 
 __all__ = [
     "__version__",

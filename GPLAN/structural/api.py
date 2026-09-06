@@ -111,7 +111,7 @@ from . import quantities as Q
 from . import report as R
 from .codes import is1893
 from .data._loader import available_tables, data_path, load_yaml
-from .grid import FrameParams, extract_axes
+from .grid import FrameParams, HOUSING_COLUMN_VARIANTS, _resolve_pos_mm, extract_axes
 from .loads import (
     CASE_DL,
     CASE_LL,
@@ -141,6 +141,7 @@ from .model import (
 from .placement import foundations as _foundations
 from .placement import frame as _frame
 from .placement import masonry as _masonry
+from .placement.housing_variants import assess as _assess_housing_layout
 from .schema import (
     STRUCTURAL_SCHEMA_MAJOR,
     STRUCTURAL_SCHEMA_VERSION,
@@ -679,6 +680,10 @@ def run_options() -> Dict[str, Any]:
         "code_profiles": list(CODE_PROFILES),
         "analysis_modes": list(ANALYSIS_MODES),
         "placement_strategies": list(PLACEMENT_STRATEGIES),
+        "housing_column_variants": {
+            "values": list(HOUSING_COLUMN_VARIANTS), "source": "housing", "total_storeys": [1, 2, 3],
+            "system": "rc_frame", "analysis_mode": "gravity_only", "placement_strategy": "wall_aligned",
+        },
         "scopes": list(SCOPES),
         "seismic_zones": dict(SEISMIC_ZONES),
         "soils": {
@@ -870,6 +875,12 @@ def _check_params(params: Dict[str, Any]) -> None:
             "params.placement_strategy",
             "must be one of " + ", ".join(PLACEMENT_STRATEGIES) + ", got " + repr(placement_strategy),
         )
+    variant = params.get("housing_column_variant")
+    if variant is not None:
+        if not isinstance(variant, str) or variant not in HOUSING_COLUMN_VARIANTS:
+            raise StructuralValidationError("params.housing_column_variant", "must be one of " + ", ".join(HOUSING_COLUMN_VARIANTS))
+        if system != "rc_frame" or params.get("analysis_mode") != "gravity_only" or placement_strategy != "wall_aligned":
+            raise StructuralValidationError("params.housing_column_variant", "requires rc_frame, gravity_only and wall_aligned")
     zone = params.get("seismic_zone", "III")
     if not isinstance(zone, str) or zone not in SEISMIC_ZONES:
         raise StructuralValidationError(
@@ -1076,6 +1087,11 @@ class _Resolved(object):
         self.placement_strategy = self._pick(
             "placement_strategy", params.get("placement_strategy"), "wall_aligned"
         )
+        self.housing_column_variant = params.get("housing_column_variant")
+        if self.housing_column_variant is not None:
+            if request.get("source") != "housing":
+                raise StructuralValidationError("params.housing_column_variant", "is available only for Housing Structure")
+            self.origins["housing_column_variant"] = "request"
         self.zone = self._pick("seismic_zone", params.get("seismic_zone"), "III")
         self.soil = resolve_soil(params.get("soil"))
         self.origins["soil"] = "request" if params.get("soil") is not None else "data/soil_defaults.yaml"
@@ -1212,6 +1228,7 @@ class _Resolved(object):
         return FrameParams(
             system=system,
             column_strategy=self.placement_strategy,
+            housing_column_variant=self.housing_column_variant,
             max_primary_span=self.max_span_m,
             min_span=self.min_span_m,
             cantilever_cap=self.cantilever_m,
@@ -1279,6 +1296,8 @@ class _Resolved(object):
         }
         if self.seismic_system is not None:
             values["seismic_system"] = self.seismic_system
+        if self.housing_column_variant is not None:
+            values["housing_column_variant"] = self.housing_column_variant
         return {
             "values": _plain(values),
             "origins": dict((key, self.origins[key]) for key in sorted(self.origins)),
@@ -1328,6 +1347,8 @@ def _adapt(request: Dict[str, Any], source: str, opts: _Resolved) -> List[Struct
     The system hint reaches the adapter because it decides whether windows are
     synthesized for the IS 4326 opening checks (finding 10).
     """
+    if opts.housing_column_variant is not None and source != "housing":
+        raise StructuralValidationError("params.housing_column_variant", "is available only for Housing Structure")
     hint = System.RC_FRAME.value
     if opts.system_requested in _MASONRY_SYSTEMS:
         hint = opts.system_requested
@@ -1403,6 +1424,8 @@ def _adapt(request: Dict[str, Any], source: str, opts: _Resolved) -> List[Struct
     floors = housing.get("floors")
     if not isinstance(floors, list) or not floors:
         raise StructuralValidationError("housing.floors", "at least one floor is required")
+    if opts.housing_column_variant is not None and len(floors) > 3:
+        raise StructuralValidationError("housing.floors", "housing column alternatives support one to three total storeys, including ground")
     if len(floors) > MAX_HOUSING_FLOORS:
         raise StructuralValidationError(
             "housing.floors",
@@ -1518,7 +1541,7 @@ def _disclose_fallback(decision: Any, log: DisclosureLog) -> None:
 
 
 def _place(model: StructuralModel, opts: _Resolved, log: DisclosureLog,
-           force_secondary: Sequence[str] = ()) -> _Placement:
+           force_secondary: Sequence[str] = (), housing_recipe: Optional[Dict[str, Any]] = None) -> _Placement:
     """Grid, then the frame or the masonry placer, then the write-back.
 
     Finding 27: the system is `choose_system`'s answer and no rule of this
@@ -1566,9 +1589,15 @@ def _place(model: StructuralModel, opts: _Resolved, log: DisclosureLog,
         out.masonry_attempt = placement.to_dict()
         out.system = System.RC_FRAME.value
 
-    result = _frame.run_frame_placement(
-        model, opts.frame_params(out.system), _force_secondary=tuple(force_secondary)
-    )
+    if housing_recipe is not None:
+        result = _frame.replay_housing_candidate(
+            model, opts.frame_params(out.system), housing_recipe,
+            _force_secondary=tuple(force_secondary), search=housing_recipe.get("search"),
+        )
+    else:
+        result = _frame.run_frame_placement(
+            model, opts.frame_params(out.system), _force_secondary=tuple(force_secondary)
+        )
     result.write_back(model)
     # The DELIVERED system, written back the way `masonry.write_back` writes it
     # back on the other branch. The adapter set `model.system` from the system
@@ -3140,7 +3169,7 @@ def _entry_head(
     payload_ref: str,
 ) -> Dict[str, Any]:
     """The keys every per-plan entry carries, whatever the entry point."""
-    return {
+    head = {
         "schema_version": STRUCTURAL_SCHEMA_VERSION,
         "engine_fingerprint": structural_fingerprint(),
         "units": units_block(),
@@ -3157,6 +3186,80 @@ def _entry_head(
         "placement": placement.to_dict(),
         "layout_score": _plain(placement.layout_score),
     }
+    if opts.housing_column_variant is not None:
+        housing_layout = _assess_housing_layout(model, opts.min_span_m)
+        adjustments = []
+        if placement.frame is not None:
+            for axis in placement.frame.grid.axes():
+                if axis.source.value != "wall" or not axis.candidates:
+                    continue
+                old = _resolve_pos_mm(axis.candidates)
+                if old != axis.pos_mm:
+                    adjustments.append({"axis": axis.dir.value, "id": axis.id, "from_m": old/1000.0, "to_m": axis.pos_mm/1000.0})
+        description = "%d column positions" % housing_layout["column_stack_count"]
+        search = model.meta.get("frame_placement", {}).get("metrics", {}).get("housing_search", {})
+        if search:
+            rank = search.get("selected_rank")
+            description += "; bounded wall-supported search: %d generated, %d distinct placement candidates" % (
+                search.get("generated_candidate_count", 0), search.get("distinct_layout_count", 0),
+            )
+            if rank is not None:
+                description += "; spacing-objective rank %d" % (rank + 1)
+        if adjustments:
+            description += "; " + "; ".join("wall guide %s: %.3f to %.3f m" % (a["axis"], a["from_m"], a["to_m"]) for a in adjustments)
+        elif not search and opts.housing_column_variant == "balanced":
+            description += "; combined wall guides and balanced optional spans"
+        elif not search:
+            description += "; alternative optional wall-support positions considered"
+        housing_layout.update({
+            "variant": opts.housing_column_variant, "requested_max_span_m": opts.max_span_m,
+            "physical_max_span_m": None, "eligible": False, "reasons": ["full_design_required"],
+            "axis_adjustments": adjustments, "summary": description + ".",
+        })
+        head["housing_layout"] = housing_layout
+    return head
+
+
+def _finish_housing_layout(entry: Dict[str, Any], model: StructuralModel, opts: _Resolved) -> None:
+    """Final, post-referral eligibility. Geometry alone never earns a badge."""
+    if opts.housing_column_variant is None:
+        return
+    layout = entry["housing_layout"]
+    layout.update(_assess_housing_layout(model, opts.min_span_m))
+    physical = entry.get("analysis", {}).get("physical_max_span_m")
+    design = entry.get("design", {})
+    reasons = []
+    if physical is None:
+        reasons.append("full_design_required")
+    elif physical > opts.max_span_m + 1e-6:
+        reasons.append("physical_span_over_cap")
+    if entry.get("status") == R.STATUS_REFUSED or entry.get("errors"):
+        reasons.append("hard_error")
+    if design.get("failed_count", 0):
+        reasons.append("member_design_failure")
+    if design.get("undesigned_count", 0):
+        reasons.append("required_element_undesigned")
+    if design.get("referrals_outstanding"):
+        reasons.append("unresolved_referral")
+    if layout["confirmed_room_intrusion_count"]:
+        reasons.append("housing_room_intrusion")
+    if layout["off_wall_column_count"]:
+        reasons.append("housing_off_wall_columns")
+    if layout["room_assessment"] != "assessed":
+        reasons.append("housing_room_assessment_incomplete")
+    if entry.get("comparison_validity") is not None:
+        reasons.extend(_housing_comparison_reasons(entry, opts))
+    layout.update(physical_max_span_m=physical, eligible=not reasons, reasons=sorted(set(reasons)))
+    comparison = entry.get("comparison_validity")
+    if comparison is None:
+        entry["comparison_validity"] = {
+            "feasible_for_ranking": False, "valid_for_relative_cost_comparison": False,
+            "valid_for_absolute_cost": False, "reasons": layout["reasons"], "not_for_construction": True,
+        }
+    elif reasons:
+        comparison.update(feasible_for_ranking=False, valid_for_relative_cost_comparison=False, valid_for_absolute_cost=False)
+        comparison["reasons"] = sorted(set(comparison.get("reasons", []) + reasons))
+        comparison["claim"] = "not eligible for candidate ranking; see comparison reasons; no optimum is claimed"
 
 
 def _split_ladder(log: DisclosureLog) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -3284,6 +3387,21 @@ def _design_once(
     designed as given rather than replaced by a fresh foundation layout.
     """
     from .analysis import diaphragm, takedown
+
+    if opts.housing_column_variant is not None:
+        room_audit = _assess_housing_layout(model, opts.min_span_m)
+        if room_audit["confirmed_room_intrusion_count"]:
+            raise takedown.AnalysisError(
+                "E_HOUSING_ROOM_INTRUSION",
+                "Housing alternatives require columns outside known enclosed room interiors; %d stack(s) remain farther than 0.30 m from a finite architectural wall" % room_audit["confirmed_room_intrusion_count"],
+                room_audit["room_intrusion_column_ids"],
+            )
+        if room_audit["off_wall_column_count"]:
+            raise takedown.AnalysisError(
+                "E_HOUSING_COLUMN_OFF_WALL",
+                "Housing alternatives require every column center within 0.30 m of a finite architectural wall on its own storey; %d column(s) remain off wall" % room_audit["off_wall_column_count"],
+                room_audit["off_wall_column_ids"],
+            )
 
     ledger = {} if opts.analysis_mode == "gravity_only" else _gravity_ledger(model, opts)
     loadmodel, seismic, wind, lateral_cases = _build_loads(model, opts, log, ledger)
@@ -3690,6 +3808,7 @@ def run_design(payload: Any, **options: Any) -> Dict[str, Any]:
             return _error_envelope(error.message, code=error.code, details=error.details)
         except Exception as error:  # a stage that cannot run says so, in the envelope
             entry = _pipeline_failure(model, source, request, opts, ref, error)
+        _finish_housing_layout(entry, model, opts)
         if entry["status"] == R.STATUS_REFUSED:
             status = "ERROR"
         failures += int(entry.get("design", {}).get("failed_count", 0))
@@ -3761,6 +3880,65 @@ def _pipeline_failure(
     return entry
 
 
+def _housing_design_pass(
+    model: StructuralModel,
+    opts: _Resolved,
+    log: DisclosureLog,
+    placement: _Placement,
+    request: Dict[str, Any],
+    referral: bool = False,
+) -> Dict[str, Any]:
+    """Deduplicate exact engineering after final framing and referral repairs.
+
+    Layout pictures are insufficient keys. The internal cache retains all
+    architectural, topological, resolved option and engine context, and only
+    replays pass results and their mutations. Quantities, report, option echo,
+    request hash, selected variant and every response are constructed afresh.
+    Legacy Housing, Building and plan requests bypass reuse entirely.
+    """
+    if opts.housing_column_variant is None:
+        return _design_once(model, opts, log, placement)
+    from .design_reuse import engineering_signature, reuse_design_pass
+
+    key = engineering_signature(
+        model, request, vars(opts), placement.system, placement.valid,
+        structural_fingerprint(), referral=referral,
+    )
+    return reuse_design_pass(
+        key, model, opts, log,
+        lambda pass_log: _design_once(model, opts, pass_log, placement),
+        referral=referral,
+    )
+
+
+def _housing_comparison_reasons(entry: Dict[str, Any], opts: _Resolved) -> List[str]:
+    """Comparison blockers that also invalidate a complete Housing candidate.
+
+    The Housing geometry audit alone does not cover designed footing overlap,
+    quantity sanity or every analysis-topology disclosure. All comparison
+    blockers apply. Explicitly omitting pricing is the sole exception: another
+    column recipe cannot supply an output the caller chose not to compute.
+    """
+    comparison = entry.get("comparison_validity", {})
+    comparison_reasons = set(comparison.get("reasons", ()))
+    intentionally_unpriced = not opts.include_boq and comparison_reasons == {"cost_not_computed"}
+    if not opts.include_boq:
+        comparison_reasons.discard("cost_not_computed")
+    if (not comparison.get("feasible_for_ranking") or not comparison.get("valid_for_relative_cost_comparison")) and not comparison_reasons and not intentionally_unpriced:
+        comparison_reasons.add("comparison_checks_incomplete")
+    return sorted(comparison_reasons)
+
+
+def _housing_attempt_reasons(entry: Dict[str, Any], opts: _Resolved) -> List[str]:
+    """Full candidate gate, including foundation topology and quantity checks."""
+    housing = entry.get("housing_layout", {})
+    reasons = set(housing.get("reasons", ()))
+    if not housing.get("eligible") and not reasons:
+        reasons.add("housing_assessment_incomplete")
+    reasons.update(_housing_comparison_reasons(entry, opts))
+    return sorted(reasons)
+
+
 def _design_one(
     model: StructuralModel,
     source: str,
@@ -3768,12 +3946,103 @@ def _design_one(
     opts: _Resolved,
     ref: str,
 ) -> Dict[str, Any]:
+    """One selected candidate, plus one checked legacy seed only if it fails.
+
+    Placement preflight cannot establish member design or clear referrals.
+    Housing therefore has at most TWO candidate attempts, each retaining the
+    existing one referral re-pass: at most FOUR expensive passes before reuse.
+    No alternate can overwrite a successful initial result. A failed fallback
+    leaves the initial refusal available with both attempt records.
+    """
+    if opts.housing_column_variant is None:
+        return _design_one_attempt(model, source, request, opts, ref)
+    import copy
+    from .adapters._geom import AdapterError
+
+    pristine_model, pristine_opts = copy.deepcopy(model), copy.deepcopy(opts)
+
+    def attempt(current_model, current_opts, recipe=None):
+        try:
+            entry = _design_one_attempt(current_model, source, request, current_opts, ref, recipe)
+        except (StructuralValidationError, AdapterError):
+            raise
+        except Exception as error:
+            entry = _pipeline_failure(current_model, source, request, current_opts, ref, error)
+        _finish_housing_layout(entry, current_model, current_opts)
+        return entry
+
+    first = attempt(model, opts)
+    first_reasons = _housing_attempt_reasons(first, opts)
+    attempts = [{"kind": "selected_search", "eligible": not first_reasons,
+                 "geometry_fingerprint": first["housing_layout"]["geometry_fingerprint"],
+                 "reasons": first_reasons}]
+    selected, fallback_used = first, False
+    if first_reasons:
+        initial_search = copy.deepcopy(model.meta.get("frame_placement", {}).get("metrics", {}).get("housing_search", {}))
+        recipe = {"seed": opts.housing_column_variant, "removed": [], "added": [],
+                  "operation": "legacy_seed_fallback", "search": initial_search}
+        fallback = attempt(pristine_model, pristine_opts, recipe)
+        fallback_reasons = _housing_attempt_reasons(fallback, pristine_opts)
+        attempts.append({"kind": "legacy_seed_fallback", "eligible": not fallback_reasons,
+                         "geometry_fingerprint": fallback["housing_layout"]["geometry_fingerprint"],
+                         "reasons": fallback_reasons})
+        if not fallback_reasons:
+            selected, fallback_used = fallback, True
+            vars(model).clear()
+            vars(model).update(vars(pristine_model))
+            vars(opts).clear()
+            vars(opts).update(vars(pristine_opts))
+    search = model.meta.setdefault("frame_placement", {}).setdefault("metrics", {}).setdefault("housing_search", {})
+    search.update(
+        full_design_candidate_attempt_count=len(attempts), full_design_candidate_limit=2,
+        full_design_distinct_layout_count=len({row["geometry_fingerprint"] for row in attempts}),
+        full_design_distinct_eligible_layout_count=len({row["geometry_fingerprint"] for row in attempts if row["eligible"]}),
+        expensive_pass_limit_before_reuse=4, checked_legacy_fallback_used=fallback_used,
+        full_design_attempts=attempts,
+        final_geometry_fingerprint=selected["housing_layout"]["geometry_fingerprint"],
+    )
+    # These are existing mirrors of placement metrics, not a second wire
+    # contract. Keep every mirror tied to the actually returned model.
+    for block in (selected.get("layout_score", {}),
+                  selected.get("placement", {}).get("layout_score", {}),
+                  selected.get("report", {}).get("layout_metrics", {}),
+                  selected.get("structural_model", {}).get("meta", {}).get("frame_placement", {})):
+        block.setdefault("metrics", {})["housing_search"] = copy.deepcopy(search)
+    if fallback_used:
+        selected["housing_layout"]["summary"] += " Checked legacy wall-supported seed used after the search candidate failed final design: %s." % ", ".join(attempts[0]["reasons"])
+    elif len(attempts) > 1:
+        selected["housing_layout"]["summary"] += " Both bounded candidate attempts remain ineligible."
+    return selected
+
+
+def _clear_replaced_housing_span_warnings(model: StructuralModel, log: DisclosureLog) -> None:
+    """A repaired Housing frame replaces its old adjacent-column warnings.
+
+    Grid gaps are separate evidence and retain their own disclosures. The
+    replacement FrameResult immediately writes its recomputed final pairs.
+    """
+    def retained(row):
+        return not (row.code == "W_SHORT_SPAN" and row.stage == _frame._STAGE_COLS)
+
+    model.warnings = [row for row in model.warnings if retained(row)]
+    log.entries[:] = [row for row in log.entries if retained(row)]
+
+
+def _design_one_attempt(
+    model: StructuralModel,
+    source: str,
+    request: Dict[str, Any],
+    opts: _Resolved,
+    ref: str,
+    housing_recipe: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """The fixed sequence for one model. Never raises for a modelling refusal."""
     log = DisclosureLog()
     _check_rooms_per_floor(model)
-    placement = _place(model, opts, log)
+    placement = (_place(model, opts, log) if housing_recipe is None
+                 else _place(model, opts, log, housing_recipe=housing_recipe))
 
-    pass_out = _design_once(model, opts, log, placement)
+    pass_out = _housing_design_pass(model, opts, log, placement, request)
     referrals = _referrals(pass_out["design"])
     re_passes = 0
     applied = []  # type: List[Dict[str, Any]]
@@ -3792,6 +4061,8 @@ def _design_one(
             result = _frame.insert_secondary_beams(
                 model, opts.frame_params(placement.system), panel_ids=panels
             )
+            if opts.housing_column_variant is not None:
+                _clear_replaced_housing_span_warnings(model, log)
             result.write_back(model)
             _frame.place_lintels_for_infill(model)
             placement.frame = result
@@ -3817,7 +4088,7 @@ def _design_one(
             )
         if applied:
             re_passes = 1
-            pass_out = _design_once(model, opts, log, placement)
+            pass_out = _housing_design_pass(model, opts, log, placement, request, referral=True)
             referrals = _referrals(pass_out["design"])
 
     outstanding = sorted(
@@ -3844,6 +4115,15 @@ def _design_one(
             )
         )
 
+    if opts.housing_column_variant is not None and placement.frame is not None:
+        search = placement.frame.metrics.get("housing_search")
+        if search is not None:
+            search["objective"] = list(_frame._housing_objective(
+                placement.frame.columns, placement.frame.beams, opts.min_span_m,
+            )[:5])
+            search["objective_stage"] = "final_after_referrals"
+            search["final_geometry_fingerprint"] = _assess_housing_layout(model, opts.min_span_m)["geometry_fingerprint"]
+            placement.layout_score.update(_score_block(placement.frame))
     results = pass_out["design"]
     takedown_result = pass_out["takedown"]
     _audit_designed_foundation_geometry(model, results, log)
@@ -4040,6 +4320,14 @@ def _design_one(
             or any(row.get("code") == "W_PLACEHOLDER_RATES" for row in warnings)
         )
     )
+    if opts.housing_column_variant is not None:
+        housing_audit = _assess_housing_layout(model, opts.min_span_m)
+        if housing_audit["confirmed_room_intrusion_count"]:
+            ranking_reasons.append("housing_room_intrusion")
+        if housing_audit["off_wall_column_count"]:
+            ranking_reasons.append("housing_off_wall_columns")
+        if housing_audit["room_assessment"] != "assessed":
+            ranking_reasons.append("housing_room_assessment_incomplete")
     feasible_for_ranking = not ranking_reasons
     comparison_claim = (
         "eligible for like-for-like comparison among checked candidates; no global optimum is claimed"

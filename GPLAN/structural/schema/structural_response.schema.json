@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://gplan.in/schema/structural_response-1.0.json",
+  "$id": "https://gplan.in/schema/structural_response-1.1.json",
   "title": "GPLAN structural response envelope",
   "description": "The envelope every entry point of GPLAN/structural/api.py returns: run_options, run_layout, run_design and run_check, refusals included. Frozen contract 6 of CRITIC_RESOLUTIONS.md. Geometry is FEET y-down, section dimensions are millimetres, engineering quantities are SI, and every numeric key carries its unit suffix. Clients must tolerate unknown fields: an additive field is a minor bump, a rename or a unit change is a major one. SIZE REGIME (`output.detail`, default `compact`): a design response ships at one of two levels and BOTH validate against this document. `compact` elides the bulk -- a passing member's check rows, notes, bars and stirrups, the per-element load and analysis rows, the per-bar schedule, the per-element concrete volumes, the element cards -- and keeps the disclaimer, every disclosure, the layout metrics, the whole BOQ and the section, reinforcement, status, utilization and governing check of every designed element. A BLOCKED or FAILED element keeps its whole design result at both levels. Eliding is never silent: an elided block keeps its type and gains `<key>_total`, `<key>_elided`, `<key>_ref` and `<key>_elided_reason` siblings, and `entry.detail` names the level and where the policy is published (`run_options().detail.policy`).",
   "type": "object",
@@ -114,6 +114,7 @@
         "detail": {"$ref": "#/$defs/detail"},
         "placement": {"$ref": "#/$defs/placement"},
         "layout_score": {"$ref": "#/$defs/layout_score"},
+        "housing_layout": {"$ref": "#/$defs/housing_layout"},
         "structural_model": {"$ref": "#/$defs/structural_model"},
         "analysis": {"$ref": "#/$defs/analysis"},
         "design": {"$ref": "#/$defs/design"},
@@ -179,6 +180,7 @@
             "system": {"type": "string"},
             "seismic_zone": {"enum": ["II", "III", "IV", "V"]},
             "frame_ductility": {"enum": ["OMRF", "SMRF"]},
+            "housing_column_variant": {"enum": ["balanced", "toward_start", "toward_end"]},
             "soil": {"$ref": "#/$defs/soil"},
             "spans": {
               "type": "object",
@@ -278,6 +280,43 @@
       }
     },
 
+    "housing_layout": {
+      "description": "Opt-in Housing Structure alternatives for one to three total storeys. Candidate eligibility follows final finite-wall alignment, room and full-design checks; cost eligibility remains comparison_validity.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["variant", "geometry_fingerprint", "column_stack_count", "off_wall_column_count", "off_wall_column_ids", "close_pair_count", "close_pair_deficit_m", "room_intrusion_count", "room_assessment", "physical_max_span_m", "requested_max_span_m", "eligible", "reasons", "summary"],
+      "properties": {
+        "variant": {"enum": ["balanced", "toward_start", "toward_end"]},
+        "geometry_fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "column_stack_count": {"type": "integer", "minimum": 0},
+        "off_wall_column_count": {"type": "integer", "minimum": 0, "description": "Final per-storey column instances farther than 0.30 m from every finite eligible wall on their own storey, regardless of room occupancy."},
+        "off_wall_column_ids": {"type": "array", "items": {"type": "string"}},
+        "closest_column_centres_m": {"type": ["number", "null"], "minimum": 0},
+        "close_pair_count": {"type": "integer", "minimum": 0},
+        "close_pair_deficit_m": {"type": "number", "minimum": 0},
+        "close_pair_basis": {"type": "string"},
+        "room_intrusion_count": {"type": ["integer", "null"], "minimum": 0},
+        "confirmed_room_intrusion_count": {"type": "integer", "minimum": 0},
+        "room_intrusion_column_ids": {"type": "array", "items": {"type": "string"}},
+        "room_assessment": {"enum": ["assessed", "partial", "unassessed"]},
+        "assessed_column_count": {"type": "integer", "minimum": 0},
+        "unassessed_column_ids": {"type": "array", "items": {"type": "string"}},
+        "unassessed_storeys": {"type": "array", "items": {"type": "integer"}},
+        "wall_alignment_tolerance_m": {"const": 0.3},
+        "physical_max_span_m": {"type": ["number", "null"], "minimum": 0},
+        "requested_max_span_m": {"type": "number", "exclusiveMinimum": 0},
+        "eligible": {"type": "boolean"},
+        "reasons": {"type": "array", "items": {"type": "string"}},
+        "summary": {"type": "string"},
+        "axis_adjustments": {
+          "type": "array",
+          "items": {
+            "type": "object", "required": ["axis", "id", "from_m", "to_m"],
+            "properties": {"axis": {"enum": ["x", "y"]}, "id": {"type": "string"}, "from_m": {"type": "number"}, "to_m": {"type": "number"}}
+          }
+        }
+      }
+    },
     "placement": {
       "type": "object",
       "required": ["system"],
