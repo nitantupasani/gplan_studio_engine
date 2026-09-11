@@ -41,7 +41,7 @@ UNASSESSED = (
     ("fire_safety", "Fire resistance, compartmentation and escape certification are not assessed."),
     ("daylight_ventilation", "Window contact is checked; daylight and ventilation performance are not assessed."),
     ("accessibility", "Concept circulation is checked; accessibility certification is not assessed."),
-    ("vehicle_manoeuvring", "Only a straight on-plot vehicle approach is checked; turning, reversing and public-road access are not assessed."),
+    ("vehicle_manoeuvring", "Only a clear on-plot vehicle access envelope is checked; turning, reversing and public-road access are not assessed."),
     ("nen_area_measurement", "Polygon and roof-height areas are concept estimates, not certified NEN usable area."),
     ("stair_construction", "Concept stair envelopes are checked; detailed structure, balustrades and fabrication are not assessed."),
     ("plumbing_design", "A shared wet-service reservation is checked; pipe sizing, falls and plumbing design are not assessed."),
@@ -490,8 +490,13 @@ def _validate_site(option: Mapping, request: Mapping, profile: Mapping, report: 
         front_horizontal = abs(a[1] - b[1]) <= GEOMETRY_EPS_MM
         x0, y0, x1, y1 = bay.bounds
         along, normal = (x1 - x0, y1 - y0) if front_horizontal else (y1 - y0, x1 - x0)
-        report.check(identifier + ".fit", along >= bay_width and normal >= bay_depth,
-                     "A parked car must fit a bay aligned with the checked straight approach.",
+        orientation = space.get("orientation", "perpendicular")
+        report.check(identifier + ".orientation", isinstance(orientation, str) and orientation in {"perpendicular", "parallel"},
+                     "The parking bay must declare a supported orientation relative to the frontage.")
+        parallel = orientation == "parallel"
+        minimum_along, minimum_normal = (bay_depth, bay_width) if parallel else (bay_width, bay_depth)
+        report.check(identifier + ".fit", along >= minimum_along and normal >= minimum_normal,
+                     "A parked car must fit the full bay dimensions in its declared frontage orientation.",
                      width_mm=along, depth_mm=normal)
         car = report.polygon(space["car_polygon"], identifier + ".car") if "car_polygon" in space else bay
         if car is not None:
@@ -506,11 +511,19 @@ def _validate_site(option: Mapping, request: Mapping, profile: Mapping, report: 
             approach = box(centre.x - half, min(a[1], y0), centre.x + half, max(a[1], y1))
         else:
             approach = box(min(a[0], x0), centre.y - half, max(a[0], x1), centre.y + half)
-        report.check(identifier + ".straight_vehicle_approach",
+        # Parallel parking reserves the full frontage-to-bay envelope. This
+        # establishes clear access land, not a swept turning manoeuvre or an
+        # assertion that the car can move sideways into the bay.
+        report.check(identifier + (".frontage_vehicle_access" if parallel else ".straight_vehicle_approach"),
                      _covered(plot, approach) and _covered(vehicle_geometry, approach) and
                      approach.intersection(footprint).area <= AREA_EPS_MM2 and
                      approach.intersection(front).length + GEOMETRY_EPS_MM >= approach_width,
-                     "A continuous straight vehicle envelope must connect the chosen frontage to the bay.")
+                     "A continuous clear vehicle envelope must connect the chosen frontage to the bay.")
+        if parallel:
+            report.check(identifier + ".access_status",
+                         site.get("parking_access_status") == "frontage_access_envelope_reserved"
+                         and site.get("vehicle_manoeuvring_status") == "not_assessed",
+                         "Parallel bay access must be described as a reserved envelope with vehicle manoeuvring unassessed.")
     paths = [geometry for _, role, geometry in parsed if role == "pedestrian_access"]
     report.check("site.pedestrian_path", bool(paths),
                  "An independent pedestrian route must be explicitly provided.")

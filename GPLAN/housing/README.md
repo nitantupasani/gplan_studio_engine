@@ -5,7 +5,8 @@ containing only complete independently validated houses. An optional
 `callback.is_cancelled()` is checked between solves and before publication.
 
 The supported initial scope is a single axis-aligned rectangular detached plot,
-one perpendicular bay or a bay with straight front access beside the house,
+one perpendicular bay, a bay with straight front access beside the house, or
+a 5200 by 2600 mm bay parallel to the frontage,
 ground plus one/two full floors and a gable attic. A complete house has a shared
 corner U-return stair, actual circulation doors, aligned sanitary service space,
 separate outdoor geometry, and roof-derived occupied/storage zones. Required
@@ -62,6 +63,12 @@ wall to 1500 mm and the gable pitch to 45 degrees. Headroom deducts at least the
 renderer roof's 106.68 mm normal thickness projected vertically. Parking access
 reserves a straight approach; turning manoeuvres, road permission, fire,
 structure, daylight calculations and NEN area measurement remain unassessed.
+Parallel frontage parking reserves a 2800 mm forecourt and a clear envelope
+from the frontage to the bay, plus an independent pedestrian path around the
+represented parked car. Bay dimensions rotate with the requested frontage.
+This checks reserved access land; it does not establish a feasible turning or
+parallel-parking manoeuvre. Existing perpendicular/side alternatives are searched
+first, preserving the existing catalogue order where those alternatives fit.
 
 When five distinct complete houses do not fit the programme, site and search
 budget, the catalogue contains fewer with counted rejection reasons. Complete

@@ -72,10 +72,12 @@ def enumerate_site_envelopes(request):
     # solve or a bounded candidate slot; all surviving floors still solve.
     minimum_width=5600+2*walls["exterior_mm"]+2*walls["interior_mm"]
     minimum_depth=7450+2*walls["exterior_mm"]+2*walls["interior_mm"]
-    parking_modes=["perpendicular","front_access_side"] if request["parking"]["cars"] else ["none"]
+    # Preserve the existing catalogue order; frontage-parallel parking is a
+    # further supported choice when front-depth/side-width reservations fail.
+    parking_modes=["perpendicular","front_access_side","parallel"] if request["parking"]["cars"] else ["none"]
     candidates=[]
     for parking_mode in parking_modes:
-        forecourt=max(s["front_mm"],5200 if parking_mode=="perpendicular" else 1100)
+        forecourt=max(s["front_mm"],5200 if parking_mode=="perpendicular" else 2800 if parking_mode=="parallel" else 1100)
         side_reserve=3000 if parking_mode=="front_access_side" else 0
         available_w=pw-2*s["side_mm"]-side_reserve
         available_d=pd-forecourt-s["rear_mm"]
@@ -124,7 +126,7 @@ def _build_site(candidate, ground_floor, request, mirror):
     spaces=[]
     if request["parking"]["cars"]:
         parallel=candidate["parking_mode"]=="parallel"
-        bw,bd=(5000,2500) if parallel else (2500,5000)
+        bw,bd=(5200,2600) if parallel else (2500,5000)
         bx=300 if mirror else pw-300-bw
         bay=box(bx,100,bx+bw,100+bd)
         car=box(bx+150,400,bx+bw-150,100+bd-300) if parallel else box(bx+300,250,bx+bw-300,100+bd-150)
@@ -160,7 +162,7 @@ def _build_site(candidate, ground_floor, request, mirror):
     return {"plot_polygon":deepcopy(request["plot"]["polygon"]),
             "footprint":[_point_to_world(p,frame) for p in polygon_points(footprint)],
             "front_boundary":deepcopy(frame["front"]),"entrance_point":world_entrance,"entry":_point_to_world([local_entrance[0],0],frame),"spaces":spaces,
-            "parking_access_status":"straight_clear_approach_reserved" if request["parking"]["cars"] else "not_requested",
+            "parking_access_status":("frontage_access_envelope_reserved" if candidate["parking_mode"]=="parallel" else "straight_clear_approach_reserved") if request["parking"]["cars"] else "not_requested",
             "vehicle_manoeuvring_status":"not_assessed","pedestrian_clear_width_mm":1100}
 
 
@@ -320,7 +322,7 @@ def solve_house_candidate(candidate,request,profile,mode,mirror,variant,first_be
     option["ranking"]={"score":round(sum(scores.values()),3),"components":scores}
     option["differences"]={"parking":candidate["parking_mode"],"stair_side":"right" if mirror else "left","ground_layout":variant,"first_floor_bedrooms":first_bedrooms,"regular_storeys":regular,"footprint_mm":[candidate["width"],candidate["depth"]]}
     option["title"]=f"{bedrooms} bedrooms · {'G+1' if regular==2 else 'G+2'} + attic · {('garden kitchen' if variant=='living_front' else 'garden living')}"
-    parking_description={"front_access_side":"Front-access side parking","perpendicular":"Perpendicular front parking","none":"No parking requested"}[candidate["parking_mode"]]
+    parking_description={"front_access_side":"Front-access side parking","perpendicular":"Perpendicular front parking","parallel":"Parallel front parking; vehicle manoeuvring unassessed","none":"No parking requested"}[candidate["parking_mode"]]
     option["description"]=f"{parking_description}; {('right' if mirror else 'left')} stair and wet-service stack; {garden_area:.1f} m² rear garden."
     option["provenance"]={"engine":"GPLAN","engine_version":ENGINE_VERSION,"programme_profile":profile["id"],"programme_hash":profile_fingerprint(profile),"seed":request["search"]["seed"],
         "solver":SOLVER_NAME,"topology_source":"versioned NL concept contact templates","units":"mm","solver_units":"fractional_ft","solver_grid_mm":1,"grid_scope":"physical_partition_and_opening_geometry","derived_coordinate_precision":"fractional_mm_finished_faces_and_roof_zones","generation_source":"engine","hard_constraints_relaxed":False}
