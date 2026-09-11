@@ -50,6 +50,8 @@ from GPLAN.api import Documents, FLOORPLAN_LIMIT
 from GPLAN.source.inputgraph import InputGraph
 
 app = Flask(__name__)
+from commercial_bridge import register_commercial_routes
+register_commercial_routes(app)
 
 BRIDGE_HOST = "127.0.0.1"
 BRIDGE_PORT = 8027
@@ -108,6 +110,11 @@ def local_bridge_health():
         capabilities.append("house_concepts_v1")
         body["engine_fingerprint"] = _house_engine_fingerprint()
     except Exception:
+        pass
+    try:
+        from GPLAN.commercial import estimate_commercial_fit
+        capabilities.append("commercial_office_v1")
+    except ImportError:
         pass
     return jsonify(body)
 
