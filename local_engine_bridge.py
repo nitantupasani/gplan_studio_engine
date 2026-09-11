@@ -37,6 +37,11 @@ import base64
 import socket
 import threading
 import traceback
+import hashlib
+from functools import lru_cache
+from pathlib import Path
+
+from werkzeug.exceptions import BadRequest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -49,6 +54,7 @@ app = Flask(__name__)
 BRIDGE_HOST = "127.0.0.1"
 BRIDGE_PORT = 8027
 BRIDGE_CAPABILITIES = [
+    "circulation_v1",
     "fixed_rooms_v1",
     "fixed_anchor_sw",
     "structural_layout_v1",
@@ -62,12 +68,103 @@ _results_lock = threading.Lock()
 # the Flask request thread to return a task id immediately.
 _generation_executor = concurrent.futures.ThreadPoolExecutor(
     max_workers=1, thread_name_prefix="gplan-generation")
+_house_jobs = {}
+_house_cache = {}
+
+
+def _house_engine():
+    from GPLAN.housing.schema import normalize_request
+    from GPLAN.housing import concepts  # noqa: F401
+
+    if not callable(getattr(Documents, "get_house_concepts", None)):
+        raise ImportError("This engine does not support house_concepts_v1")
+    return Documents.get_house_concepts, normalize_request
+
+
+@lru_cache(maxsize=1)
+def _house_engine_fingerprint():
+    """Include programme data in addition to the engine code in house caches."""
+    import GPLAN.api as api
+
+    root = Path(api.__file__).resolve().parent
+    digest = hashlib.sha256()
+    for path in sorted(root.rglob("*")):
+        if (path.is_file() and "__pycache__" not in path.parts
+                and path.suffix.lower() in {".py", ".json", ".yaml", ".yml"}):
+            digest.update(path.relative_to(root).as_posix().encode())
+            digest.update(path.read_bytes())
+    return digest.hexdigest()[:24]
 
 
 @app.get("/api/local-bridge/health/")
+@app.get("/api/capabilities/")
+@app.get("/api/capabilities")
 def local_bridge_health():
     """Compatibility probe used by the designer before selecting this bridge."""
-    return jsonify({"status": "ok", "capabilities": BRIDGE_CAPABILITIES})
+    capabilities = list(BRIDGE_CAPABILITIES)
+    body = {"status": "ok", "capabilities": capabilities}
+    try:
+        _house_engine()
+        capabilities.append("house_concepts_v1")
+        body["engine_fingerprint"] = _house_engine_fingerprint()
+    except Exception:
+        pass
+    return jsonify(body)
+
+
+def _circulation_response(operation):
+    from GPLAN.circulation_engine.http import MAX_BODY_BYTES, dispatch, error_response
+    if operation == "options":
+        body, code = dispatch(operation)
+        return jsonify(body), code
+    if (request.content_length or 0) > MAX_BODY_BYTES:
+        body, code = error_response("body_too_large", "Circulation accepts at most 1 MB per request.", 413)
+        return jsonify(body), code
+    from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
+    try:
+        # A terminated/chunked WSGI stream can have no Content-Length. Read
+        # only the limit plus one sentinel byte instead of caching it all.
+        raw = request.stream.read(MAX_BODY_BYTES + 1)
+    except RequestEntityTooLarge:
+        body, code = error_response("body_too_large", "Circulation accepts at most 1 MB per request.", 413)
+        return jsonify(body), code
+    except BadRequest:
+        body, code = error_response("invalid_json", "Send a JSON request body.", 400)
+        return jsonify(body), code
+    if len(raw) > MAX_BODY_BYTES:
+        body, code = error_response("body_too_large", "Circulation accepts at most 1 MB per request.", 413)
+        return jsonify(body), code
+    try:
+        if not request.is_json:
+            raise ValueError("JSON content type required")
+        payload = json.loads(raw)
+    except (ValueError, UnicodeDecodeError, RecursionError):
+        body, code = error_response("invalid_json", "Send a JSON request body.", 400)
+        return jsonify(body), code
+    try:
+        body, code = dispatch(operation, payload)
+    except Exception:
+        app.logger.exception("Circulation operation failed")
+        body, code = error_response("internal_error", "Circulation could not complete this request.", 500)
+    return jsonify(body), code
+
+
+@app.get("/api/circulation/options/")
+@app.get("/api/circulation/options")
+def circulation_options():
+    return _circulation_response("options")
+
+
+@app.post("/api/circulation/generate/")
+@app.post("/api/circulation/generate")
+def circulation_generate():
+    return _circulation_response("generate")
+
+
+@app.post("/api/circulation/validate/")
+@app.post("/api/circulation/validate")
+def circulation_validate():
+    return _circulation_response("validate")
 
 
 def _fake_jwt():
@@ -404,6 +501,173 @@ def generate_multi_ptpg():
     with _results_lock:
         _results[task_id] = result
     return jsonify({"task_id": task_id, "status": "started"}), 202
+
+
+def _house_owner():
+    header = request.headers.get("Authorization", "").strip()
+    identity = "credential:%s" % header if header else "ip:%s" % (request.remote_addr or "")
+    return hashlib.sha256(identity.encode()).hexdigest()
+
+
+def _house_catalogue(value, require_options=False):
+    """Keep the bridge's progress/terminal gate identical to the Django task."""
+    catalogue = json.loads(json.dumps(value, allow_nan=False))
+    if (not isinstance(catalogue, dict)
+            or catalogue.get("schema_version") != "house_concepts_v1"):
+        raise ValueError("Invalid house catalogue schema_version")
+    if catalogue.get("units") != "mm":
+        raise ValueError("House catalogue geometry must use millimetres")
+    options = catalogue.get("options")
+    if not isinstance(options, list) or (require_options and not options):
+        raise ValueError("House catalogue must contain complete validated options")
+    for option in options:
+        if not isinstance(option, dict):
+            raise ValueError("Invalid house option")
+        validation = option.get("validation")
+        floors = option.get("floors")
+        if (not isinstance(validation, dict) or validation.get("valid") is not True
+                or not isinstance(floors, list) or len(floors) not in (3, 4)
+                or any(not isinstance(floor, dict) or not isinstance(floor.get("rooms"), list) or not floor["rooms"]
+                       for floor in floors)):
+            raise ValueError("House option is incomplete or has not passed validation")
+    return catalogue
+
+
+def _house_envelope(catalogue):
+    catalogue = _house_catalogue(catalogue)
+    count = len(catalogue["options"])
+    return {"message": "%d validated whole-house option%s generated." %
+                       (count, "" if count == 1 else "s"),
+            "response": {"HouseConcepts": catalogue}}
+
+
+def _house_cancelled():
+    return {"status": "CANCELLED", "message": "House generation cancelled.",
+            "error": {"type": "Cancelled", "message": "House generation cancelled."}}
+
+
+def _run_house_generation(task_id, payload, engine):
+    with _results_lock:
+        job = _house_jobs[task_id]
+        cached = _house_cache.get(job["cache_key"])
+    if job["cancel"].is_set():
+        return
+    sequence = 0
+
+    def report(value):
+        nonlocal sequence
+        try:
+            catalogue = _house_catalogue(value, require_options=True)
+            metadata = {
+                "partial": True, "complete": False, "provisional": True,
+                "progress": {"sequence": sequence + 1,
+                             "ready": len(catalogue["options"]),
+                             "requested": payload["requested_options"]},
+                **_house_envelope(catalogue),
+            }
+            with _results_lock:
+                if job["cancel"].is_set():
+                    return
+                _results[task_id] = {"task_id": task_id, "status": "PROGRESS",
+                                     "result": metadata}
+                sequence += 1
+        except Exception:
+            # An observer failure or unfinished stack never fails the solve.
+            return
+
+    report.is_cancelled = job["cancel"].is_set
+    try:
+        result = copy.deepcopy(cached) if cached is not None else _house_envelope(
+            engine(payload, progress_callback=report))
+        result["status"] = "SUCCESS"
+        with _results_lock:
+            if not job["cancel"].is_set():
+                _results[task_id] = result
+                _house_cache[job["cache_key"]] = copy.deepcopy(result)
+    except Exception as exc:
+        traceback.print_exc()
+        with _results_lock:
+            if not job["cancel"].is_set():
+                _results[task_id] = {"status": "FAILURE",
+                                     "error": {"message": str(exc),
+                                               "type": type(exc).__name__}}
+
+
+@app.post("/api/generate/house_concepts")
+@app.post("/api/generate/house_concepts/")
+def generate_house_concepts():
+    """Validate first, then use the same one-worker queue as floor generation."""
+    try:
+        body = request.get_json(force=True)
+    except BadRequest as exc:
+        return jsonify({"status": "error", "data": {},
+                        "error": {"message": str(exc), "type": "ValidationError"}}), 400
+    if not isinstance(body, dict):
+        return jsonify({"status": "error", "data": {},
+                        "error": {"message": "Request body must be a JSON object",
+                                  "type": "ValidationError"}}), 400
+    try:
+        engine, normalize = _house_engine()
+    except Exception:
+        return jsonify({"status": "error", "data": {},
+                        "error": {"message": "This engine does not support house_concepts_v1",
+                                  "type": "CapabilityUnavailable"}}), 503
+    try:
+        payload = json.loads(json.dumps(normalize(body), allow_nan=False))
+    except (ValueError, TypeError, KeyError) as exc:
+        return jsonify({"status": "error", "data": {},
+                        "error": {"message": str(exc), "type": "ValidationError"}}), 400
+    task_id = str(uuid.uuid4())
+    try:
+        owner = _house_owner()
+        cache_data = {"request": payload, "owner": owner,
+                      "engine": _house_engine_fingerprint(), "schema": "house_concepts_v1"}
+        cache_key = hashlib.sha256(json.dumps(cache_data, sort_keys=True,
+                                             allow_nan=False).encode()).hexdigest()
+        with _results_lock:
+            _house_jobs[task_id] = {"owner": owner, "cache_key": cache_key,
+                                    "cancel": threading.Event(), "future": None}
+            cached = _house_cache.get(cache_key)
+            _results[task_id] = copy.deepcopy(cached) if cached is not None else {
+                "task_id": task_id, "status": "PENDING", "result": None}
+        if cached is None:
+            future = _generation_executor.submit(_run_house_generation, task_id, payload, engine)
+            with _results_lock:
+                _house_jobs[task_id]["future"] = future
+        return jsonify({"task_id": task_id, "status": "started"}), 202
+    except Exception:
+        traceback.print_exc()
+        with _results_lock:
+            _house_jobs.pop(task_id, None)
+            _results.pop(task_id, None)
+        return jsonify({"status": "error", "data": {},
+                        "error": {"message": "House generation could not be queued; retry shortly",
+                                  "type": "ServiceUnavailable"}}), 503
+
+
+@app.post("/api/task/<task_id>/cancel/")
+@app.post("/api/task/<task_id>/cancel")
+def cancel_house_task(task_id):
+    with _results_lock:
+        job = _house_jobs.get(task_id)
+        if job is None:
+            return jsonify({"status": "error", "data": {},
+                            "error": {"message": "House task not found", "type": "NotFound"}}), 404
+        if job["owner"] != _house_owner():
+            return jsonify({"status": "error", "data": {},
+                            "error": {"message": "This house task belongs to another caller",
+                                      "type": "PermissionDenied"}}), 403
+        state = (_results.get(task_id) or {}).get("status")
+        if state in {"SUCCESS", "FAILURE", "CANCELLED"}:
+            return jsonify({"task_id": task_id, "status": "complete"})
+        job["cancel"].set()
+        _results[task_id] = _house_cancelled()
+        future = job["future"]
+    if future is not None:
+        # Only queued work can be cancelled this way; running GPLAN is stopped
+        # cooperatively between floor solves, never by interrupting global state.
+        future.cancel()
+    return jsonify({"task_id": task_id, "status": "cancelled"})
 
 
 def _run_floorplan_generation(task_id, shape, kwargs):

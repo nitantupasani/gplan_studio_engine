@@ -2240,6 +2240,16 @@ class _DoorProgressCollector:
 
 
 class Documents:
+    @staticmethod
+    def get_house_concepts(request_data, progress_callback=None):
+        """Generate a versioned catalogue of complete validated house concepts.
+
+        The separate integer-mm contract leaves legacy per-unit APIs unchanged.
+        HTTP/task adapters wrap this result in response.HouseConcepts.
+        """
+        from GPLAN.housing import generate_house_concepts
+        return generate_house_concepts(request_data, progress_callback=progress_callback)
+
     def __init__(self, hasMore, offset, documentID, name, count):
         self.hasMore = hasMore
         self.offset = offset

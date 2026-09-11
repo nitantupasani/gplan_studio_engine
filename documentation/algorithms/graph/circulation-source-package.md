@@ -1,5 +1,11 @@
 # Dossier: `source/` circulation package (`source/circulation/circulation.py`, `source/multiple_circ.py`, `source/path_map.py`)
 
+Update 2026-09-11: these circulation copies remain historical standalone code.
+New existing-plan circulation belongs to the documented
+[`circulation_engine`](../circulation/IMPLEMENTATION.md) registry and service;
+do not add competing API logic to these duplicates. `source/path_map.py` retains
+its unrelated boundary-path dimension selection role.
+
 Scope: the three files under `C:\Users\nitant\Documents\GPLAN_Revamp\GPLAN\GPLAN\source\`. The near-namesake `GPLAN\GPLAN\circulation.py` (repo root of the package) is owned by a sibling task and is NOT documented here beyond recording which module each caller imports.
 
 All line anchors below were read in this session. Paths are absolute unless the file is named in a section header.

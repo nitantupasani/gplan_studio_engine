@@ -816,7 +816,7 @@ class circulation:
             room_obj.rel_push_B = max(room_obj.rel_push_B, 0.5*self.corridor_thickness) # if room_obj.rel_push_B >= 0 else room_obj.rel_push_B
         
         elif(direction == "S" and coordinate == "T"):
-            room_obj.rel_push_T = min(room_obj.rel_push_L, -0.5*self.corridor_thickness) # if room_obj.rel_push_T <= 0 else room_obj.rel_push_T
+            room_obj.rel_push_T = min(room_obj.rel_push_T, -0.5*self.corridor_thickness) # Preserve independent top-edge movement.
 
         elif(direction == "S" and coordinate == "B"):
             room_obj.rel_push_B = min(room_obj.rel_push_B, -0.5*self.corridor_thickness) # if room_obj.rel_push_B <= 0 else room_obj.rel_push_B

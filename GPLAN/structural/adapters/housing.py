@@ -120,11 +120,14 @@ SPACE_OCCUPANCY = {
     "lobby": Occupancy.LOBBY,
     "parking": Occupancy.PARKING,
     "green": Occupancy.GREEN,
+    # "open" = open to sky: the void above a car bay or a yard on an upper
+    # floor (the frontend's site planner labels it, HOUSE_SITE_RULES.md S8).
+    "open": Occupancy.VOID,
     "other": Occupancy.OTHER,
 }
 
 #: Space kinds that are not a building: a stack carrying only these is unbuilt.
-UNBUILT_SPACE_KINDS = ("parking", "green")
+UNBUILT_SPACE_KINDS = ("parking", "green", "open")
 
 #: Room-name tokens -> Occupancy. plan_json.py owns the canonical NAME_KIND
 #: table; this compact private copy keeps housing independent of sibling imports.
@@ -145,6 +148,10 @@ NAME_OCCUPANCY = (
     ("powder", Occupancy.WC),
     ("balcony", Occupancy.BALCONY),
     ("verandah", Occupancy.BALCONY),
+    ("porch", Occupancy.BALCONY),
+    ("sit-out", Occupancy.BALCONY),
+    ("pooja", Occupancy.OTHER),
+    ("puja", Occupancy.OTHER),
     ("corridor", Occupancy.CORRIDOR),
     ("passage", Occupancy.CORRIDOR),
     ("lobby", Occupancy.LOBBY),
@@ -155,6 +162,7 @@ NAME_OCCUPANCY = (
     ("wash", Occupancy.UTILITY),
     ("store", Occupancy.STORAGE),
     ("storage", Occupancy.STORAGE),
+    ("dressing", Occupancy.STORAGE),
     ("parking", Occupancy.PARKING),
     ("garage", Occupancy.PARKING),
     ("garden", Occupancy.GREEN),

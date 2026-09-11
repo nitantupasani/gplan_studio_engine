@@ -353,6 +353,20 @@ No test pins REL or dual output. `test_max_dimensions.py` exercises the path end
 
 ### 3.6 Change corridor or circulation behaviour
 
+**Current existing-plan service (2026-09-11):** start with
+[`circulation/IMPLEMENTATION.md`](circulation/IMPLEMENTATION.md),
+[`circulation/RESEARCH.md`](circulation/RESEARCH.md) and
+[`circulation/CAPABILITIES.md`](circulation/CAPABILITIES.md). Its canonical entry
+point is [`GPLAN.circulation_engine`](../../GPLAN/circulation_engine/__init__.py).
+It retains rectangular boundary shifting, coordinates collinear contacts,
+allocates actual room area under hard constraints, derives explicit wall-free
+gap polygons, and validates connected finite-width access. Its `spanning`,
+`compact`, and precisely scoped `shortest` registry is independent of legacy
+GUI flags. Run `python -m unittest discover -s GPLAN/circulation_engine/tests -v`.
+The historical discussion below describes the retained GUI implementation;
+it is not the owner of the new existing-plan API. The south/top movement typo
+in that legacy implementation was fixed from the paper comparison on 2026-09-11.
+
 Owning dossiers: [circulation graph half](graph/circulation-root-graph.md) (SOUND), [circulation geometry half](graph/circulation-root-geometry.md) (MINOR_ERRORS).
 
 The live implementation is the root [circulation.py](../../GPLAN/circulation.py), imported as `cir` at [handlers.py](../../GPLAN/handlers.py):31. `source/circulation/circulation.py` and `source/multiple_circ.py` have no importer anywhere in the tree, so edits there change nothing ([section 7](#7-dead-code-and-duplications)).
@@ -382,7 +396,7 @@ The live implementation is the root [circulation.py](../../GPLAN/circulation.py)
 
 **Tests to run**
 
-No test pins circulation. None of the three scripts sets `circulationEnabled` ([section 8](#8-verifying-a-change-tests-and-what-they-actually-pin)), and the path is reachable only from the Tk GUI entry point `GPLAN/main.py:40`.
+The legacy scripts still do not set `circulationEnabled` ([section 8](#8-verifying-a-change-tests-and-what-they-actually-pin)); the new independent headless package has production and adversarial suites under `GPLAN/circulation_engine/tests`. Research experiments also execute extracted legacy spanning/pruning methods against both verified team commits and local code; see the implementation and research links above.
 
 ### 3.7 Change the one-connected path or the stacked multiple-door composition
 

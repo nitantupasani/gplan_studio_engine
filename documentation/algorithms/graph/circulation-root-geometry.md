@@ -1,5 +1,12 @@
 # circulation-root-geometry
 
+Update 2026-09-11: this dossier describes the retained legacy GUI geometry path.
+The current existing-plan API is owned by
+[`circulation_engine`](../circulation/IMPLEMENTATION.md), which retains boundary
+shifting with coordinated offsets and explicit validated wall-free gap surfaces.
+The legacy southward top-edge typo described below was corrected to read
+`rel_push_T` independently; older line-specific defect notes are historical.
+
 Scope: the geometry half of `C:\Users\nitant\Documents\GPLAN_Revamp\GPLAN\GPLAN\circulation.py`.
 Covered: `Point`, `Edge`, `Room`, `RFP`, `adjust_RFP_to_circulation`, `add_corridor_between_2_rooms`,
 `find_common_edges`, `find_common_neighbors`, `calculate_edge_move`, `push_edges`,

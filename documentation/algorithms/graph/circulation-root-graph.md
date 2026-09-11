@@ -1,5 +1,12 @@
 # circulation-root-graph
 
+Update 2026-09-11: this dossier describes the retained legacy GUI graph path.
+The current existing-plan service is owned by
+[`circulation_engine`](../circulation/IMPLEMENTATION.md). Its connected pruning
+and finite-width/access validation replace coverage-only pruning for new APIs.
+The [research experiments](../circulation/RESEARCH.md) reproduce disconnected
+legacy pruning using actual methods from local and both verified team commits.
+
 Graph-algorithm half of `C:\Users\nitant\Documents\GPLAN_Revamp\GPLAN\GPLAN\circulation.py`.
 Scope: `circulation.__init__` (line 52) through `remove_redundant_corridors` (line 384), plus module-level helpers at lines 894 to 975.
 Out of scope (sibling dossier `circulation-root-geometry`): `Point`/`Edge`/`Room`/`RFP` (lines 14 to 46), `adjust_RFP_to_circulation` and everything from line 446 to 892, and `main()` (line 978).
