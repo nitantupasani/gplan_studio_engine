@@ -1,9 +1,9 @@
 """Check individual room fit against empty reserved floors before searching."""
 
-from .models import EPS, authorized_floors
+from .models import authorized_floors
 from .program import compile_program, estimate, estimated_area
 from .generation import start_floor
-from .templates import PARTITION, fit_template
+from .room_fit import fits_slot, room_fit_issue
 
 
 def preflight(brief):
@@ -27,16 +27,8 @@ def preflight(brief):
         seen.add(room["requirement_id"])
         eligible = room.get("allowed_floors") or list(slots)
         available = [slot for index in eligible for slot in slots.get(index, [])]
-        fits = False
-        for slot in available:
-            template = fit_template(room, slot["width"], False)
-            if template and slot["y"] + template["depth"] + PARTITION <= slot["end"] + EPS:
-                fits = True
-                break
-        if not fits:
-            issues.append({"code": "room_fit_deficit", "requirement_id": room["requirement_id"],
-                           "label": room["name"], "required_capacity": room["required_capacity"],
-                           "detail": f"{room['name']}: the requested size or capacity will not fit on an eligible floor."})
+        if not any(fits_slot(room, slot) for slot in available):
+            issues.append(room_fit_issue(room, available))
     ground_rooms = [room for room in rooms if room.get("allowed_floors") == [0]]
     ground_area = sum(estimated_area(room) for room in ground_rooms)
     if ground_area > result["buildable_area_m2"] * .7:

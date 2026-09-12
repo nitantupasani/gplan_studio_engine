@@ -281,12 +281,12 @@
     },
 
     "housing_layout": {
-      "description": "Opt-in Housing Structure alternatives for one to three total storeys. Candidate eligibility follows final finite-wall alignment, room and full-design checks; cost eligibility remains comparison_validity.",
+      "description": "Housing wall-only alternatives and explicit support-grid remedies. All require room assessment and full-design checks; finite-wall alignment and zero room intrusion additionally apply to wall-only variants. Cost eligibility remains comparison_validity.",
       "type": "object",
       "additionalProperties": true,
       "required": ["variant", "geometry_fingerprint", "column_stack_count", "off_wall_column_count", "off_wall_column_ids", "close_pair_count", "close_pair_deficit_m", "room_intrusion_count", "room_assessment", "physical_max_span_m", "requested_max_span_m", "eligible", "reasons", "summary"],
       "properties": {
-        "variant": {"enum": ["balanced", "toward_start", "toward_end"]},
+        "variant": {"enum": ["balanced", "toward_start", "toward_end", "support_grid"]},
         "geometry_fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
         "column_stack_count": {"type": "integer", "minimum": 0},
         "off_wall_column_count": {"type": "integer", "minimum": 0, "description": "Final per-storey column instances farther than 0.30 m from every finite eligible wall on their own storey, regardless of room occupancy."},

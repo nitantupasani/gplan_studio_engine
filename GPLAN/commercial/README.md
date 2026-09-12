@@ -151,3 +151,22 @@ programme-adjustment call retains its 30-second total, reserving 6 seconds for
 fit-out. Both honour an earlier caller deadline and retain the checked base plan
 when optional allocation cannot complete. These allowances are exposed by
 `options().search` and returned search metadata.
+
+### Measured room advice
+
+`preflight_issues` and room-fit diagnostics include stable `requirement_id`,
+`label`, `scope` and optional `suggested_values`. `room_fit.py` uses the existing
+furniture templates to find a capacity and area combination that fits the checked
+slots. `individual_room` refers to empty floors after core/circulation reservations;
+`remaining_slots` refers to space left during that specific packing attempt and
+returns `room_placement_conflict` without numeric suggestions. A tail left by one
+ordering cannot establish a maximum for the user's room. Failed route checks from
+smaller-programme attempts are retained with `modified_programme_attempt` scope.
+These are not whole-building feasibility or global-maximum claims. Locked rooms
+and sanitary provision never receive reduction suggestions. Tests check the
+suggested seat boundary, coupled area changes and absence of fake numeric advice
+when even the minimum furniture module is too wide.
+
+The frontend's `public/commercial-sources.xlsx` records the profile's source
+ledger, supporting official guidance and unimplemented standards, and the numeric
+planning assumptions separately. It is linked from File and Checks.

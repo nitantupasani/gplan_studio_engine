@@ -51,6 +51,22 @@ def test_original_three_bedroom_front_parking_brief_keeps_all_hard_room_constrai
         assert walk.distance(bay_shape) == 0
 
 
+def test_display_parcels_do_not_reconstruct_invisible_access_boundaries(catalogue):
+    for option in catalogue["options"]:
+        site = option["site"]
+        visible = [space for space in site["spaces"] if space.get("render") is not False]
+        physical = [site["plot_polygon"], site["footprint"], *[
+            space["polygon"] for space in visible if space["role"] != "forecourt"]]
+        xs = {point[0] for polygon in physical for point in polygon}
+        ys = {point[1] for polygon in physical for point in polygon}
+        for space in visible:
+            assert all(x in xs and y in ys for x, y in space["polygon"]), space["id"]
+        assert Polygon(site["plot_polygon"]).difference(unary_union([
+            Polygon(site["footprint"]), *[Polygon(space["polygon"]) for space in visible]
+        ])).area < 1
+        assert any(space["role"] == "vehicle_access" and space["render"] is False for space in site["spaces"])
+
+
 @pytest.mark.parametrize("front", [1, 2, 3])
 def test_parallel_bay_rotates_with_requested_frontage(front):
     raw = request(front)

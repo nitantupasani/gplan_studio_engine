@@ -2303,6 +2303,7 @@ class _Framer:
         the bearing point to a column stack (full B1 checks and the merge
         floor). Only when all three fail does E_FRAMING_DEPTH stand.
         """
+        self._refresh_end_supports(beams)
         self._recompute_chains(beams)
         for _pass in range(4):
             offenders = sorted(
@@ -2332,6 +2333,7 @@ class _Framer:
                     stage=_STAGE_BEAMS,
                 )
                 beam.chain = 2  # stop re-reporting the same member
+            self._refresh_end_supports(beams)
             self._recompute_chains(beams)
         # anything still deep after the pass budget is disclosed as an error
         for beam in beams:
@@ -2443,6 +2445,24 @@ class _Framer:
             beam.supports = (supports[0], supports[1])
             return True
         return False
+
+    def _refresh_end_supports(self, beams: Sequence[_PBeam]) -> None:
+        """Resolve endpoints against the complete level, not insertion order.
+
+        Slab feedback can append a receiving beam after its dependent beam.
+        Keeping the dependent's earlier ``free`` tag hides its actual bearing
+        depth from the repair ladder. Fill unassigned feedback ends after
+        assembly and repairs; preserve bearings resolved by the separate
+        wall/core placement routines (including offset/joint-zone stations).
+        This is connectivity bookkeeping, not a successful analysis claim.
+        """
+        for beam in beams:
+            if beam.kind in self._FIXED_KINDS or not beam.note.startswith("slab_feedback"):
+                continue
+            beam.supports = tuple(
+                self._end_support_tag(beam, end, beams) if tag == "free" else tag
+                for end, tag in zip((beam.lo_mm, beam.hi_mm), beam.supports)
+            )
 
     def _end_support_tag(self, beam: _PBeam, end_mm: int, beams: Sequence[_PBeam]) -> str:
         """What a beam end lands on: a column, a crossing beam, or nothing."""
@@ -3736,6 +3756,19 @@ class FrameResult:
     def axes(self) -> List[Axis]:
         return self.grid.axes()
 
+    def beam_supports(self) -> List[Dict[str, Any]]:
+        """Endpoint roles for the drawing; placement facts, not design verdicts."""
+        return [
+            {
+                "id": beam.id,
+                "storey": int(beam.storey),
+                "level": beam.level_key,
+                "ends": list(beam.supports),
+                "chain": int(beam.chain),
+            }
+            for beam in sorted(self.beams, key=lambda member: member.id)
+        ]
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "axes": {
@@ -3883,6 +3916,9 @@ class FrameResult:
             "shaft_walls": [w.to_dict() for w in self.shaft_walls],
             "stair_slabs": [s.to_dict() for s in self.stair_slabs],
             "core_notes": list(self.core_notes),
+            # Retain this when analysis stops: the partial model still draws
+            # these beams and must not lose the meaning of their endpoints.
+            "beam_supports": self.beam_supports(),
         }
         merged = model.disclosure_log()
         merged.extend(self.log.entries)

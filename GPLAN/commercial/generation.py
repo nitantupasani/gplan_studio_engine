@@ -338,10 +338,9 @@ def pack_candidate(brief, floor_count, offset=.5, ordering=0, spacious=False, co
                     score = (0 if b == 1 else 1, index, slot["y"], b)
                 fits.append((score, index, b, template))
         if not fits:
-            return None, {"code": "room_fit_deficit", "requirement_id": room["requirement_id"],
-                          "detail": f"{room['name']} retains {room['required_capacity']} required places and its clear-area minimum; this configuration has no fitting strip.",
-                          "floor_count": floor_count, "required_capacity": room["required_capacity"],
-                          "minimum_area_m2": room["min_area_m2"]}
+            from .room_fit import room_fit_issue
+            available = [slot for index in eligible if index < floor_count for slot in floors[index]["_bins"]]
+            return None, {**room_fit_issue(room, available, "remaining_slots", spacious), "floor_count": floor_count}
         _, index, b, template = min(fits, key=lambda f: f[0])
         place_room(floors[index], b, room, template)
     if any(not any(r["role"] not in {"wc", "accessible_wc"} for r in floor["rooms"]) for floor in floors):

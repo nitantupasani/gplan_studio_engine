@@ -238,7 +238,7 @@ def test_boundary_walls_are_exterior_and_drawn_walls_interior(model):
     exterior = [w for w in model.walls if w.storey == 0 and w.role == WallRole.EXTERIOR]
     assert len(exterior) == 4
     for wall in exterior:
-        assert m_to_ft(wall.thickness_m) == pytest.approx(0.75, abs=FT_TOL)
+        assert m_to_ft(wall.thickness_m) == pytest.approx(0.5, abs=FT_TOL)
     drawn = [w for w in model.walls if w.storey == 0 and w.role == WallRole.INTERIOR]
     for wall in drawn:
         assert m_to_ft(wall.thickness_m) == pytest.approx(1.0 / 3.0, abs=1e-4), (
@@ -1353,3 +1353,98 @@ def test_storey_height_and_wall_options_are_honoured(design):
     assert exterior and all(
         w.thickness_m == pytest.approx(ft_to_m(0.9)) for w in exterior
     )
+
+
+def _site_house(generated=False, covered=False):
+    floor = _floor(0, "Ground", _rect(0, 0, 30, 30), segments=[
+        ("facade", 20, 0, 20, 30), ("site", 20, 15, 30, 15),
+        ("shared", 0, 15, 20, 15),
+    ])
+    indoor = [
+        {"points": _rect(0, 0, 20, 15), "content": {"space": {"kind": "other", "customName": "Living"}}},
+        {"points": _rect(0, 15, 20, 15), "content": {"space": {"kind": "other", "customName": "Bedroom"}}},
+    ]
+    if generated:
+        floor["segments"] = floor["segments"][:2]
+        detail = {"id": "detail", "source": "api", "width": 20, "height": 30,
+                  "exteriorWall": 0.5, "interiorWall": 1 / 3,
+                  "rooms": [{"id": "living", "name": "Living", "kind": "living", "x": 0, "y": 0, "width": 20, "height": 15},
+                            {"id": "bed", "name": "Bedroom", "kind": "bedroom", "x": 0, "y": 15, "width": 20, "height": 15}],
+                  "doors": [], "windows": [], "furniture": []}
+        indoor = [{"points": _rect(0, 0, 20, 30), "content": _generated(20, 30, [], detailed=detail)}]
+    resolved = {"hf-0": indoor + [
+        {"points": _rect(20, 0, 10, 15), "content": {"space": {"kind": "open"}}},
+        {"points": _rect(20, 15, 10, 15), "content": {"space": {"kind": "parking"}}},
+    ]}
+    floors = [floor]
+    if covered:
+        floors.append(_floor(1, "First", _rect(0, 0, 30, 30)))
+        resolved["hf-1"] = [{"points": _rect(0, 0, 30, 30), "content": {"space": {"kind": "other", "customName": "Living"}}}]
+    design = _design(floors)
+    design["wallDisplay"]["exteriorWallFt"] = 0.5
+    return housing.from_housing(design, resolved_regions=resolved)[0]
+
+
+def test_generated_and_drawn_house_share_identical_wall_geometry():
+    def walls(model):
+        return sorted((tuple(round(n, 7) for n in _wall_ft(wall)), wall.role, round(wall.thickness_m, 7)) for wall in model.walls)
+    drawn, generated = _site_house(), _site_house(generated=True)
+    assert walls(drawn) == walls(generated)
+    for wall in drawn.walls:
+        assert max(m_to_ft(wall.a[0]), m_to_ft(wall.b[0])) <= 20 + FT_TOL
+        expected = 0.5 if wall.role == WallRole.EXTERIOR else 1 / 3
+        assert m_to_ft(wall.thickness_m) == pytest.approx(expected)
+    assert len([wall for wall in drawn.walls if wall.role == WallRole.INTERIOR]) == 1
+
+
+@pytest.mark.parametrize("generated", [False, True])
+def test_outdoor_parking_and_open_sky_do_not_create_columns_beams_or_slabs(generated):
+    from ..grid import extract_axes
+    from ..placement.frame import run_frame_placement
+    model = _site_house(generated)
+    grid = extract_axes(model)
+    assert max(rect[2] for rect in grid.footprints[0].rects) == round(ft_to_m(20) * 1000)
+    placed = run_frame_placement(model)
+    placed.write_back(model)
+    assert model.columns
+    for column in model.columns:
+        assert m_to_ft(column.x_m) <= 20 + 0.01
+    for beam in model.beams:
+        assert max(m_to_ft(beam.a[0]), m_to_ft(beam.b[0])) <= 20 + 0.01
+    for slab in model.slabs:
+        assert all(m_to_ft(point[0]) <= 20 + 0.01 for point in slab.polygon)
+
+
+def test_parking_below_a_built_floor_retains_its_support_projection():
+    from ..grid import extract_axes
+    grid = extract_axes(_site_house(covered=True))
+    assert grid.footprints[0].rects == grid.footprints[1].rects
+    assert max(rect[2] for rect in grid.footprints[0].rects) == round(ft_to_m(30) * 1000)
+
+
+def test_courtyard_remains_a_hole_in_the_structural_footprint():
+    from ..grid import extract_axes
+    court = _rect(10, 10, 10, 10)
+    floor = _floor(0, "Ground", _rect(0, 0, 30, 30), shapes=[
+        {"id": "court", "points": court, "content": {"space": {"kind": "open"}}},
+    ])
+    model = housing.from_housing(_design([floor]))[0]
+    grid = extract_axes(model)
+    cx, cy = round(ft_to_m(15) * 1000), round(ft_to_m(15) * 1000)
+    assert not any(x0 < cx < x1 and y0 < cy < y1 for x0, y0, x1, y1 in grid.footprints[0].rects)
+
+
+def test_structural_adapter_uses_both_editor_wall_settings(design):
+    design["wallDisplay"] = {"exteriorWallFt": 0.8, "interiorWallFt": 0.4}
+    model = housing.from_housing(design)[0]
+    assert all(m_to_ft(wall.thickness_m) == pytest.approx(0.8 if wall.role == WallRole.EXTERIOR else 0.4) for wall in model.walls)
+
+
+def test_an_explicit_open_sky_upper_floor_does_not_inherit_a_frame_from_below():
+    from ..grid import extract_axes
+    ground = _floor(0, "Ground", _rect(0, 0, 30, 30), segments=[("room", 15, 0, 15, 30)])
+    upper = _floor(1, "Open", _rect(0, 0, 30, 30))
+    upper["boundaryContent"] = {"space": {"kind": "open"}}
+    grid = extract_axes(housing.from_housing(_design([ground, upper]))[0])
+    assert not grid.footprints[0].is_empty()
+    assert grid.footprints[1].is_empty()

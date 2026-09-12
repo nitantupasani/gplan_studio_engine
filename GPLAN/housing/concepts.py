@@ -138,7 +138,10 @@ def _build_site(candidate, ground_floor, request, mirror):
         parking["car_polygon"]=[_point_to_world(p,frame) for p in polygon_points(car)]
         parking["orientation"]="parallel" if parallel else "perpendicular"
         spaces += [parking,_space("vehicle_access","Vehicle approach","open","vehicle_access",drive,frame)]
-        site_shapes += [bay,drive]
+        # Access envelopes validate circulation over the land; they do not
+        # partition it. Subtracting the drive here made the residual polygons
+        # trace a second editable boundary 150 mm outside the parking bay.
+        site_shapes.append(bay)
         # A separate branch reaches the side of the parking bay without
         # crossing the parked car. The clear street-to-door trunk remains open.
         bay_side=bx+bw if mirror else bx
@@ -147,7 +150,6 @@ def _build_site(candidate, ground_floor, request, mirror):
         if walk.intersection(car).area>0:
             raise HouseCandidateError("The parking-to-entrance path would pass through the represented car.")
     spaces.append(_space("pedestrian_access","Entrance path","open","pedestrian_access",walk,frame))
-    site_shapes.append(walk)
     garden=box(0,y+d,pw,pd)
     if garden.area:
         spaces.append(_space("rear_garden","Rear garden","green","garden",garden,frame))

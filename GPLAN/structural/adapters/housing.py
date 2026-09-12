@@ -29,7 +29,7 @@ dropped on the whole plot in, because its own face tracer drops the boundary
 cycle. A region key is the more specific address and is matched first; a carrier
 then takes the face that IS its polygon.
 
-Walls come from drawn geometry—the plot boundary (exterior, 0.75 ft), `segments`
+Walls come from drawn geometry—the built boundary (exterior, 0.5 ft by default), `segments`
 and shape edges (interior, `wallDisplay.interiorWallFt`)—plus a placed unit
 plan. An undressed plan contributes its shared interior edges; a dressed plan
 also contributes its room-union exterior, including user-edited recesses. A
@@ -37,6 +37,11 @@ region-to-region border that carries no drawn or plan wall is NOT a wall (open
 plan is a real answer here). Collinear candidates are endpoint-split and merged
 once at a 115 mm centreline tolerance, so duplicate spans collapse without an
 exterior role leaking onto an adjoining interior-only span.
+
+Explicit outdoor site parcels clip this wall set to the actual house. Their
+boundaries and occupancy polygons do not enlarge the structural footprint;
+the grid retains support below built upper floors and leaves uncovered land
+and open courtyards empty. Both thicknesses come from the editor's wall settings.
 
 Nothing is placed anonymously and no fallback is silent: every assumption lands
 on the model's disclosure ladder with a registry code.
@@ -84,8 +89,8 @@ HOUSING_STOREY_HEIGHT_FT = 10.4
 HOUSING_PLINTH_FT = 0.5
 #: The product supports Ground + 3 housing (frontend MAX_HOUSING_FLOORS).
 MAX_HOUSING_FLOORS = 4
-#: Exterior (plot boundary) wall thickness, feet.
-EXTERIOR_WALL_FT = 0.75
+#: Housing exterior thickness, matching the editor's persisted default.
+EXTERIOR_WALL_FT = 0.5
 #: `wallDisplay.interiorWallFt` default, feet (4 inches).
 DEFAULT_INTERIOR_WALL_FT = 4.0 / 12.0
 #: Entry opening width, feet (the large plot entrance the 3D render hangs here).
@@ -1027,6 +1032,77 @@ def _candidate(a, b, thickness_m, role, source):
         "role": role,
         "source": str(source),
     }
+
+
+def _built_site_geometry(record, regions):
+    """Plot minus explicitly outdoor parcels, retaining nested indoor/core faces.
+
+    None means the legacy undivided building envelope. A labelled parking
+    region is land use, not a slab or a frame; covered parking gets support
+    from the actual storeys above it, handled separately by the grid.
+    """
+    outdoor = []
+    for region in regions:
+        if region["core"] is not None or _space_kind(region["content"]) not in UNBUILT_SPACE_KINDS:
+            continue
+        polygon = _shapely_polygon(region["loop"])
+        if polygon is None:
+            continue
+        for other in regions:
+            if other is not region and other["area_m2"] < region["area_m2"] and _contains(region["loop"], other["interior"]):
+                nested = _shapely_polygon(other["loop"])
+                if nested is not None:
+                    polygon = polygon.difference(nested)
+        outdoor.append(polygon)
+    if not outdoor:
+        return None
+    return _shapely_polygon(record["boundary"]).difference(unary_union(outdoor))
+
+
+def _building_wall_candidates(candidates, built, exterior_t):
+    """Clip site lines to the building and assign exterior thickness once.
+
+    Intersect before classifying: one stored divider may border an indoor
+    room along only part of its length. Outdoor-to-outdoor spans contribute
+    neither walls nor column stations.
+    """
+    if built is None:
+        return candidates
+    result = []
+    for candidate in candidates:
+        horizontal = candidate["orient"] == "h"
+        def point(along, across):
+            return (along, across) if horizontal else (across, along)
+        line = LineString([point(candidate["s0"], candidate["pos"]), point(candidate["s1"], candidate["pos"])])
+        clipped = line.intersection(built)
+        pieces = list(clipped.geoms) if hasattr(clipped, "geoms") else [clipped]
+        for piece in pieces:
+            if piece.geom_type != "LineString" or piece.length <= JOIN_TOL_M:
+                continue
+            coords = list(piece.coords)
+            values = [p[0] if horizontal else p[1] for p in coords]
+            s0, s1 = min(values), max(values)
+            cuts = sorted(set([s0, s1] + [
+                p[0] if horizontal else p[1]
+                for polygon in _polygon_parts(built)
+                for ring in [polygon.exterior] + list(polygon.interiors)
+                for p in ring.coords
+                if abs((p[1] if horizontal else p[0]) - candidate["pos"]) <= JOIN_TOL_M
+                and s0 < (p[0] if horizontal else p[1]) < s1
+            ]))
+            for start, end in zip(cuts, cuts[1:]):
+                if end - start <= JOIN_TOL_M:
+                    continue
+                middle = (start + end) / 2
+                negative = built.contains(Point(point(middle, candidate["pos"] - JOIN_TOL_M)))
+                positive = built.contains(Point(point(middle, candidate["pos"] + JOIN_TOL_M)))
+                if not negative and not positive:
+                    continue
+                part = dict(candidate, s0=start, s1=end)
+                if negative != positive:
+                    part.update(role=WallRole.EXTERIOR, t=exterior_t)
+                result.append(part)
+    return result
 
 
 def _merge_candidates(candidates, storey):
@@ -2067,7 +2143,7 @@ def from_housing(
     resolved_regions=None,
     storey_height_ft=HOUSING_STOREY_HEIGHT_FT,
     plinth_height_ft=HOUSING_PLINTH_FT,
-    exterior_wall_ft=EXTERIOR_WALL_FT,
+    exterior_wall_ft=None,
     interior_wall_ft=None,
     system_hint="rc_frame",
     assume_windows=False,
@@ -2108,9 +2184,11 @@ def from_housing(
             {"stacks": known},
         )
 
+    display = design.get("wallDisplay")
+    display = display if isinstance(display, dict) else {}
+    if exterior_wall_ft is None:
+        exterior_wall_ft = _num(display.get("exteriorWallFt"), EXTERIOR_WALL_FT)
     if interior_wall_ft is None:
-        display = design.get("wallDisplay")
-        display = display if isinstance(display, dict) else {}
         interior_wall_ft = _num(display.get("interiorWallFt"), DEFAULT_INTERIOR_WALL_FT)
         if interior_wall_ft <= 0.0:
             interior_wall_ft = DEFAULT_INTERIOR_WALL_FT
@@ -2201,6 +2279,7 @@ def _build_stack_model(design, stack, options, resolved_regions, all_stacks):
     dropped_doors = 0
     assumed_windows = 0
     derived_here = False
+    site_footprints = {}
 
     for order, record in enumerate(records):
         storey = record["level"]
@@ -2208,6 +2287,10 @@ def _build_stack_model(design, stack, options, resolved_regions, all_stacks):
         regions, floor_unmatched, floor_derived = _floor_regions(record, resolved)
         unmatched += ["s%d:%s" % (storey, key) for key in floor_unmatched]
         derived_here = derived_here or floor_derived
+        built_site = _built_site_geometry(record, regions)
+        if built_site is not None:
+            site_footprints[str(storey)] = [list(loop) for polygon in _polygon_parts(built_site)
+                                          for loop in _rectilinear_room_loops(polygon)]
 
         model.storeys.append(
             Storey(
@@ -2277,7 +2360,7 @@ def _build_stack_model(design, stack, options, resolved_regions, all_stacks):
             elif rooms[-1].occupancy == Occupancy.OTHER and _space_kind(content) == "other":
                 unknown_rooms.append(rooms[-1].id)
 
-        walls = _merge_candidates(candidates, storey)
+        walls = _merge_candidates(_building_wall_candidates(candidates, built_site, exterior_t), storey)
         _assign_room_sides(walls, rooms)
         if storey == 0 and entry_point is not None:
             spec = _entry_spec(walls, entry_point, ft_to_m(ENTRY_WIDTH_FT))
@@ -2324,6 +2407,8 @@ def _build_stack_model(design, stack, options, resolved_regions, all_stacks):
     model.cores = cores
 
     model.meta = {
+        "housing_built_footprints_m": site_footprints,
+        "housing_plot_boundaries_m": {str(record["level"]): record["boundary"] for record in records} if site_footprints else {},
         "north": "-y",
         "design_id": design_id,
         "design_name": str(design.get("name") or ""),

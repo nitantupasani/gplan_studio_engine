@@ -870,6 +870,13 @@ _MAX_INSERT_DEPTH = 3
 
 def _storey_footprint(model: StructuralModel, storey: int, log: DisclosureLog) -> _Footprint:
     """Rooms plus the exterior envelope; the wall bounding box as a last resort."""
+    site = model.meta.get("housing_built_footprints_m", {})
+    if str(storey) in site:
+        # Site labels (including parking) remain available for occupancy, but
+        # never enlarge the building footprint or close an open courtyard.
+        return _Footprint.from_polygons([
+            [(_mm(x), _mm(y)) for x, y in loop] for loop in site[str(storey)]
+        ])
     polygons = []  # type: List[List[Tuple[int, int]]]
     for room in sorted(model.rooms_on(storey), key=lambda r: r.id):
         if len(room.polygon) < 4:
@@ -1296,6 +1303,26 @@ def extract_axes(model: StructuralModel, params: Optional[FrameParams] = None) -
         footprints[storey] = footprint
         if footprint.is_empty():
             blank.append(storey)
+    # A built upper floor can cover parking below. Retain its vertical support
+    # projection only within that lower plot; outdoor land beside the house
+    # never contributes a footprint of its own.
+    site = model.meta.get("housing_built_footprints_m", {})
+    for storey in reversed(storeys):
+        if str(storey) not in site:
+            continue
+        above = [footprints[s] for s in storeys if s > storey]
+        if above:
+            plot = model.meta["housing_plot_boundaries_m"][str(storey)]
+            bounds = _Footprint.from_polygons([[(_mm(x), _mm(y)) for x, y in plot]])
+            projected = []
+            for fp in above:
+                for a in fp.rects:
+                    for b in bounds.rects:
+                        rect = (max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3]))
+                        if rect[2] > rect[0] and rect[3] > rect[1]:
+                            projected.append(rect)
+            footprints[storey] = _Footprint.from_rects(footprints[storey].rects + projected)
+    blank = [storey for storey in storeys if footprints[storey].is_empty()]
     if blank and len(blank) == len(storeys):
         log.add(
             "E_EMPTY_PLAN",
@@ -1315,7 +1342,9 @@ def extract_axes(model: StructuralModel, params: Optional[FrameParams] = None) -
     # (above first). Without this every axis above it would read as floating.
     built = [storey for storey in storeys if storey not in blank]
     for storey in blank:
-        donors = [s for s in built if s > storey] or [s for s in reversed(built) if s < storey]
+        donors = [s for s in built if s > storey]
+        if not donors and str(storey) not in site:
+            donors = [s for s in reversed(built) if s < storey]
         if not donors:
             continue
         footprints[storey] = footprints[donors[0]]

@@ -234,6 +234,7 @@ def generate_commercial_options(brief, progress=None, cancelled=None, deadline=N
     if recovery:
         recipes.append(recovery)
     tried, refinement_ids = set(), set()
+    rejected_checks = {}
     best_cost = None
     while recipes and result["search"]["modified_briefs_examined"] < MAX_ADJUSTED_BRIEFS:
         recipes.sort(key=lambda fitted: deviation_cost(original, fitted))
@@ -268,6 +269,14 @@ def generate_commercial_options(brief, progress=None, cancelled=None, deadline=N
             result["search"]["stopped_by"] = "cancelled"
             break
         if not attempted["candidates"]:
+            # Keep the actual reason a geometrically packed alternative failed.
+            # Otherwise the final receipt only blames the first original room
+            # placement, even when reducing it still fails the route checks.
+            for diagnostic in attempted["diagnostics"]:
+                for check in diagnostic.get("checks", []) if isinstance(diagnostic, dict) else []:
+                    key = check["id"].rsplit(":", 1)[-1]
+                    if key not in rejected_checks and len(rejected_checks) < 6:
+                        rejected_checks[key] = deepcopy(check)
             continue
         candidate = attempted["candidates"][0]
         deviations = constraint_deviations(original, fitted, candidate)
@@ -306,6 +315,10 @@ def generate_commercial_options(brief, progress=None, cancelled=None, deadline=N
         result["diagnostics"].append({"code": "modified_programme_available", "detail": "The best checked alternative within the shared budget retains the declared staff and visitors. Workstations are prioritised before total meeting/lunch places; upward refinements were tested where budget allowed. Global optimality is not claimed.",
                                        "constraint_deviations": result["candidates"][0]["constraint_deviations"]})
     elif result["status"] != "cancelled":
+        if rejected_checks:
+            result["diagnostics"].append({"code": "adjusted_candidate_rejected", "scope": "modified_programme_attempt",
+                                           "detail": "Checked smaller programmes still failed layout checks.",
+                                           "checks": list(rejected_checks.values())})
         result["diagnostics"].append({"code": "adjustments_exhausted", "detail": "The bounded smaller-programme retries also found no checked layout. Required geometry, stairs, site limits and safety checks were retained; this envelope still needs a different supported configuration."})
     return finish()
 

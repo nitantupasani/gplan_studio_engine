@@ -314,6 +314,24 @@ def test_design_reports_the_seismic_case_roster_it_actually_built(designs):
 
 
 @pytest.mark.parametrize("name", ["plan", "building", "housing"])
+def test_layout_exposes_actual_beam_endpoint_roles(layouts, name):
+    for entry in _entries(layouts[name][0]):
+        beams = {beam["id"]: beam for beam in entry["structural_model"]["beams"]}
+        connections = entry["placement"]["beam_supports"]
+        assert {row["id"] for row in connections} == set(beams)
+        for row in connections:
+            beam = beams[row["id"]]
+            assert row["storey"] == beam["storey"]
+            assert len(row["ends"]) == 2
+            assert all(end in ("col", "beam", "core", "stub", "tip", "free") for end in row["ends"])
+            assert isinstance(row["chain"], int)
+            if beam["kind"] == "plinth":
+                assert row["level"] == "P"
+            if beam["kind"] == "secondary":
+                assert "beam" in row["ends"] or row["chain"] == 1
+
+
+@pytest.mark.parametrize("name", ["plan", "building", "housing"])
 def test_layout_returns_a_valid_envelope(layouts, validator, name):
     envelope, _ = layouts[name]
     assert envelope["status"] == "SUCCESS"
@@ -833,6 +851,9 @@ def test_a_stage_that_cannot_run_comes_back_as_a_disclosed_partial(payloads, mon
     assert entry["partial"] is True
     assert "synthetic conservation failure" in entry["stopped_at"]
     assert entry["structural_model"]["columns"], "the partial still carries its geometry"
+    assert {row["id"] for row in entry["placement"]["beam_supports"]} == {
+        beam["id"] for beam in entry["structural_model"]["beams"]
+    }, "a refused design retains endpoint roles for every beam it still draws"
     assert "E_ANA_CONSERVATION" in {item["code"] for item in entry["errors"]}
 
 

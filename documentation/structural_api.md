@@ -255,6 +255,18 @@ use. Placement counts never claim completed design eligibility. The returned
 This adds diagnostic values within existing metadata; the schema remains
 `structural-1.1`.
 
+Housing requests using `placement_strategy: "economy_grid"` also return this
+audit, with `variant: "support_grid"`. These explicitly allow room-interior
+columns as an architectural tradeoff, and return their exact IDs and counts.
+They must still pass the requested physical span cap, full member/referral
+checks, foundations, applicable quantity checks and complete column/room
+assessment. Only the wall-only variants enforce zero room intrusion and
+zero off-wall columns. A support-grid result is preliminary gravity design,
+not architectural acceptance or construction approval. The Housing client
+compares 5 m, 4 m and 3.5 m support-grid candidates against the wall-only
+baselines, without changing saved floor plans or automatically accepting a
+candidate that fails another check.
+
 Final foundation and quantity blockers also enter the Housing eligibility gate
 and the bounded fallback decision. For example, completing every beam and column
 does not make a layout eligible when sized footings still overlap. Deliberately
@@ -720,6 +732,20 @@ Caps, all published under `options.limits` and all enforced:
 `max_rooms_per_floor` 60, `max_housing_floors` 3, `max_cantilever_m` 2.0,
 `refuse_cantilever_m` 2.5, `min_span_m` 2.5, `max_span_m` 5.0,
 `hard_max_span_m` 7.5, `max_body_bytes` 2000000, `referral_re_passes` 1.
+
+## Beam endpoint information (2026-09-12)
+
+Frame responses include `placement.beam_supports`, with one row per drawn
+beam: `id`, `storey`, `level`, `ends` and `chain`. Endpoint roles are `col`,
+`beam`, `core`, `stub`, `tip` or `free`, directly from placement. `level` keeps
+plinth (`P`) and intermediate ties distinct from the framing above a storey.
+These are the placer's assignments; `free` means no support was assigned,
+including an assignment not resolved after later feedback members were added.
+They do not establish that analysis or connection
+design passed. The same rows remain on a partial response if analysis stops,
+via the last frame placement saved in the structural model's metadata.
+Clients must show missing roles as unknown rather than infer support from a
+crossing in a plan projection.
 
 ## Tests
 

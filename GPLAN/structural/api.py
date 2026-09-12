@@ -1486,6 +1486,11 @@ class _Placement(object):
         if self.frame is not None:
             out["params"] = _plain(self.frame.params_echo)
             out["report"] = _plain(self.frame.report)
+            # Drawing clients need the placer's actual endpoint roles. Beam
+            # geometry alone cannot distinguish a secondary bearing from a
+            # free end, or a plinth member from framing at the floor above.
+            # These are placement facts, not a successful analysis verdict.
+            out["beam_supports"] = self.frame.beam_supports()
         if self.masonry is not None:
             out["masonry"] = _plain(self.masonry.to_dict())
         if self.masonry_attempt is not None:
@@ -3186,7 +3191,13 @@ def _entry_head(
         "placement": placement.to_dict(),
         "layout_score": _plain(placement.layout_score),
     }
-    if opts.housing_column_variant is not None:
+    if placement.frame is None:
+        # A failed analysis rebuilds _Placement without the live FrameResult.
+        # Use the last placement installed on the partial model in that case.
+        connections = model.meta.get("frame_placement", {}).get("beam_supports")
+        if connections is not None:
+            head["placement"]["beam_supports"] = _plain(connections)
+    if opts.housing_column_variant is not None or (source == "housing" and opts.placement_strategy == "economy_grid"):
         housing_layout = _assess_housing_layout(model, opts.min_span_m)
         adjustments = []
         if placement.frame is not None:
@@ -3209,10 +3220,12 @@ def _entry_head(
             description += "; " + "; ".join("wall guide %s: %.3f to %.3f m" % (a["axis"], a["from_m"], a["to_m"]) for a in adjustments)
         elif not search and opts.housing_column_variant == "balanced":
             description += "; combined wall guides and balanced optional spans"
+        elif opts.placement_strategy == "economy_grid":
+            description += "; regular support grid; room-interior columns are an explicit architectural tradeoff"
         elif not search:
             description += "; alternative optional wall-support positions considered"
         housing_layout.update({
-            "variant": opts.housing_column_variant, "requested_max_span_m": opts.max_span_m,
+            "variant": opts.housing_column_variant or "support_grid", "requested_max_span_m": opts.max_span_m,
             "physical_max_span_m": None, "eligible": False, "reasons": ["full_design_required"],
             "axis_adjustments": adjustments, "summary": description + ".",
         })
@@ -3222,7 +3235,7 @@ def _entry_head(
 
 def _finish_housing_layout(entry: Dict[str, Any], model: StructuralModel, opts: _Resolved) -> None:
     """Final, post-referral eligibility. Geometry alone never earns a badge."""
-    if opts.housing_column_variant is None:
+    if "housing_layout" not in entry:
         return
     layout = entry["housing_layout"]
     layout.update(_assess_housing_layout(model, opts.min_span_m))
@@ -3241,9 +3254,9 @@ def _finish_housing_layout(entry: Dict[str, Any], model: StructuralModel, opts: 
         reasons.append("required_element_undesigned")
     if design.get("referrals_outstanding"):
         reasons.append("unresolved_referral")
-    if layout["confirmed_room_intrusion_count"]:
+    if opts.housing_column_variant is not None and layout["confirmed_room_intrusion_count"]:
         reasons.append("housing_room_intrusion")
-    if layout["off_wall_column_count"]:
+    if opts.housing_column_variant is not None and layout["off_wall_column_count"]:
         reasons.append("housing_off_wall_columns")
     if layout["room_assessment"] != "assessed":
         reasons.append("housing_room_assessment_incomplete")
