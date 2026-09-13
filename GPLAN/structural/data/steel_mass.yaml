@@ -1,0 +1,31 @@
+# Rounded trade mass per metre of reinforcement, and the stock length that
+# drives lap counts in the bar bending schedule.
+#
+# data/rebar.yaml is canonical for the catalogue (critic resolution 25): these
+# are the same bars, carried at the d^2/162 values a bar bender and a rate
+# analysis quote. A test asserts the two tables agree to within 0.3 percent, so
+# the duplication cannot drift silently.
+schema_version: 1
+source: "IS 1786:2008 Table 1 nominal mass, quoted at the trade rounding d^2/162 kg/m; 12 m stock length is Indian mill practice for bars up to 32 mm"
+edition: "IS 1786:2008"
+canonical_table: "rebar.yaml"
+
+units:
+  dia: mm
+  unit_mass: kg/m
+  stock_length: m
+
+formula: "d^2 / 162 kg/m"
+
+# Bars longer than this are lapped; the lap count is a quantities decision.
+stock_length_m: 12.0
+
+# Keyed by nominal diameter in mm.
+unit_mass_kg_m:
+  8: 0.395
+  10: 0.617
+  12: 0.888
+  16: 1.578
+  20: 2.469
+  25: 3.854
+  32: 6.313

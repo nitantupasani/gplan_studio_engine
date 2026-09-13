@@ -186,7 +186,7 @@ DEFAULT_UB_FACTOR = 5
 SOLVER_UB_SLACK = float(os.environ.get("GPLAN_SOLVER_UB_SLACK", "2.5"))
 
 
-def upper_bound(supplied, low):
+def upper_bound(supplied, low, exact=False):
     """Upper bound for one room axis in the longest-path solve.
 
     Honours a caller-supplied maximum, widened to at least SOLVER_UB_SLACK x the
@@ -196,6 +196,12 @@ def upper_bound(supplied, low):
     when it is unusable.
     """
     low = float(low)
+    # A fixed room is a hard obstacle in the dissection, not a normal room
+    # ceiling.  Normal ceilings deliberately get SOLVER_UB_SLACK so topology
+    # search does not collapse; doing that to a stair/lift silently turns an
+    # equality into a 2.5x band before any later validator can help.
+    if exact:
+        return low
     open_ub = DEFAULT_UB_FACTOR * low
     if supplied is None:
         return open_ub
@@ -223,10 +229,12 @@ def input_constraints():
         node = data['nodes'][i-1]
 
         low_len = float(node['min_height'])
-        up_len = upper_bound(node.get('max_height'), low_len)
+        up_len = upper_bound(node.get('max_height'), low_len,
+                             exact=bool(node.get('is_fixed')))
 
         low_width = float(node['min_width'])
-        up_width = upper_bound(node.get('max_width'), low_width)
+        up_width = upper_bound(node.get('max_width'), low_width,
+                               exact=bool(node.get('is_fixed')))
 
         lb_len.append(low_len)
         ub_len.append(up_len)

@@ -25,7 +25,8 @@ class DimParameters:
     __isOptimalEnabled: int
     __isRotationAllowed: int
     __enforce_plot: bool
-    def __init__(self, min_width, max_width, plot_height, plot_width,isOptimalEnabled,isRotationAllowed = 1,symmetric = False, min_height = [], max_height = [], min_ratio = [], max_ratio = [], min_area = [], max_area = [], enforce_plot = False):
+    __fixed_rooms: list
+    def __init__(self, min_width, max_width, plot_height, plot_width,isOptimalEnabled,isRotationAllowed = 1,symmetric = False, min_height = [], max_height = [], min_ratio = [], max_ratio = [], min_area = [], max_area = [], enforce_plot = False, fixed_rooms = None):
         self.__isOptimalEnabled = isOptimalEnabled
         self.__isRotationAllowed = isRotationAllowed
         # Hard plot-fit mode (door_connectivity API): plot_width/plot_height
@@ -51,6 +52,12 @@ class DimParameters:
         # which is 1.04x-1.42x looser than NBC for every room type.
         self.__min_area = min_area
         self.__max_area = max_area
+        # Hard fixed-room constraints used by the min-dimensioned
+        # door-connectivity path.  Each entry is normalized by api.py to
+        # {room, width, height, anchor, directions}.  Keeping the metadata on
+        # DimParameters lets the solver, gap closer and post-processor share
+        # one source of truth without changing legacy request shapes.
+        self.__fixed_rooms = list(fixed_rooms or [])
         # block_checker() splits this on ',', so it has to be a string. The API
         # layer defaults symmetric to the boolean False (views.py, and
         # local_engine_bridge.py), so anything that is not a string is stored as
@@ -75,6 +82,12 @@ class DimParameters:
 
     def set_enforce_plot(self, value):
         self.__enforce_plot = bool(value)
+
+    def get_fixed_rooms(self):
+        return self.__fixed_rooms
+
+    def set_fixed_rooms(self, value):
+        self.__fixed_rooms = list(value or [])
 
     def get_min_width(self):
         return self.__min_width

@@ -77,6 +77,51 @@ in `GPLAN/source/postprocessing/postprocess.py`; NBC rule table in
    cap. One room at its ceiling pins its whole side; that is the intended
    reading of "fill the plot within the constraints". Never shrinks.
 
+   **`exact_fill` (2026-08-29) changes that reading when the caller ENFORCED
+   the plot.** User rule: with `enforce_plot`, filling the plot exactly
+   outranks the NBC room maxima, because an empty notch is worse than an
+   oversized living room. The flag does two things. It forces
+   `prefer_rectangle` on, so trims no neighbour can reabsorb are given back
+   instead of shipped as notches (phase 4). And when the class-capped release
+   above runs out of headroom with the outline still open, it climbs an
+   escalation ladder, per room class:
+
+   | grade | span + area ceilings | aspect band |
+   |---|---|---|
+   | 1 | x1.55 habitable / x1.45 wet-service | untouched |
+   | 2 | gone | untouched |
+   | 3 | gone | widened x1.6 |
+   | 4 | gone | gone |
+
+   The rungs raise social (living, dining) first, then the kitchen, then the
+   private rooms; wet and service rooms stay at grade 1 until every other
+   class is fully free, so a bathroom is stretched only when nothing else
+   could geometrically absorb what was left. Grade 2 alone is measurably not
+   enough: with the ceilings gone it is the ASPECT band that pins a whole-side
+   advance, because `_axis_ceilings` caps growth at `ar_hi * h`.
+
+   Each rung tries whole-side growth first (it cannot open a notch), then the
+   per-room reach and the absorb rounds; a rung whose absorb would seal an
+   interior hole is given back and the ladder continues. Every room a rung
+   moves is exempted from the no-regress gate, listed in `over_ceiling_rooms`,
+   named in `phase_notes` ("ceilings released PAST the NBC room limits to fill
+   the enforced plot exactly ..."), flagged per plan as `fill_escalated`, and
+   counted in the batch message.
+
+   Phase 6 then moves the surplus back up that same order: under `exact_fill`
+   an over-ceiling room may shed its wall into a neighbour that outranks it
+   functionally even past the neighbour's own ceiling (strictly better only,
+   so the shifts cannot cycle). Geometry decides who can reach a void, and it
+   is sometimes only the toilet; this is what takes the area off it again.
+   Measured on the shipped 2BHK at 30x40: worst room 7.3x its area cap without
+   this step, 4.7x with it (the pre-2026-08-29 engine measured 4.6x on the same
+   batch while leaving every outline notched).
+
+   On the generation path `exact_fill` is set automatically from the request's
+   `enforce_plot`; `postprocess_options.exact_fill: false` turns it back off.
+   Without `enforce_plot` nothing on this page changes: verified byte for byte
+   against the previous engine on the shipped 2BHK request.
+
 `plot_width`/`plot_height` are a HARD cap on every phase above: no phase may
 push the bounding box outside the plot, and a plan that already overflows it
 (the engine's expand fallback) is capped at its own extent rather than cut into
@@ -238,8 +283,9 @@ All optional; defaults in `postprocess.DEFAULT_OPTIONS`.
 | `max_notch_ratio` | `0.25` | a trim+absorb round leaving notches beyond this fraction of the bounding box rolls back. Measured on a 7-room/12-plan live batch (2026-07-30): real trims open 0.08-0.24, median ~0.13, so the plan's suggested 0.12 would have reverted half the batch |
 | `plot_width` / `plot_height` | `null` | HARD cap on the plan extent, ft, orientation agnostic. Every phase respects it. On the generation path it defaults to the request's own plot |
 | `target_width` / `target_height` | `null` | the rectangle phase 5 grows toward. Send the REAL footprint, not the plot cap: the shipped client's plot carries 1.6x slack (a rejection cap), and filling toward that would oversize every plan |
-| `prefer_rectangle` | `true` | phase 4. `false` = pre-2026-08-01 behaviour, ship the notches |
+| `prefer_rectangle` | `true` | phase 4. `false` = pre-2026-08-01 behaviour, ship the notches. Forced back on by `exact_fill` |
 | `fill_target` | `true` | phase 5 on/off |
+| `exact_fill` | `false` | the caller ENFORCED the plot: filling it exactly outranks the NBC maxima, so phase 5 climbs the class-ordered release ladder until the outline closes and phase 4 is forced on. Set automatically from the request's `enforce_plot` on the generation path |
 | `notch_close_slack` | `0.25` | how far past its span/area ceiling a room may go **to close the outline**. The aspect band is never relaxed, so the reclose cannot reproduce the 54x8 bathroom |
 
 Aspect semantics: each room type carries a slenderness cap from the rulebook
@@ -279,6 +325,9 @@ legacy default sends `min: 3`) that must not be read as "force landscape".
   "over_ceiling_rooms": ["Bathroom", "Kitchen"], // what that trade left over-cap
   "plot_fit": true,
   "filled_toward_plot": [2.0, 0.0],              // phase 5 gain per axis, ft
+  "fill_escalated": false,                       // exact_fill had to release
+                                                 // room limits past their NBC
+                                                 // ceilings to close on the plot
   "extent_before": [23.0, 30.0], "extent_after": [25.0, 30.0],
   "phase_notes": ["repair rolled back (would grow the plan footprint ...)"],
   "rooms": [

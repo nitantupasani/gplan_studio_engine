@@ -1,0 +1,424 @@
+{
+  "fixtures": 10,
+  "geometry": {
+    "unequal_rooms": {
+      "offsets": [
+        2.0,
+        1.0
+      ],
+      "actualFullSideAreaLoss": [
+        20.0,
+        10.0
+      ]
+    },
+    "protected_small": {
+      "offsets": [
+        3,
+        0
+      ],
+      "actualFullSideAreaLoss": [
+        30.0,
+        0.0
+      ]
+    },
+    "large_but_narrow": {
+      "offsets": [
+        1,
+        2
+      ],
+      "actualFullSideAreaLoss": [
+        40.0,
+        20.0
+      ]
+    },
+    "partial_wall": {
+      "naiveFullSideLoss": [
+        48.0,
+        6.0
+      ],
+      "areaCorrectedFullSideLoss": [
+        40,
+        10
+      ],
+      "localCutLoss": [
+        24.0,
+        6.0
+      ],
+      "additionalFullSideAreaRequiresProvenance": 20
+    },
+    "asymmetric_seam": {
+      "polygonComponents": 1,
+      "seamWidth": 1.2000000000000028,
+      "finiteWidthComponents": 2
+    },
+    "branched_corridor": {
+      "unionArea": 111.0,
+      "summedStripArea": 120,
+      "junctionDoubleCountAvoided": 9,
+      "finiteWidthComponents": 1
+    },
+    "entry_placement": {
+      "goodContact": 3.0,
+      "badContact": 0.0
+    },
+    "provenance_and_replacement": {
+      "corridorArea": 30.0,
+      "naiveEnvelopeRemainderArea": 530.0,
+      "reloadEqual": true,
+      "baseReplacementEqual": true
+    }
+  },
+  "routes": {
+    "pruning": {
+      "allRoomsCovered": true,
+      "keptComponentsWithEntry": 3,
+      "closedComponents": 1,
+      "closed": [
+        "a",
+        "b",
+        "bridge",
+        "entry"
+      ]
+    },
+    "shortestPaths": {
+      "paths": [
+        [
+          "entry",
+          "a",
+          "target"
+        ],
+        [
+          "entry",
+          "b",
+          "a",
+          "target"
+        ],
+        [
+          "entry",
+          "b",
+          "target"
+        ],
+        [
+          "entry",
+          "a",
+          "b",
+          "target"
+        ]
+      ],
+      "lengths": [
+        5,
+        6,
+        9,
+        12
+      ],
+      "scope": "fixed finite weighted graph, one target"
+    }
+  },
+  "legacy": {
+    "local": {
+      "sourceSha256": "1c65e9f44d419f0ae4175935470ea117b151f27b12c0605102494885e4c54125",
+      "southTopOffsetWithUnrelatedLeftOffset": -1.0,
+      "greedyCorridors": [
+        5,
+        7
+      ],
+      "connectedWithEntry": false,
+      "hasMinimumDimensionCheck": true,
+      "fullAlgorithmWheelCases": [
+        {
+          "rooms": 5,
+          "spanningCorridorsIncludingEntry": 4,
+          "keptIncludingEntry": [
+            5,
+            6,
+            7
+          ],
+          "componentsAfterPruning": 1
+        },
+        {
+          "rooms": 6,
+          "spanningCorridorsIncludingEntry": 5,
+          "keptIncludingEntry": [
+            6,
+            7,
+            10
+          ],
+          "componentsAfterPruning": 2
+        },
+        {
+          "rooms": 7,
+          "spanningCorridorsIncludingEntry": 6,
+          "keptIncludingEntry": [
+            7,
+            8,
+            10,
+            11
+          ],
+          "componentsAfterPruning": 2
+        },
+        {
+          "rooms": 8,
+          "spanningCorridorsIncludingEntry": 7,
+          "keptIncludingEntry": [
+            8,
+            9,
+            11,
+            14
+          ],
+          "componentsAfterPruning": 2
+        },
+        {
+          "rooms": 9,
+          "spanningCorridorsIncludingEntry": 8,
+          "keptIncludingEntry": [
+            9,
+            10,
+            14,
+            15
+          ],
+          "componentsAfterPruning": 3
+        },
+        {
+          "rooms": 10,
+          "spanningCorridorsIncludingEntry": 9,
+          "keptIncludingEntry": [
+            10,
+            11,
+            16,
+            17
+          ],
+          "componentsAfterPruning": 3
+        },
+        {
+          "rooms": 11,
+          "spanningCorridorsIncludingEntry": 10,
+          "keptIncludingEntry": [
+            11,
+            12,
+            17,
+            18,
+            19
+          ],
+          "componentsAfterPruning": 3
+        },
+        {
+          "rooms": 12,
+          "spanningCorridorsIncludingEntry": 11,
+          "keptIncludingEntry": [
+            12,
+            13,
+            18,
+            19,
+            22
+          ],
+          "componentsAfterPruning": 4
+        }
+      ]
+    },
+    "team_main": {
+      "sourceSha256": "876a7f3e95100f2430541413d00197319b011715aad156960845986bee671025",
+      "southTopOffsetWithUnrelatedLeftOffset": -3,
+      "greedyCorridors": [
+        5,
+        7
+      ],
+      "connectedWithEntry": false,
+      "hasMinimumDimensionCheck": true,
+      "fullAlgorithmWheelCases": [
+        {
+          "rooms": 5,
+          "spanningCorridorsIncludingEntry": 4,
+          "keptIncludingEntry": [
+            5,
+            6,
+            7
+          ],
+          "componentsAfterPruning": 1
+        },
+        {
+          "rooms": 6,
+          "spanningCorridorsIncludingEntry": 5,
+          "keptIncludingEntry": [
+            6,
+            7,
+            10
+          ],
+          "componentsAfterPruning": 2
+        },
+        {
+          "rooms": 7,
+          "spanningCorridorsIncludingEntry": 6,
+          "keptIncludingEntry": [
+            7,
+            8,
+            10,
+            11
+          ],
+          "componentsAfterPruning": 2
+        },
+        {
+          "rooms": 8,
+          "spanningCorridorsIncludingEntry": 7,
+          "keptIncludingEntry": [
+            8,
+            9,
+            11,
+            14
+          ],
+          "componentsAfterPruning": 2
+        },
+        {
+          "rooms": 9,
+          "spanningCorridorsIncludingEntry": 8,
+          "keptIncludingEntry": [
+            9,
+            10,
+            14,
+            15
+          ],
+          "componentsAfterPruning": 3
+        },
+        {
+          "rooms": 10,
+          "spanningCorridorsIncludingEntry": 9,
+          "keptIncludingEntry": [
+            10,
+            11,
+            16,
+            17
+          ],
+          "componentsAfterPruning": 3
+        },
+        {
+          "rooms": 11,
+          "spanningCorridorsIncludingEntry": 10,
+          "keptIncludingEntry": [
+            11,
+            12,
+            17,
+            18,
+            19
+          ],
+          "componentsAfterPruning": 3
+        },
+        {
+          "rooms": 12,
+          "spanningCorridorsIncludingEntry": 11,
+          "keptIncludingEntry": [
+            12,
+            13,
+            18,
+            19,
+            22
+          ],
+          "componentsAfterPruning": 4
+        }
+      ]
+    },
+    "paper": {
+      "sourceSha256": "f21597269e7b551c9257447ae3d44b4ccb9cd279a265c6b1cb42d6f71f7daeb4",
+      "southTopOffsetWithUnrelatedLeftOffset": -1.0,
+      "greedyCorridors": [
+        5,
+        7
+      ],
+      "connectedWithEntry": false,
+      "hasMinimumDimensionCheck": false,
+      "fullAlgorithmWheelCases": [
+        {
+          "rooms": 5,
+          "spanningCorridorsIncludingEntry": 4,
+          "keptIncludingEntry": [
+            5,
+            6,
+            7
+          ],
+          "componentsAfterPruning": 1
+        },
+        {
+          "rooms": 6,
+          "spanningCorridorsIncludingEntry": 5,
+          "keptIncludingEntry": [
+            6,
+            7,
+            10
+          ],
+          "componentsAfterPruning": 2
+        },
+        {
+          "rooms": 7,
+          "spanningCorridorsIncludingEntry": 6,
+          "keptIncludingEntry": [
+            7,
+            8,
+            10,
+            11
+          ],
+          "componentsAfterPruning": 2
+        },
+        {
+          "rooms": 8,
+          "spanningCorridorsIncludingEntry": 7,
+          "keptIncludingEntry": [
+            8,
+            9,
+            11,
+            14
+          ],
+          "componentsAfterPruning": 2
+        },
+        {
+          "rooms": 9,
+          "spanningCorridorsIncludingEntry": 8,
+          "keptIncludingEntry": [
+            9,
+            10,
+            14,
+            15
+          ],
+          "componentsAfterPruning": 3
+        },
+        {
+          "rooms": 10,
+          "spanningCorridorsIncludingEntry": 9,
+          "keptIncludingEntry": [
+            10,
+            11,
+            16,
+            17
+          ],
+          "componentsAfterPruning": 3
+        },
+        {
+          "rooms": 11,
+          "spanningCorridorsIncludingEntry": 10,
+          "keptIncludingEntry": [
+            11,
+            12,
+            17,
+            18,
+            19
+          ],
+          "componentsAfterPruning": 3
+        },
+        {
+          "rooms": 12,
+          "spanningCorridorsIncludingEntry": 11,
+          "keptIncludingEntry": [
+            12,
+            13,
+            18,
+            19,
+            22
+          ],
+          "componentsAfterPruning": 4
+        }
+      ]
+    }
+  },
+  "environment": {
+    "python": "3.11.9",
+    "networkx": "3.1",
+    "shapely": "2.0.5"
+  }
+}

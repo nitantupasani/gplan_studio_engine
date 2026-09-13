@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "units": "ft",
+  "coordinateFrame": "x-right-y-down",
+  "description": "Research fixtures; explicit experiment definitions, not the production API schema.",
+  "cases": [
+    {"id": "unequal_rooms", "width": 3, "rooms": [{"id": "large", "bounds": [0, 0, 20, 10], "minWidth": 10}, {"id": "small", "bounds": [20, 0, 30, 10], "minWidth": 7}], "expectedLargerAreaLoss": [20, 10], "expectedEqualAreaLoss": [15, 15]},
+    {"id": "protected_small", "width": 3, "rooms": [{"id": "large", "bounds": [0, 0, 20, 10], "minWidth": 10}, {"id": "small", "bounds": [20, 0, 30, 10], "minWidth": 10, "locked": true}], "expectedAreaLoss": [30, 0]},
+    {"id": "large_but_narrow", "width": 3, "rooms": [{"id": "large", "bounds": [0, 0, 5, 40], "minWidth": 4}, {"id": "small", "bounds": [5, 0, 15, 10], "minWidth": 7}], "expectedCappedOffsets": [1, 2]},
+    {"id": "partial_wall", "width": 3, "rooms": [{"id": "large", "bounds": [0, 0, 20, 20]}, {"id": "small", "bounds": [20, 0, 30, 10]}], "sharedWall": [[20, 0], [20, 10]], "naiveAreaWeightedOffsets": [2.4, 0.6], "expectedNaiveRectangleLoss": [48, 6], "areaCorrectedOffsets": [2, 1], "expectedRectangleLoss": [40, 10], "expectedLocalCutLoss": [24, 6]},
+    {"id": "asymmetric_seam", "width": 3, "strips": [[17.6, 0, 20.6, 10], [19.4, 10, 22.4, 20]], "expectedSeamWidth": 1.2, "expectedPolygonConnected": true, "expectedWidthFeasible": false},
+    {"id": "branched_corridor", "width": 3, "strips": [[8.5, 0, 11.5, 20], [0, 8.5, 20, 11.5]], "expectedArea": 111, "expectedFiniteWidthComponents": 1},
+    {"id": "entry_placement", "width": 3, "corridor": [18, 0, 21, 20], "boundary": [0, 0, 30, 20], "goodEntry": [[18, 0], [21, 0]], "badEntry": [[4, 0], [7, 0]], "doorWidth": 2.5},
+    {"id": "disconnected_pruning", "corridorTreeEdges": [["entry", "a"], ["a", "bridge"], ["bridge", "b"]], "coverage": {"a": ["r1", "r2"], "bridge": ["r2", "r3"], "b": ["r3", "r4"]}, "greedyKept": ["a", "b"], "expectedClosed": ["entry", "a", "bridge", "b"]},
+    {"id": "provenance_and_replacement", "boundary": [0, 0, 40, 20], "originalRooms": [[0, 0, 20, 10], [20, 0, 30, 10]], "adjustedRooms": [[0, 0, 18, 10], [21, 0, 30, 10]], "expectedCorridorArea": 30, "expectedUnrelatedOpenArea": 500},
+    {"id": "shortest_route_scope", "edges": [["entry", "a", 2], ["a", "target", 3], ["entry", "b", 1], ["b", "target", 8], ["a", "b", 2]], "expectedOrderedLengths": [5, 6, 9, 12]}
+  ]
+}

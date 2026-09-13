@@ -1,0 +1,92 @@
+# Dead load data: unit weights of materials and the area loads of finishes.
+# Read through GPLAN.structural.codes.is875 (part1_unit_weight, part1_area_load,
+# dead_load_default); never parsed anywhere else.
+source: "IS 875 (Part 1) : 1987, Table 1 (unit weight of building materials) and Table 2 (unit weight of building parts and components)"
+edition: "1987, reaffirmed 2018"
+units:
+  materials: "kN/m3"
+  area_loads: "kPa"
+  defaults: "m unless the key states otherwise"
+
+materials:
+  rcc:
+    gamma_kn_m3: 25.0
+    source: "IS 875 (Part 1) : 1987, Table 1, cement concrete reinforced with about 2 percent steel; IS 456 : 2000 Cl 19.2.1 uses the same 25 kN/m3"
+  pcc:
+    gamma_kn_m3: 24.0
+    source: "IS 875 (Part 1) : 1987, Table 1, plain cement concrete with heavy aggregate"
+  brick_masonry:
+    gamma_kn_m3: 20.0
+    source: "IS 875 (Part 1) : 1987, Table 1, burnt clay brick masonry in cement mortar, common Indian practice value"
+  aac_block:
+    gamma_kn_m3: 7.5
+    source: "not an IS 875 (Part 1) Table 1 row; autoclaved aerated concrete block masonry, manufacturer dry density 550 to 750 kg/m3 plus mortar"
+    verify: "print"
+    note: "supplier declared density governs; this is a planning default only"
+  stone_masonry:
+    gamma_kn_m3: 24.0
+    source: "IS 875 (Part 1) : 1987, Table 1, coursed rubble stone masonry in cement mortar"
+  cement_plaster:
+    gamma_kn_m3: 20.4
+    source: "IS 875 (Part 1) : 1987, Table 1, cement plaster / cement mortar"
+  cement_mortar:
+    gamma_kn_m3: 20.4
+    source: "IS 875 (Part 1) : 1987, Table 1, cement mortar, same entry as cement_plaster"
+  screed:
+    gamma_kn_m3: 20.0
+    source: "IS 875 (Part 1) : 1987, Table 1, cement concrete screed, light aggregate"
+    verify: "print"
+  soil_fill:
+    gamma_kn_m3: 18.0
+    source: "IS 875 (Part 1) : 1987, Table 1, earth, dry, compacted"
+    verify: "print"
+  water:
+    gamma_kn_m3: 9.81
+    source: "IS 875 (Part 1) : 1987, Table 1, water"
+
+area_loads:
+  floor_finish:
+    q_kpa: 1.5
+    source: "IS 875 (Part 1) : 1987, Table 2 build-up: 40 to 50 mm screed plus tile bedding plus tile"
+    verify: "print"
+    note: "composite allowance, not a single printed row; raise it when a thick stone floor is specified"
+  roof_finish_flat:
+    q_kpa: 2.0
+    source: "IS 875 (Part 1) : 1987, Table 2 build-up: slope screed plus waterproofing plus protective course on a flat RC roof"
+    verify: "print"
+    note: "composite allowance, not a single printed row"
+  sunken_fill:
+    q_kpa: 4.25
+    reference_depth_m: 0.25
+    source: "IS 875 (Part 1) : 1987, Table 1 light fill at about 17 kN/m3 over a 250 mm sunken slab"
+    verify: "print"
+    note: "quoted for the reference depth; scale linearly with the actual sink depth at the caller"
+  roof_sheet_light:
+    q_kpa: 0.35
+    measured_on: "sloping surface"
+    source: "IS 875 (Part 1) : 1987, Table 2, galvanised corrugated sheet roofing with purlins"
+    verify: "print"
+  roof_tile:
+    q_kpa: 0.85
+    measured_on: "sloping surface"
+    source: "IS 875 (Part 1) : 1987, Table 2, clay tile roofing on battens and rafters"
+    verify: "print"
+
+# Engine defaults that belong with the dead load tables rather than in code.
+defaults:
+  plaster_thickness_m:
+    value: 0.012
+    source: "12 mm cement plaster per face, IS 1661 finishing practice; the unit weight is materials.cement_plaster"
+  parapet_height_m:
+    value: 0.9
+    source: "NBC 2016 Part 4 parapet height for accessible terraces; engine default"
+  parapet_thickness_m:
+    value: 0.115
+    source: "half brick parapet; engine default"
+  partition_allowance_kpa:
+    value: 1.0
+    source: "IS 875 (Part 1) : 1987 Cl 3.1.2 partition allowance for a floor whose partition layout is unknown"
+    note: "applied to interior_unknown room polygons; disclosed by the caller"
+  opening_deduction:
+    value: false
+    source: "engine default; openings are not deducted from wall dead load unless the plan carries dressed openings"

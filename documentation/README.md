@@ -4,6 +4,13 @@ This folder now contains both the restored web-API documentation and the newer h
 
 **Changing an algorithm? Start here:** [algorithms/README.md](algorithms/README.md).
 
+Existing-plan **Corridor** generation now has a documented headless owner:
+[implementation and ownership](algorithms/circulation/IMPLEMENTATION.md),
+[research](algorithms/circulation/RESEARCH.md), and
+[registered capabilities](algorithms/circulation/CAPABILITIES.md). Its explicit
+gap surfaces are wall-free and are distinct from the historical GUI circulation
+flag and the raster GA optimizer.
+
 The docs listed below describe the API surface: what a request looks like and what comes back. They do not
 explain how the engine works inside. The algorithm pointer document does: it maps each change you might want
 to make ("make rooms respect maximum dimensions", "add a new shaped floorplan") to the files that implement

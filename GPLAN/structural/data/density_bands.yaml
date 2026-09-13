@@ -1,0 +1,197 @@
+# Density calibration bands for the bill of quantities, one row per structural
+# system.
+#
+# WHAT THESE ARE. Three heuristics over a finished take-off, each a quantity per
+# square metre of BUILT-UP area: reinforcement (kg/m2), concrete (m3/m2) and
+# masonry (m3/m2). None of them is a code rule and no clause of any IS standard
+# stands behind them. They exist to catch a take-off bug or an absurd design,
+# and that is the whole of their job. A band that never fires is useless; a band
+# that always fires is worse, because a correct design that trips a warning
+# teaches the reader to stop reading the warnings.
+#
+# WHY THEY ARE PER SYSTEM. The original 2.50 to 7.00 kg/m2 steel band was a
+# unit error: values in that range are sometimes quoted per square foot, not
+# per square metre. Published material-intensity datasets put RC residential
+# steel in the tens of kg/m2 and total concrete (especially when foundations
+# are included) well above 0.20 m3/m2. Until 2026-08-30 the original pair was
+# also applied to every system this module supports. A load-bearing
+# masonry house legitimately carries very little reinforced concrete (seismic
+# bands, lintels, the slab where there is one, and the footings), so the
+# measured masonry run came out at 1.02 kg/m2 and 0.020 m3/m2 and tripped both
+# warnings: correct arithmetic, wrong advice. The bands are per system now, and
+# the warning names the system it judged.
+#
+# PROVENANCE, HONESTLY. The rc_frame row is now a deliberately broad envelope
+# anchored to RASMI's published single-family RC percentiles and a Singapore
+# landed-building study that reports building and foundation intensities
+# separately (doi:10.1038/s41597-024-03217-5 and
+# doi:10.1016/j.resconrec.2024.107697). These are cross-geography sanity
+# references, not Indian design norms. The masonry rows are anchored on this
+# module's own measured runs plus ordinary
+# Indian practice arithmetic, and where that anchor is thin the band is WIDE on
+# purpose rather than falsely precise. Every row states what it was anchored on
+# in `basis` and what it does not know in `uncertainty`. Widen a band before
+# narrowing it: a false alarm costs more here than a missed one, because the
+# reader who trusts these warnings is exactly the reader who cannot check them.
+#
+# `verify` DOES NOT take the "print" marker the other tables use, and that is
+# deliberate rather than an omission: "print" means "read this back against the
+# printed standard", and there is no standard to read these back against. The
+# vocabulary here says what would actually settle each row:
+#   inherited  -- the numbers this module already carried, unchanged
+#   measured   -- anchored on a run recorded in `basis`; re-measure to revise
+#   unmeasured -- interpolated between rows that were measured; replace it
+#                 wholesale with the first real run, do not nudge it
+schema_version: 1
+source: >-
+  rc_frame: RASMI global material-intensity dataset, Scientific Data 2024,
+  doi:10.1038/s41597-024-03217-5, and the building/foundation intensity table
+  in Resources, Conservation and Recycling 2024,
+  doi:10.1016/j.resconrec.2024.107697; used only as a broad cross-geography
+  sanity envelope. load_bearing_masonry: this module's own measured end-to-end run
+  of tests/fixtures/housing_masonry.json on 2026-08-30, widened by hand
+  arithmetic over ordinary Indian residential practice (230 mm walls, 3.0 m
+  storey, IS 4326 bands and lintels, RC slab present or absent). confined_masonry
+  and mixed: NOT MEASURED, bracketed between the two rows that were. No
+  published schedule, no code clause.
+edition: "none (engineering heuristic, recalibrated 2026-09-01)"
+
+units:
+  steel: "kg of reinforcement per m2 of built-up area"
+  concrete: "m3 of concrete per m2 of built-up area"
+  masonry: "m3 of walling per m2 of built-up area"
+
+# The system a model whose `system` this table does not carry is judged as. The
+# substitution is named in the response, never silent.
+default_system: "rc_frame"
+
+# The three checks, in report order. `band_key` is the per-system key holding
+# the pair; a system whose value there is null is NOT checked on that metric,
+# which is a deliberate silence and is reported as such.
+#
+# `disclosure_code` must exist in model.REGISTRY or the producer would raise
+# when the check fired, and quantities.py refuses to import a check that names
+# an unregistered code UNLESS the row says `pending_registration: true`. There
+# is exactly one such row today and this comment is its whole justification.
+#
+# W_MASONRY_DENSITY_BAND is not in the registry yet. The registry lives in
+# model.py, which the owner of this table does not own, and a code invented
+# locally is exactly what the registry exists to prevent. Until it is
+# registered, the masonry check still runs and still reports its verdict on the
+# BOQ (`boq.density_checks.masonry`, with `disclosure_code_registered: false`);
+# it simply raises no ladder entry, so nothing is hidden and nothing is faked.
+# Add
+#   "W_MASONRY_DENSITY_BAND": (Severity.WARNING, "masonry volume per built-up
+#    area outside the expected band"),
+# to model.REGISTRY beside the other two, drop `pending_registration` here, and
+# the ladder entry starts appearing with no code change anywhere.
+checks:
+  steel:
+    metric: "steel_kg_per_m2"
+    band_key: "steel_kg_m2"
+    noun: "reinforcement"
+    unit: "kg/m2"
+    disclosure_code: "W_STEEL_DENSITY_BAND"
+  concrete:
+    metric: "concrete_m3_per_m2"
+    band_key: "concrete_m3_m2"
+    noun: "concrete"
+    unit: "m3/m2"
+    disclosure_code: "W_CONCRETE_DENSITY_BAND"
+  masonry:
+    metric: "masonry_m3_per_m2"
+    band_key: "masonry_m3_m2"
+    noun: "masonry"
+    unit: "m3/m2"
+    disclosure_code: "W_MASONRY_DENSITY_BAND"
+    pending_registration: true
+
+systems:
+  rc_frame:
+    label: "low-rise reinforced concrete"
+    steel_kg_m2: [15.00, 120.00]
+    concrete_m3_m2: [0.15, 0.70]
+    masonry_m3_m2: null
+    basis: >-
+      Broad screening envelope over columns, beams, slabs and foundations.
+      RASMI reports 15.6, 21.2 and 35.3 kg/m2 steel and 480.6, 807.6 and
+      1114.5 kg/m2 concrete at the 25th, 50th and 75th percentiles for its
+      single-family RC example. A Singapore landed-building dataset reports
+      90 kg/m2 steel and 720 kg/m2 concrete in the building plus 21 kg/m2 and
+      825 kg/m2 respectively in foundations. Using 2400 kg/m3 for concrete,
+      those sources justify a broad, foundation-inclusive catch range rather
+      than the former factor-of-ten-low steel band.
+    uncertainty: >-
+      These datasets are not India-specific and differ in floor-area and
+      foundation conventions. The envelope is intentionally wide and is only
+      a bug detector. Calibrate it against independently checked Indian G+1 to
+      G+3 projects before narrowing it. Masonry remains unchecked because an
+      RC frame's infill depends on architectural partitions.
+    verify: "measured"
+
+  load_bearing_masonry:
+    label: "load bearing masonry"
+    steel_kg_m2: [0.40, 5.00]
+    concrete_m3_m2: [0.010, 0.25]
+    masonry_m3_m2: [0.10, 0.80]
+    basis: >-
+      Measured on housing_masonry.json (30 x 40 ft, two storeys, 230 mm walls
+      throughout, built-up 222.97 m2) on 2026-08-30, TWICE in one afternoon:
+      1.02 kg/m2, 0.020 m3/m2 and 0.53 m3/m2 of walling when the RC content was
+      tie columns and IS 4326 bands only, then 1.02, 0.046 and 0.53 an hour
+      later, once the strip footings under the bearing walls reached a designer
+      and their concrete arrived in the take-off. Hand arithmetic sets the far
+      ends: an RC floor slab would add another 0.11 to 0.13 m3/m2 per plate, so
+      a masonry house that carries slab and footings both lands near 0.20 and
+      one that carries neither lands near 0.02. Walling: 230 mm walls at a 3.0 m
+      storey give 0.23 x 3.0 = 0.69 m3 per metre of wall, and ordinary plans run
+      0.25 to 0.8 m of wall per m2 of floor, which is 0.17 to 0.55 m3/m2.
+    uncertainty: >-
+      WIDE ON PURPOSE, and the concrete band widest of all, for a reason the
+      calibration run demonstrated on the day it was written: the same house
+      measured 0.020 and then 0.046 m3/m2 within the hour, because how much RC a
+      masonry house carries here is a property of which designers the pipeline
+      has yet (IMPLEMENTATION_STATUS 6.9), not of the design. The masonry path
+      still places no RC slab panel, and that is the next number to move. A band
+      tight enough to be interesting on today's figure would have fired on every
+      masonry house the moment a designer landed. Narrow it only against several
+      measured runs that all carry slab and footings both.
+    verify: "measured"
+
+  confined_masonry:
+    label: "confined masonry"
+    steel_kg_m2: [0.60, 6.00]
+    concrete_m3_m2: [0.020, 0.28]
+    masonry_m3_m2: [0.08, 0.80]
+    basis: >-
+      NOT MEASURED. `choose_system` has never delivered this system on a shipped
+      fixture, so there is no run to anchor on. Bracketed between the two rows
+      that were measured: confined masonry is load-bearing masonry plus tie
+      columns and tie beams at every junction and opening jamb, so it carries
+      more RC and slightly less walling than the row above and much less of both
+      than a frame.
+    uncertainty: >-
+      Every number here is an interpolation, not a measurement. Both RC bands
+      are shifted up off the load-bearing row and widened at the top, because
+      the tie columns and tie beams are the only thing known to be different;
+      the walling band is opened at the bottom by the volume those ties displace.
+      Replace it wholesale with the first measured confined run rather than
+      nudging it.
+    verify: "unmeasured"
+
+  mixed:
+    label: "a mixed frame and masonry structure"
+    steel_kg_m2: [0.40, 7.00]
+    concrete_m3_m2: [0.010, 0.25]
+    masonry_m3_m2: null
+    basis: >-
+      NOT MEASURED, and not measurable in general: a mixed structure is some
+      unknown share frame and some unknown share bearing wall, so its densities
+      are anywhere between the two. The band is the union of the rc_frame and
+      load_bearing_masonry rows, which is the only honest statement available.
+    uncertainty: >-
+      A union band is close to no band at all. It still catches a take-off that
+      measured zero steel or ten times the concrete, which is what it is for.
+      Masonry is not checked, because the share of the plate that is bearing
+      wall is exactly the unknown.
+    verify: "unmeasured"

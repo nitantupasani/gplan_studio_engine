@@ -1,0 +1,272 @@
+{
+  "id": "hd-corner-core-2bhk",
+  "name": "Corner core 2BHK",
+  "floors": [
+    {
+      "id": "cc-floor-0",
+      "level": 0,
+      "label": "Ground",
+      "boundary": [
+        [
+          0,
+          0
+        ],
+        [
+          30,
+          0
+        ],
+        [
+          30,
+          40
+        ],
+        [
+          0,
+          40
+        ]
+      ],
+      "segments": [],
+      "plots": [],
+      "regionContent": {},
+      "shapes": [
+        {
+          "id": "cc-stair-0",
+          "points": [
+            [
+              0,
+              30
+            ],
+            [
+              7,
+              30
+            ],
+            [
+              7,
+              40
+            ],
+            [
+              0,
+              40
+            ]
+          ],
+          "core": {
+            "id": "cc-stair",
+            "kind": "stairs"
+          }
+        }
+      ],
+      "boundaryContent": {
+        "generated": {
+          "requestedType": "2BHK",
+          "builtType": "2BHK",
+          "selectedPlanId": "plan-corner-core-2bhk",
+          "genW": 30,
+          "genH": 40,
+          "plans": [
+            {
+              "id": "plan-corner-core-2bhk",
+              "label": "Plan 1",
+              "floorWidth": 30,
+              "floorHeight": 40,
+              "placements": [
+                {
+                  "name": "Living Room",
+                  "x": 0,
+                  "y": 16.999999649999996,
+                  "width": 14,
+                  "height": 13.00000035
+                },
+                {
+                  "name": "Dining",
+                  "x": 0,
+                  "y": 4,
+                  "width": 14,
+                  "height": 12.999999649999996
+                },
+                {
+                  "name": "Kitchen",
+                  "x": 14,
+                  "y": 0,
+                  "width": 16,
+                  "height": 16.124999999999996
+                },
+                {
+                  "name": "Bedroom",
+                  "x": 14,
+                  "y": 16.124999999999996,
+                  "width": 16,
+                  "height": 11.875
+                },
+                {
+                  "name": "Bedroom 2",
+                  "x": 14,
+                  "y": 27.999999999999996,
+                  "width": 16,
+                  "height": 12.000000000000004
+                },
+                {
+                  "name": "Bathroom",
+                  "x": 7,
+                  "y": 29.999999999999996,
+                  "width": 7,
+                  "height": 10.000000000000004
+                },
+                {
+                  "name": "Toilet",
+                  "x": 0,
+                  "y": 0,
+                  "width": 14,
+                  "height": 4
+                },
+                {
+                  "name": "Staircase",
+                  "x": 0,
+                  "y": 29.999999999999996,
+                  "width": 7,
+                  "height": 10.000000000000004
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cc-floor-1",
+      "level": 1,
+      "label": "First",
+      "boundary": [
+        [
+          0,
+          0
+        ],
+        [
+          30,
+          0
+        ],
+        [
+          30,
+          40
+        ],
+        [
+          0,
+          40
+        ]
+      ],
+      "segments": [],
+      "plots": [],
+      "regionContent": {},
+      "shapes": [
+        {
+          "id": "cc-stair-1",
+          "points": [
+            [
+              0,
+              30
+            ],
+            [
+              7,
+              30
+            ],
+            [
+              7,
+              40
+            ],
+            [
+              0,
+              40
+            ]
+          ],
+          "core": {
+            "id": "cc-stair",
+            "kind": "stairs"
+          }
+        }
+      ],
+      "boundaryContent": {
+        "generated": {
+          "requestedType": "2BHK",
+          "builtType": "2BHK",
+          "selectedPlanId": "plan-corner-core-2bhk",
+          "genW": 30,
+          "genH": 40,
+          "plans": [
+            {
+              "id": "plan-corner-core-2bhk",
+              "label": "Plan 1",
+              "floorWidth": 30,
+              "floorHeight": 40,
+              "placements": [
+                {
+                  "name": "Living Room",
+                  "x": 0,
+                  "y": 16.999999649999996,
+                  "width": 14,
+                  "height": 13.00000035
+                },
+                {
+                  "name": "Dining",
+                  "x": 0,
+                  "y": 4,
+                  "width": 14,
+                  "height": 12.999999649999996
+                },
+                {
+                  "name": "Kitchen",
+                  "x": 14,
+                  "y": 0,
+                  "width": 16,
+                  "height": 16.124999999999996
+                },
+                {
+                  "name": "Bedroom",
+                  "x": 14,
+                  "y": 16.124999999999996,
+                  "width": 16,
+                  "height": 11.875
+                },
+                {
+                  "name": "Bedroom 2",
+                  "x": 14,
+                  "y": 27.999999999999996,
+                  "width": 16,
+                  "height": 12.000000000000004
+                },
+                {
+                  "name": "Bathroom",
+                  "x": 7,
+                  "y": 29.999999999999996,
+                  "width": 7,
+                  "height": 10.000000000000004
+                },
+                {
+                  "name": "Toilet",
+                  "x": 0,
+                  "y": 0,
+                  "width": 14,
+                  "height": 4
+                },
+                {
+                  "name": "Staircase",
+                  "x": 0,
+                  "y": 29.999999999999996,
+                  "width": 7,
+                  "height": 10.000000000000004
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "wallDisplay": {
+    "showInteriorWalls": true,
+    "interiorWallFt": 0.3333333333333333
+  },
+  "roof": "flat",
+  "entry": [
+    15,
+    40
+  ],
+  "createdAt": "2026-09-02T00:00:00Z"
+}

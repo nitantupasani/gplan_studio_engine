@@ -353,6 +353,20 @@ No test pins REL or dual output. `test_max_dimensions.py` exercises the path end
 
 ### 3.6 Change corridor or circulation behaviour
 
+**Current existing-plan service (2026-09-11):** start with
+[`circulation/IMPLEMENTATION.md`](circulation/IMPLEMENTATION.md),
+[`circulation/RESEARCH.md`](circulation/RESEARCH.md) and
+[`circulation/CAPABILITIES.md`](circulation/CAPABILITIES.md). Its canonical entry
+point is [`GPLAN.circulation_engine`](../../GPLAN/circulation_engine/__init__.py).
+It retains rectangular boundary shifting, coordinates collinear contacts,
+allocates actual room area under hard constraints, derives explicit wall-free
+gap polygons, and validates connected finite-width access. Its `spanning`,
+`compact`, and precisely scoped `shortest` registry is independent of legacy
+GUI flags. Run `python -m unittest discover -s GPLAN/circulation_engine/tests -v`.
+The historical discussion below describes the retained GUI implementation;
+it is not the owner of the new existing-plan API. The south/top movement typo
+in that legacy implementation was fixed from the paper comparison on 2026-09-11.
+
 Owning dossiers: [circulation graph half](graph/circulation-root-graph.md) (SOUND), [circulation geometry half](graph/circulation-root-geometry.md) (MINOR_ERRORS).
 
 The live implementation is the root [circulation.py](../../GPLAN/circulation.py), imported as `cir` at [handlers.py](../../GPLAN/handlers.py):31. `source/circulation/circulation.py` and `source/multiple_circ.py` have no importer anywhere in the tree, so edits there change nothing ([section 7](#7-dead-code-and-duplications)).
@@ -382,7 +396,7 @@ The live implementation is the root [circulation.py](../../GPLAN/circulation.py)
 
 **Tests to run**
 
-No test pins circulation. None of the three scripts sets `circulationEnabled` ([section 8](#8-verifying-a-change-tests-and-what-they-actually-pin)), and the path is reachable only from the Tk GUI entry point `GPLAN/main.py:40`.
+The legacy scripts still do not set `circulationEnabled` ([section 8](#8-verifying-a-change-tests-and-what-they-actually-pin)); the new independent headless package has production and adversarial suites under `GPLAN/circulation_engine/tests`. Research experiments also execute extracted legacy spanning/pruning methods against both verified team commits and local code; see the implementation and research links above.
 
 ### 3.7 Change the one-connected path or the stacked multiple-door composition
 
@@ -917,9 +931,9 @@ Six of the recipes in sections 3 and 4 have no test at all, and for those the br
 
 1. Start it from the **engine repo root**, `C:\Users\nitant\Documents\GPLAN_Revamp\GPLAN`, the same directory the three test scripts run from: `python local_engine_bridge.py`. The server binds `127.0.0.1:8027` (`local_engine_bridge.py:190`).
 2. Routes are `POST /api/generate/multi-ptpg` (`local_engine_bridge.py:132`), `POST /api/generate/<shape>` (`local_engine_bridge.py:159`) and `GET /api/task/<task_id>/` (`local_engine_bridge.py:180`).
-3. **A POST does not return the plan.** Both generate routes run the engine synchronously, store the result in an in-memory dict, and then return HTTP **202** with `{"task_id": ..., "status": "started"}` (`local_engine_bridge.py:156` and `local_engine_bridge.py:177`). Read the `task_id` out of that body.
-4. Fetch the result with `GET /api/task/<task_id>/`. An unknown id returns `{"status": "PENDING"}` (`local_engine_bridge.py:185-186`); a finished one returns either `{"status": "SUCCESS", "message": ..., "response": <floorplans.to_dict()>}` (`local_engine_bridge.py:168-169`) or `{"status": "FAILURE", "error": {"message": ...}}` (`local_engine_bridge.py:174`). Because the work happens before the 202, the result is already there on the first poll.
-5. The bridge also prints a one-line summary per request, including the floorplan count and the engine message (`local_engine_bridge.py:170-171` for the shape route), and dumps a traceback to the console on failure (`local_engine_bridge.py:173`). Read the console, not just the JSON: engine warnings arrive in `message`, and an `AttributeError` from `handlers.py:941` on `ushape`, `tshape` or `zshape` shows up as a `FAILURE` result, not as a bad plan.
+3. **A POST does not return the plan.** `POST /api/generate/<shape>` records `PENDING`, queues `Documents.get_floorplans` on a single background worker, and immediately returns HTTP **202** with `{"task_id": ..., "status": "started"}`. The one-worker limit is intentional because the legacy engine temporarily changes process-global print behavior. The older multi-PTPG bridge route still completes its engine call before returning its task id.
+4. Fetch floorplan state with `GET /api/task/<task_id>/`. A queued task returns `PENDING`. During a callback snapshot it returns `{"task_id": ..., "status": "PROGRESS", "result": {"partial": true, "complete": false, "provisional": true, "progress": {"sequence": ..., "ready": ..., "requested": ...}, "message": ..., "response": ...}}`. A finished task retains the previous `{"status": "SUCCESS", "message": ..., "response": <floorplans.to_dict()>}` shape, or `{"status": "FAILURE", "error": {"message": ...}}`. A progress payload replaces the previous provisional snapshot; it is not an append-only list, because later candidate ranking may reorder or evict previews. Polling is used throughout; no websocket is involved.
+5. The bridge also prints a one-line summary per completed request, including the floorplan count and engine message, and dumps a traceback to the console on failure. Read the console, not just the JSON: engine warnings arrive in `message`, and an `AttributeError` from `handlers.py:941` on `ushape`, `tshape` or `zshape` shows up as a `FAILURE` result, not as a bad plan.
 6. The bridge builds the engine call arguments itself in `_prepare` (`local_engine_bridge.py:55`, called at `local_engine_bridge.py:163`), so the request body it accepts is not identical to the Django one. Read `_prepare` before assuming a field is honoured; the flag columns in [section 2](#2-endpoint-to-algorithm-map) list the bridge-side line for each flag.
 
 ---

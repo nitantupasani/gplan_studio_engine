@@ -1,0 +1,295 @@
+# IS 1905:1987 tables for unreinforced masonry.
+#
+# Every grid below is a transcription of the printed standard.
+#
+# Read back against the print on 2026-08-30 (task J4) using the
+# Public.Resource.Org BIS scan, law.resource.org/pub/in/bis/S03/is.1905.1987.pdf,
+# which carries Amendment No. 1 (August 2010). Table 8 was substantially wrong
+# and has been corrected; Table 10 lost an invented breakpoint. Blocks that
+# still carry verify: "print" have either not been settled or carry a recorded
+# gap, and every one of them says why in a comment directly above it.
+#
+# Units: stresses MPa (N/mm2), areas m2, lengths m. The loader hands these
+# straight to codes/is1905.py, which does the interpolation.
+
+source: "IS 1905:1987, Code of Practice for Structural Use of Unreinforced Masonry, Tables 1, 4, 5, 6, 7, 8, 9, 10 and Cl 4.3, 4.4, 4.5, 4.6, 5.4"
+edition: "1987, third revision, incorporating Amendment No. 1 (August 2010)"
+verify: "print"
+
+mortar_grades:
+  source: "IS 1905:1987 Table 1 (Clause 3.2.1), mix proportion and strength of mortars for masonry"
+  edition: "1987, third revision"
+  # The seven grade minima below (10 / 6 / 3 / 2 / 1.5 / 0.7 / 0.5 N/mm2 at 28
+  # days) agree with the strength column of the printed Table 1, but that table
+  # is a multi row per grade layout and the scan of the mix proportion columns
+  # is too degraded to read cell by cell, so the mix strings stay unconfirmed
+  # and the block stays flagged. Nothing in the engine computes with the mix
+  # strings; they are reported text.
+  verify: "print"
+  order: [H1, H2, M1, M2, M3, L1, L2]
+  values:
+    H1:
+      family: cement
+      min_strength_mpa: 10.0
+      mix: "cement-lime-sand 1:0.25:3, or cement-sand 1:3"
+    H2:
+      family: cement
+      min_strength_mpa: 6.0
+      mix: "cement-lime-sand 1:0.5:4.5, or cement-sand 1:4"
+    M1:
+      family: cement
+      min_strength_mpa: 3.0
+      mix: "cement-lime-sand 1:1:6, or cement-sand 1:5"
+    M2:
+      family: cement
+      min_strength_mpa: 2.0
+      mix: "cement-lime-sand 1:2:9, or cement-sand 1:6"
+    M3:
+      family: cement
+      min_strength_mpa: 1.5
+      mix: "cement-lime-sand 1:3:12, or cement-sand 1:7"
+    L1:
+      family: lime
+      min_strength_mpa: 0.7
+      mix: "lime-sand 1:3, eminently hydraulic lime"
+    L2:
+      family: lime
+      min_strength_mpa: 0.5
+      mix: "lime-sand 1:3, semi-hydraulic lime"
+
+table_4_effective_height:
+  source: "IS 1905:1987 Table 4 (Clause 4.3.1), effective height of walls"
+  edition: "1987, third revision"
+  # Read against the print 2026-08-30. The printed table has exactly FOUR rows
+  # and they are the first four below: 0.75 H full at top and bottom, 0.85 H
+  # full at one end and lateral at the other, 1.00 H lateral at both ends,
+  # 1.50 H full at the bottom and free at the top. The fifth entry,
+  # free+lateral: 2.00, is NOT a row of Table 4; it is an engine extension by
+  # analogy with the 2.0 L free end of Table 5 and with Cl 4.3.2's 2H for a
+  # column unsupported in one direction. It stays flagged because of that.
+  verify: "print"
+  # Key is the sorted restraint pair joined by '+'. Restraint vocabulary:
+  #   full    = lateral as well as rotational restraint (RC slab bearing on the wall)
+  #   lateral = lateral restraint only, no rotational restraint
+  #   free    = no restraint at all (top of a parapet or free-standing wall)
+  # A wall free at the bottom is not a case in the table; the callable refuses it.
+  units: "multiplier on the clear storey height H"
+  values:
+    full+full: 0.75
+    full+lateral: 0.85
+    lateral+lateral: 1.00
+    free+full: 1.50
+    free+lateral: 2.00
+
+table_5_effective_length:
+  source: "IS 1905:1987 Table 5 (Clause 4.4), effective length of walls"
+  edition: "1987, third revision"
+  # All five printed rows verified 2026-08-30: 0.8 L continuous at both ends,
+  # 0.9 L cross wall at one end and continuous at the other, 1.0 L supported by
+  # a cross wall at each end, 1.5 L free at one end and continuous at the
+  # other, 2.0 L free at one end and cross wall supported at the other. The
+  # printed note "in case there is an opening taller than 0.5 H, wall ends at
+  # the opening shall be considered as free" is the caller's business.
+  verify: "verified 2026-08-30 against IS 1905:1987 Table 5"
+  # Key is the sorted end-condition pair joined by '+'. End vocabulary:
+  #   continuous = the wall runs on past the support
+  #   cross_wall = supported by a cross wall, wall stops there
+  #   free       = no support at that end
+  # free+free carries no length restraint and is absent on purpose: the callable
+  # refuses it so the caller falls back on the height term alone.
+  units: "multiplier on the wall length L between supports"
+  values:
+    continuous+continuous: 0.80
+    continuous+cross_wall: 0.90
+    cross_wall+cross_wall: 1.00
+    continuous+free: 1.50
+    cross_wall+free: 2.00
+
+table_6_effective_thickness:
+  source: "IS 1905:1987 Table 6 (Clauses 4.5.2 and 4.5.3), stiffening coefficient for walls stiffened by piers, buttresses or cross walls"
+  edition: "1987, third revision"
+  # All fifteen cells verified 2026-08-30. Printed note: linear interpolation
+  # between the tabulated values is permissible but extrapolation outside the
+  # limits is not, which is why the grid is clamped rather than extended.
+  verify: "verified 2026-08-30 against IS 1905:1987 Table 6"
+  # rows follow thickness_ratio (pier thickness Tp over wall thickness t),
+  # columns follow spacing_over_width (pier spacing Sp over pier width Wp).
+  # Bilinear interpolation inside the grid, clamped at both ends.
+  spacing_over_width: [6, 8, 10, 15, 20]
+  thickness_ratio: [1, 2, 3]
+  values:
+    - [1.0, 1.0, 1.0, 1.0, 1.0]
+    - [1.4, 1.3, 1.2, 1.1, 1.0]
+    - [2.0, 1.7, 1.4, 1.2, 1.0]
+  cavity_rule: "effective thickness is the greater of 2/3 (t1 + t2) and the thicker leaf alone; each leaf is also checked on its own"
+
+table_7_max_slenderness:
+  source: "IS 1905:1987 Table 7 (Clause 4.6.1), maximum slenderness ratio for a load bearing wall"
+  edition: "1987, third revision"
+  # DISCREPANCY recorded 2026-08-30, value deliberately left alone. The printed
+  # Table 7 has TWO storey rows, not one:
+  #   No. of storeys      Portland or PPC mortar      Lime mortar
+  #   Not exceeding 2     27                          20
+  #   Exceeding 2         27                          13
+  # The cement cap of 27 is right for both rows. The lime cap of 20 is right
+  # only up to two storeys; above two storeys the print says 13, and this file
+  # cannot express that because the callable reads a flat {cement, lime} map.
+  # Encoding it needs a storey axis in codes/is1905.py as well as here, so the
+  # block stays flagged. The gap is UNCONSERVATIVE for a lime mortar wall in a
+  # three storey stack, which is also the only case it can reach.
+  verify: "print"
+  mortar_family:
+    cement: [H1, H2, M1, M2, M3]
+    lime: [L1, L2]
+  values:
+    cement: 27
+    lime: 20
+  storey_note: "the storey count is carried into the trace but does not change the cap here. The printed Table 7 does reduce the LIME cap from 20 to 13 above two storeys; that row is not encoded, see the comment above this block."
+
+table_8_basic_compressive_stress:
+  source: "IS 1905:1987 Table 8 (Clause 5.4.1), basic compressive stresses for masonry after 28 days, with Amendment No. 1 (August 2010)"
+  edition: "1987, third revision, incorporating Amendment No. 1 (August 2010)"
+  # CORRECTED 2026-08-30 against the print. Only the H1 row and the first ten
+  # columns of H2 were right. From column 3 (7.5 N/mm2) onward every other row
+  # carried the values of the row BELOW it: what was filed as M1 was mostly the
+  # printed M2, M2 was mostly M3, M3 was mostly L1, and so on. The correction is
+  # a straight transcription of the printed table, so most values rose. It is
+  # therefore LESS conservative than what was here before and a licensed
+  # engineer must re-check any masonry wall designed against the old numbers.
+  #
+  # Amendment No. 1 (August 2010) substitutes 0.35 for the printed 8.35 in
+  # Sl No. 1 to 3, column 3, which is the H1, H2 and M1 values at a 3.5 N/mm2
+  # unit. The amended value is what is carried below.
+  #
+  # ONE CELL IS NOT THE PRINT, and it is the L1 row at a 40 N/mm2 unit. The
+  # printed table reads 1.06 there, BELOW the 1.40 of the 35 N/mm2 column
+  # beside it, while every other row of the table rises monotonically. It reads
+  # as a typographical error in the standard itself, and codes/is1905.py
+  # refuses to load a row that falls as the unit gets stronger, so the printed
+  # 1.06 cannot be carried here. The row is held flat at 1.40 instead, which is
+  # the most conservative reading the module will accept: 1.06 would be lower
+  # still but is rejected, and anything above 1.40 would be a guess. L1 is a
+  # lime mortar the engine does not select by default. A person with the print
+  # should settle this cell.
+  verify: "verified 2026-08-30 against IS 1905:1987 Table 8 plus Amendment No. 1, 83 of 84 cells; the L1 cell at 40 N/mm2 is held flat, see the note above"
+  units: "MPa (N/mm2)"
+  # Columns follow unit_strength_mpa. Linear interpolation on unit strength is
+  # permitted by printed Note 3 under Table 8; mortar grade is categorical.
+  unit_strength_mpa: [3.5, 5.0, 7.5, 10.0, 12.5, 15.0, 17.5, 20.0, 25.0, 30.0, 35.0, 40.0]
+  mortar_order: [H1, H2, M1, M2, M3, L1, L2]
+  values:
+    H1: [0.35, 0.50, 0.75, 1.00, 1.16, 1.31, 1.45, 1.59, 1.91, 2.21, 2.50, 3.05]
+    H2: [0.35, 0.50, 0.74, 0.96, 1.09, 1.19, 1.30, 1.41, 1.62, 1.85, 2.10, 2.50]
+    M1: [0.35, 0.50, 0.74, 0.96, 1.06, 1.13, 1.20, 1.27, 1.47, 1.69, 1.90, 2.20]
+    M2: [0.35, 0.44, 0.59, 0.81, 0.94, 1.03, 1.10, 1.17, 1.34, 1.51, 1.65, 1.90]
+    M3: [0.25, 0.41, 0.56, 0.75, 0.87, 0.95, 1.02, 1.10, 1.25, 1.41, 1.55, 1.78]
+    L1: [0.25, 0.36, 0.53, 0.67, 0.76, 0.83, 0.90, 0.97, 1.11, 1.26, 1.40, 1.40]
+    L2: [0.25, 0.31, 0.42, 0.53, 0.58, 0.61, 0.65, 0.69, 0.73, 0.78, 0.85, 0.95]
+
+table_9_stress_reduction_factor:
+  source: "IS 1905:1987 Table 9 (Clause 5.4.1.1), stress reduction factor for slenderness ratio and eccentricity"
+  edition: "1987, third revision"
+  # Read against the print 2026-08-30: 71 of the 72 cells match exactly,
+  # including the blank cells at the bottom right. ONE cell disagrees and is
+  # deliberately left as it is: slenderness 14 at e/t = 1/3 reads 0.66 in the
+  # printed table, the same as the 1/4 column beside it, where this file
+  # carries 0.62. Every other row of the table falls from left to right, so
+  # the printed 0.66 reads as a duplicated cell rather than a value; 0.62
+  # continues the pattern and is the lower (safer) of the two. The block stays
+  # flagged so that a person holding the print settles it.
+  verify: "print"
+  # Rows follow slenderness_ratio, columns follow e_over_t_denominator, where a
+  # denominator d means the column e/t = 1/d and d = 0 means e/t = 0. The
+  # denominators are carried instead of decimals so 1/3 is exact on both sides
+  # of the comparison.
+  slenderness_ratio: [6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 27]
+  e_over_t_denominator: [0, 24, 12, 6, 4, 3]
+  # null marks a cell the printed table leaves blank: that slenderness and
+  # eccentricity together are not a permitted combination. The callable returns
+  # ks = None with a reason rather than inventing a number for those cells.
+  values:
+    - [1.00, 1.00, 1.00, 1.00, 1.00, 1.00]
+    - [0.95, 0.95, 0.94, 0.93, 0.92, 0.91]
+    - [0.89, 0.88, 0.87, 0.85, 0.83, 0.81]
+    - [0.84, 0.83, 0.81, 0.78, 0.75, 0.72]
+    - [0.78, 0.76, 0.74, 0.70, 0.66, 0.62]
+    - [0.73, 0.71, 0.68, 0.63, 0.58, 0.53]
+    - [0.67, 0.64, 0.61, 0.55, 0.49, 0.43]
+    - [0.62, 0.59, 0.55, 0.48, 0.41, 0.34]
+    - [0.56, 0.52, 0.48, 0.40, 0.32, 0.24]
+    - [0.51, 0.47, 0.42, 0.33, 0.24, null]
+    - [0.45, 0.40, 0.35, 0.25, null, null]
+    - [0.43, 0.38, 0.33, 0.22, null, null]
+
+table_10_shape_modification_factor:
+  source: "IS 1905:1987 Table 10 (Clause 5.4.1.3), shape modification factor kp for masonry units"
+  edition: "1987, third revision"
+  # CORRECTED 2026-08-30 against the print. The printed table is a grid, rows
+  # on the height to width ratio as laid, columns on the unit crushing
+  # strength:
+  #   h/w          5.0    7.5    10.0   15.0   N/mm2
+  #   up to 0.75   1.0    1.0    1.0    1.0
+  #   1.0          1.2    1.1    1.1    1.0
+  #   1.5          1.5    1.3    1.2    1.1
+  #   2.0 to 4.0   1.8    1.5    1.3    1.2
+  # This file keeps only the 5.0 N/mm2 column, which is the HIGHEST kp of the
+  # four and therefore the least conservative, so the missing strength axis is
+  # a real gap and the block stays flagged. What was corrected is the last
+  # breakpoint: it carried h/w 3.0 -> 2.0, a value that is in no column of the
+  # printed table; the printed band runs from 2.0 to 4.0 at a flat 1.8.
+  verify: "print"
+  # Linear interpolation on the height to width ratio of the unit, clamped at
+  # both ends. A unit with a ratio of 0.75 or less is the Table 8 reference
+  # unit, so kp = 1.0, which is the default for standard modular bricks.
+  height_over_width: [0.75, 1.0, 1.5, 2.0, 4.0]
+  values: [1.0, 1.2, 1.5, 1.8, 1.8]
+  strength_axis: "not encoded: this file keeps only the 5.0 N/mm2 column of the printed Table 10, and Cl 5.4.1.3 applies the factor to units up to 15 N/mm2 where the printed kp is materially lower (1.0 / 1.1 / 1.2 against 1.2 / 1.5 / 1.8). The unit strength is carried into the trace only. Adding the axis needs a change in codes/is1905.py as well as here."
+
+cl_5_4_1_2_area_reduction:
+  source: "IS 1905:1987 Cl 5.4.1.2, area reduction factor for small loaded areas"
+  edition: "1987, third revision"
+  # Printed: "applicable when sectional area of the element is less than 0.2 m2.
+  # The factor ka = 0.7 + 1.5 A, A being the area of section in m2."
+  verify: "verified 2026-08-30 against IS 1905:1987 Cl 5.4.1.2"
+  threshold_m2: 0.2
+  intercept: 0.7
+  slope_per_m2: 1.5
+
+# CLAUSE NUMBERS ARE SWAPPED IN THE TWO KEY NAMES BELOW, found 2026-08-30.
+# In IS 1905:1987, Cl 5.4.2 is Permissible Tensile Stress and Cl 5.4.3 is
+# Permissible Shear Stress. The key names say the opposite. The `source:`
+# strings and the matching @clause refs in codes/is1905.py carry the real
+# clause numbers. The KEYS are left alone because codes/is1905.py reads them
+# by name, so renaming them is a code change and not a data change.
+cl_5_4_2_shear:
+  source: "IS 1905:1987 Cl 5.4.3, permissible shear stress in masonry (the key name carries the wrong clause number, see the comment above)"
+  edition: "1987, third revision"
+  # Printed: "in case of walls built in mortar not leaner than Grade M1 and
+  # resisting horizontal forces in the plane of the wall, permissible shear
+  # stress, calculated on the area of the bed joint, shall not exceed the value
+  # obtained by fs = 0.1 + fd/6, subject to a maximum of 0.5 N/mm2". The M1 or
+  # better mortar gate on the clause is not encoded here.
+  verify: "verified 2026-08-30 against IS 1905:1987 Cl 5.4.3"
+  intercept_mpa: 0.1
+  fd_divisor: 6.0
+  cap_mpa: 0.5
+
+cl_5_4_3_tension:
+  source: "IS 1905:1987 Cl 5.4.2, permissible tensile stress in masonry (the key name carries the wrong clause number, see the comment above cl_5_4_2_shear)"
+  edition: "1987, third revision"
+  # Printed: masonry is assumed not capable of taking any tension as a general
+  # rule; for lateral loads normal to the plane of the wall, "Grade M1 or better
+  # mortar" may take 0.07 N/mm2 normal to the bed joints and 0.14 N/mm2 parallel
+  # to them, the latter provided the unit crushing strength is not less than
+  # 10 N/mm2. The clause also gives a Grade M2 row, 0.05 and 0.10, which is not
+  # encoded; permitted_mortars stops at M1, so an M2 wall gets no tension at
+  # all, which is the conservative reading. The 10 N/mm2 proviso on the 0.14
+  # value is likewise not enforced here.
+  verify: "verified 2026-08-30 against IS 1905:1987 Cl 5.4.2, the M1 or better row"
+  default_policy: no_tension
+  policies: [no_tension, allow_flexural_tension]
+  flexural_values_mpa:
+    normal_to_bed: 0.07
+    parallel_to_bed: 0.14
+  permitted_mortars: [H1, H2, M1]
+  policy_note: "no_tension is the engine default: any net tension is a failure with a prescription. allow_flexural_tension is for laterally loaded panels only, never for a primary gravity wall, and is disclosed when it is used."
